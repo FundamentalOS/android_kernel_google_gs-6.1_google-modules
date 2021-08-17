@@ -43,6 +43,19 @@
 
 #define NVT_DEBUG 1
 
+/*
+ * TODO:
+ * 1. b/193467478: WHI panel bridge porting for suspend/resume.
+ *
+ */
+#ifdef CONFIG_SOC_GOOGLE
+#undef NVT_SUSPEND_RESUME
+#undef CONFIG_FB
+#undef CONFIG_HAS_EARLYSUSPEND
+#undef CONFIG_ARCH_QCOM
+#undef CONFIG_ARCH_MSM
+#endif
+
 //---GPIO number---
 #define NVTTOUCH_RST_PIN 980
 #define NVTTOUCH_INT_PIN 943

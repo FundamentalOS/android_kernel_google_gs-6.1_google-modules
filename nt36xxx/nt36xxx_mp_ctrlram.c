@@ -1238,7 +1238,9 @@ Description:
 return:
 	Executive outcomes. 0---passed. negative---failed.
 *******************************************************/
-static int32_t RawDataTest_SinglePoint_Sub(int32_t rawdata[], uint8_t RecordResult[], uint8_t x_ch, uint8_t y_ch, int32_t Rawdata_Limit_Postive[], int32_t Rawdata_Limit_Negative[])
+static int32_t RawDataTest_SinglePoint_Sub(
+	int32_t rawdata[], uint8_t RecordResult[], uint8_t x_ch, uint8_t y_ch,
+	int32_t Rawdata_Limit_Positive[], int32_t Rawdata_Limit_Negative[])
 {
 	int32_t i = 0;
 	int32_t j = 0;
@@ -1254,7 +1256,7 @@ static int32_t RawDataTest_SinglePoint_Sub(int32_t rawdata[], uint8_t RecordResu
 
 			RecordResult[iArrayIndex] = 0x00; // default value for PASS
 
-			if (rawdata[iArrayIndex] > Rawdata_Limit_Postive[iArrayIndex])
+			if (rawdata[iArrayIndex] > Rawdata_Limit_Positive[iArrayIndex])
 				RecordResult[iArrayIndex] |= 0x01;
 
 			if (rawdata[iArrayIndex] < Rawdata_Limit_Negative[iArrayIndex])
@@ -1267,7 +1269,7 @@ static int32_t RawDataTest_SinglePoint_Sub(int32_t rawdata[], uint8_t RecordResu
 
 		RecordResult[iArrayIndex] = 0x00; // default value for PASS
 
-		if (rawdata[iArrayIndex] > Rawdata_Limit_Postive[iArrayIndex])
+		if (rawdata[iArrayIndex] > Rawdata_Limit_Positive[iArrayIndex])
 			RecordResult[iArrayIndex] |= 0x01;
 
 		if (rawdata[iArrayIndex] < Rawdata_Limit_Negative[iArrayIndex])
@@ -1610,7 +1612,8 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		 * Ex. nvt_pid = 500A
 		 *     mpcriteria = "novatek-mp-criteria-500A"
 		 */
-		snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-%04X", ts->nvt_pid);
+		scnprintf(mpcriteria, sizeof(mpcriteria),
+			  "novatek-mp-criteria-%04X", ts->nvt_pid);
 
 		if (nvt_mp_parse_dt(np, mpcriteria)) {
 			//---Download Normal FW---

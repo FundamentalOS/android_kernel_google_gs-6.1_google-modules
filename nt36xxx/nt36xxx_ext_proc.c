@@ -241,7 +241,7 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 		//printk("addr=0x%05X\n", (xdata_addr+data_len-residual_len));
 	}
 
-	//---remove dummy data and 2bytes-to-1data---
+	//---remove unused data and 2bytes-to-1data---
 	for (i = 0; i < (data_len / 2); i++) {
 		xdata[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 * xdata_tmp[dummy_len + i * 2 + 1]);
 	}
@@ -345,7 +345,7 @@ void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer, uint32_t num)
 		//printk("addr=0x%05X\n", (xdata_addr+data_len-residual_len));
 	}
 
-	//---remove dummy data and 2bytes-to-1data---
+	//---remove unused data and 2bytes-to-1data---
 	for (i = 0; i < (data_len / 2); i++) {
 		buffer[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 * xdata_tmp[dummy_len + i * 2 + 1]);
 	}

@@ -1423,10 +1423,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		}
 	}
 
+#ifdef ABS_MT_CUSTOM
 	if ((point_data[position] & 0x07) == PALM_TOUCH)
 		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, PALM_TOUCH);
 	else
 		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
+#endif
 
 #if MT_PROTOCOL_B
 	for (i = 0; i < ts->max_touch_num; i++) {
@@ -1441,7 +1443,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	input_report_key(ts->input_dev, BTN_TOUCH, (finger_cnt > 0));
 #else /* MT_PROTOCOL_B */
 	if (finger_cnt == 0) {
+#ifdef ABS_MT_CUSTOM
 		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
+#endif
 		input_report_key(ts->input_dev, BTN_TOUCH, 0);
 		input_mt_sync(ts->input_dev);
 	}
@@ -1788,7 +1792,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #endif
 
 	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE, 0, TOUCH_FORCE_NUM, 0, 0);    //pressure = TOUCH_FORCE_NUM
+#ifdef ABS_MT_CUSTOM
 	input_set_abs_params(ts->input_dev, ABS_MT_CUSTOM, 0, 0x8, 0, 0);
+#endif
 
 #if TOUCH_MAX_FINGER_NUM > 1
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);    //area = 255
@@ -2246,6 +2252,7 @@ static void nvt_ts_shutdown(struct spi_device *client)
 #endif
 }
 
+#ifdef NVT_SUSPEND_RESUME
 /*******************************************************
 Description:
 	Novatek touchscreen driver suspend function.
@@ -2383,7 +2390,7 @@ static int32_t nvt_ts_resume(struct device *dev)
 
 	return 0;
 }
-
+#endif
 
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
