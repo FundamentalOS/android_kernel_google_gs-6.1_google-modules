@@ -20,10 +20,10 @@
 #if NVT_TOUCH_MP
 
 static uint32_t IC_X_CFG_SIZE = 32;
-static uint32_t IC_Y_CFG_SIZE = 48;
+static uint32_t IC_Y_CFG_SIZE = 50;
 static uint32_t IC_KEY_CFG_SIZE = 4;
 static uint32_t X_Channel = 32;
-static uint32_t Y_Channel = 48;
+static uint32_t Y_Channel = 50;
 static uint32_t Key_Channel = TOUCH_KEY_NUM;
 static uint8_t AIN_X[50] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31};
 static uint8_t AIN_Y[50] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
