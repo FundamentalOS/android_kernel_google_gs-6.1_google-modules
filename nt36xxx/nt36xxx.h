@@ -46,6 +46,7 @@
 /*
  * TODO:
  * 1. b/193467478: WHI panel bridge porting for suspend/resume.
+ * 2. add pinctrl on/off for touch bus handshaking.
  *
  */
 #ifdef CONFIG_SOC_GOOGLE
@@ -179,8 +180,9 @@ struct nvt_ts_data {
 	struct mt_chip_conf spi_ctrl;
 #endif
 #ifdef CONFIG_SPI_MT65XX
-    struct mtk_chip_config spi_ctrl;
+	struct mtk_chip_config spi_ctrl;
 #endif
+	struct pinctrl *pinctrl;
 };
 
 #if NVT_TOUCH_PROC

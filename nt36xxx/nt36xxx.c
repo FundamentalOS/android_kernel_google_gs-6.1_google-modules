@@ -147,6 +147,37 @@ static uint8_t bTouchIsAwake;
 
 /*******************************************************
 Description:
+	Novatek touchscreen pinctrl enable/disable function.
+*******************************************************/
+static int nvt_pinctrl_configure(struct nvt_ts_data *ts, bool enable)
+{
+	struct pinctrl_state *state;
+
+	if (IS_ERR_OR_NULL(ts->pinctrl)) {
+		NVT_ERR("Invalid pinctrl!\n");
+		return -EINVAL;
+	}
+
+	NVT_LOG("%s\n", enable ? "ACTIVE" : "SUSPEND");
+
+	if (enable) {
+		state = pinctrl_lookup_state(ts->pinctrl, "ts_active");
+		if (IS_ERR(state))
+			NVT_ERR("Could not get ts_active pinstate!\n");
+	} else {
+		state = pinctrl_lookup_state(ts->pinctrl, "ts_suspend");
+		if (IS_ERR(state))
+			NVT_ERR("Could not get ts_suspend pinstate!\n");
+	}
+
+	if (!IS_ERR_OR_NULL(state))
+		return pinctrl_select_state(ts->pinctrl, state);
+
+	return 0;
+}
+
+/*******************************************************
+Description:
 	Novatek touchscreen irq enable/disable function.
 
 return:
@@ -1693,6 +1724,13 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	ts->client = client;
 	spi_set_drvdata(client, ts);
+
+	ts->pinctrl = devm_pinctrl_get(&client->dev);
+	if (IS_ERR_OR_NULL(ts->pinctrl)) {
+		NVT_ERR("Could not get pinctrl!\n");
+	} else {
+		nvt_pinctrl_configure(ts, true);
+	}
 
 	//---prepare for spi parameter---
 	if (ts->client->master->flags & SPI_MASTER_HALF_DUPLEX) {
