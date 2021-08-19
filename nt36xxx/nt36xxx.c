@@ -44,6 +44,12 @@
 #include <linux/jiffies.h>
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
+#if defined(NVT_TS_PANEL_BRIDGE)
+#include <samsung/exynos_drm_connector.h>
+static void nvt_ts_suspend_work(struct work_struct *work);
+static void nvt_ts_resume_work(struct work_struct *work);
+#endif
+
 #if NVT_TOUCH_ESD_PROTECT
 static struct delayed_work nvt_esd_check_work;
 static struct workqueue_struct *nvt_esd_check_wq;
@@ -145,8 +151,6 @@ const struct mtk_chip_config spi_ctrdata = {
 	.cs_pol = 0,
 };
 #endif
-
-static uint8_t bTouchIsAwake;
 
 /*******************************************************
 Description:
@@ -1354,9 +1358,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_battery = 0;
 
 #if WAKEUP_GESTURE
-	if (bTouchIsAwake == 0) {
+	if (ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5000);
-	}
 #endif
 
 	mutex_lock(&ts->lock);
@@ -1407,7 +1410,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif /* POINT_DATA_CHECKSUM */
 
 #if WAKEUP_GESTURE
-	if (bTouchIsAwake == 0) {
+	if (ts->bTouchIsAwake == false) {
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
 		mutex_unlock(&ts->lock);
@@ -1808,6 +1811,21 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		goto err_spi_setup;
 	}
 
+#ifdef NVT_TS_PANEL_BRIDGE
+	INIT_WORK(&ts->suspend_work, nvt_ts_suspend_work);
+	INIT_WORK(&ts->resume_work, nvt_ts_resume_work);
+#endif
+	ts->event_wq = alloc_workqueue("nvt_event_wq", WQ_UNBOUND |
+				       WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+	if (!ts->event_wq) {
+		NVT_ERR("Cannot create work thread\n");
+		ret = -ENOMEM;
+		goto error_alloc_workqueue;
+	}
+
+	init_completion(&ts->bus_resumed);
+	complete_all(&ts->bus_resumed);
+
 #ifdef CONFIG_MTK_SPI
 	/* old usage of MTK spi API */
 	memcpy(&ts->spi_ctrl, &spi_ctrdata, sizeof(struct mt_chip_conf));
@@ -2113,12 +2131,15 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	recovery_cnt = 0;
 #endif
 
-	bTouchIsAwake = 1;
+	ts->bTouchIsAwake = true;
+
+	register_panel_bridge(ts);
 	NVT_LOG("end\n");
 
 	nvt_irq_enable(true);
 
 	return 0;
+
 
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
@@ -2193,7 +2214,10 @@ err_chipvertrim_failed:
 	mutex_destroy(&ts->lock);
 	nvt_gpio_deconfig(ts);
 err_gpio_config_failed:
+error_alloc_workqueue:
 err_spi_setup:
+	if (ts->event_wq)
+		destroy_workqueue(ts->event_wq);
 err_ckeck_full_duplex:
 err_check_dt:
 	spi_set_drvdata(client, NULL);
@@ -2369,7 +2393,7 @@ static void nvt_ts_shutdown(struct spi_device *client)
 #endif
 }
 
-#ifdef NVT_SUSPEND_RESUME
+#ifdef NVT_TS_PANEL_BRIDGE
 /*******************************************************
 Description:
 	Novatek touchscreen driver suspend function.
@@ -2384,7 +2408,7 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	uint32_t i = 0;
 #endif
 
-	if (!bTouchIsAwake) {
+	if (!ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
 		return 0;
 	}
@@ -2399,11 +2423,10 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-	mutex_lock(&ts->lock);
-
 	NVT_LOG("start\n");
-
-	bTouchIsAwake = 0;
+	mutex_lock(&ts->lock);
+	reinit_completion(&ts->bus_resumed);
+	ts->bTouchIsAwake = false;
 
 #if WAKEUP_GESTURE
 	//---write command to enter "wakeup gesture mode"---
@@ -2470,7 +2493,7 @@ return:
 *******************************************************/
 static int32_t nvt_ts_resume(struct device *dev)
 {
-	if (bTouchIsAwake) {
+	if (ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already resume\n");
 		return 0;
 	}
@@ -2499,13 +2522,26 @@ static int32_t nvt_ts_resume(struct device *dev)
 			   msecs_to_jiffies(NVT_TOUCH_ESD_CHECK_PERIOD));
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-	bTouchIsAwake = 1;
-
+	ts->bTouchIsAwake = true;
+	complete_all(&ts->bus_resumed);
 	mutex_unlock(&ts->lock);
-
 	NVT_LOG("end\n");
 
 	return 0;
+}
+
+static void nvt_ts_suspend_work(struct work_struct *work)
+{
+	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, suspend_work);
+
+	nvt_ts_suspend(&ts->client->dev);
+}
+
+static void nvt_ts_resume_work(struct work_struct *work)
+{
+	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, resume_work);
+
+	nvt_ts_resume(&ts->client->dev);
 }
 #endif
 

@@ -41,6 +41,13 @@
 #include <linux/platform_data/spi-mt65xx.h>
 #endif
 
+#include <drm/drm_panel.h> /*struct drm_panel */
+#include <drm/drm_bridge.h> /* struct drm_bridge */
+#include <drm/drm_connector.h> /* struct drm_connector */
+#if defined(CONFIG_SOC_GOOGLE)
+#include "nt36xxx_goog.h"
+#endif
+
 #define NVT_DEBUG 1
 
 /*
@@ -50,7 +57,6 @@
  *
  */
 #ifdef CONFIG_SOC_GOOGLE
-#undef NVT_SUSPEND_RESUME
 #undef CONFIG_FB
 #undef CONFIG_HAS_EARLYSUSPEND
 #undef CONFIG_ARCH_QCOM
@@ -182,9 +188,23 @@ struct nvt_ts_data {
 #ifdef CONFIG_SPI_MT65XX
 	struct mtk_chip_config spi_ctrl;
 #endif
+	bool bTouchIsAwake;
+
+	/*
+	 * Used for event handler, suspend and resume work.
+	 */
 	struct pinctrl *pinctrl;
 	struct drm_panel *active_panel;
 	u32 initial_panel_index;
+
+	struct completion bus_resumed;
+	struct drm_bridge panel_bridge;
+	struct drm_connector *connector;
+	bool is_panel_lp_mode;
+	struct work_struct suspend_work;
+	struct work_struct resume_work;
+
+	struct workqueue_struct *event_wq;
 };
 
 #if NVT_TOUCH_PROC
