@@ -26,12 +26,13 @@
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 
-#if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL)
 #include <drm/drm_panel.h>
 #elif defined(CONFIG_DRM_MSM)
 #include <linux/msm_drm_notify.h>
 #endif
+
+#if defined(CONFIG_FB)
 #include <linux/notifier.h>
 #include <linux/fb.h>
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
@@ -70,7 +71,6 @@ extern void Boot_Update_Firmware(struct work_struct *work);
 
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
-static struct drm_panel *active_panel;
 static int nvt_drm_panel_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
 #elif defined(_MSM_DRM_NOTIFY_H_)
 static int nvt_drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
@@ -1643,13 +1643,47 @@ out:
 	return ret;
 }
 
-#if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
-static int nvt_ts_check_dt(struct device_node *np)
+#if IS_ENABLED(CONFIG_DRM_PANEL)
+#if IS_ENABLED(CONFIG_SOC_GOOGLE)
+static int nvt_ts_check_dt(struct nvt_ts_data *ts)
+{
+	int index;
+	int ret = 0;
+	struct of_phandle_args panelmap;
+	struct drm_panel *panel = NULL;
+	struct device *dev = &ts->client->dev;
+	struct device_node *np = dev->of_node;
+
+	if (of_property_read_bool(np, "novatek,panel_map")) {
+		for (index = 0 ;; index++) {
+			ret = of_parse_phandle_with_fixed_args(np,
+				"novatek,panel_map",
+				1,
+				index,
+				&panelmap);
+			if (ret)
+				return -EPROBE_DEFER;
+
+			panel = of_drm_find_panel(panelmap.np);
+			of_node_put(panelmap.np);
+			if (!IS_ERR_OR_NULL(panel)) {
+				ts->active_panel = panel;
+				ts->initial_panel_index = panelmap.args[0];
+				break;
+			}
+		}
+	}
+	return 0;
+}
+#elif defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM)
+static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 {
 	int i;
 	int count;
 	struct device_node *node;
 	struct drm_panel *panel;
+	struct device *dev = &ts->client->dev;
+	struct device_node *np = dev->of_node;
 
 	count = of_count_phandle_with_args(np, "panel", NULL);
 	if (count <= 0)
@@ -1660,13 +1694,14 @@ static int nvt_ts_check_dt(struct device_node *np)
 		panel = of_drm_find_panel(node);
 		of_node_put(node);
 		if (!IS_ERR(panel)) {
-			active_panel = panel;
+			ts->active_panel = panel;
 			return 0;
 		}
 	}
 
 	return PTR_ERR(panel);
 }
+#endif
 #endif
 
 /*******************************************************
@@ -1679,25 +1714,8 @@ return:
 static int32_t nvt_ts_probe(struct spi_device *client)
 {
 	int32_t ret = 0;
-#if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
-	struct device_node *dp = NULL;
-#endif
 #if ((TOUCH_KEY_NUM > 0) || WAKEUP_GESTURE)
 	int32_t retry = 0;
-#endif
-
-#if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
-	dp = client->dev.of_node;
-
-	ret = nvt_ts_check_dt(dp);
-	if (ret == -EPROBE_DEFER) {
-		return ret;
-	}
-
-	if (ret) {
-		ret = -ENODEV;
-		return ret;
-	}
 #endif
 
 	NVT_LOG("start\n");
@@ -1724,6 +1742,20 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	ts->client = client;
 	spi_set_drvdata(client, ts);
+
+#if defined(CONFIG_DRM_PANEL)
+	ret = nvt_ts_check_dt(ts);
+	if (ret == -EPROBE_DEFER) {
+		NVT_LOG("Defer probe because panel is not ready!\n");
+		goto err_check_dt;
+	}
+
+	if (ret) {
+		NVT_ERR("nvt_ts_check_dt: failed(%d)!\n", ret);
+		ret = -EPROBE_DEFER;
+		goto err_check_dt;
+	}
+#endif
 
 	ts->pinctrl = devm_pinctrl_get(&client->dev);
 	if (IS_ERR_OR_NULL(ts->pinctrl)) {
@@ -1999,8 +2031,8 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
 	ts->drm_panel_notif.notifier_call = nvt_drm_panel_notifier_callback;
-	if (active_panel) {
-		ret = drm_panel_notifier_register(active_panel, &ts->drm_panel_notif);
+	if (ts->active_panel) {
+		ret = drm_panel_notifier_register(ts->active_panel, &ts->drm_panel_notif);
 		if (ret < 0) {
 			NVT_ERR("register drm_panel_notifier failed. ret=%d\n", ret);
 			goto err_register_drm_panel_notif_failed;
@@ -2118,6 +2150,7 @@ err_chipvertrim_failed:
 err_gpio_config_failed:
 err_spi_setup:
 err_ckeck_full_duplex:
+err_check_dt:
 	spi_set_drvdata(client, NULL);
 	if (ts->rbuf) {
 		kfree(ts->rbuf);
@@ -2149,8 +2182,8 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
-	if (active_panel) {
-		if (drm_panel_notifier_unregister(active_panel, &ts->drm_panel_notif))
+	if (ts->active_panel) {
+		if (drm_panel_notifier_unregister(ts->active_panel, &ts->drm_panel_notif))
 			NVT_ERR("Error occurred while unregistering drm_panel_notifier.\n");
 	}
 #elif defined(_MSM_DRM_NOTIFY_H_)
@@ -2241,8 +2274,8 @@ static void nvt_ts_shutdown(struct spi_device *client)
 
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
-	if (active_panel) {
-		if (drm_panel_notifier_unregister(active_panel, &ts->drm_panel_notif))
+	if (ts->active_panel) {
+		if (drm_panel_notifier_unregister(ts->active_panel, &ts->drm_panel_notif))
 			NVT_ERR("Error occurred while unregistering drm_panel_notifier.\n");
 	}
 #elif defined(_MSM_DRM_NOTIFY_H_)
