@@ -1738,6 +1738,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		ret = -EIO;
 		goto err_ckeck_full_duplex;
 	}
+	ts->client->rt = true;
 	ts->client->bits_per_word = 8;
 	ts->client->mode = SPI_MODE_0;
 
