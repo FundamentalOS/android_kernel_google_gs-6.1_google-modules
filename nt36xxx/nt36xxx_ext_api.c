@@ -103,8 +103,9 @@ static ssize_t nvt_get_mode_history_show(struct device *dev,
 	return ret;
 }
 
-static ssize_t nvt_palm_mode_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_palm_mode_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = PALM_MODE_CMD_TEST_BIT;
@@ -144,7 +145,8 @@ static ssize_t nvt_palm_mode_store(struct device *dev, struct device_attribute *
 	}
 }
 
-static ssize_t nvt_high_sensi_mode_store(struct device *dev, struct device_attribute *attr,
+static ssize_t nvt_high_sensi_mode_store(struct device *dev,
+		struct device_attribute *attr,
 		const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
@@ -185,8 +187,9 @@ static ssize_t nvt_high_sensi_mode_store(struct device *dev, struct device_attri
 	}
 }
 
-static ssize_t nvt_holster_mode_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_holster_mode_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = HOLSTER_MODE_CMD_TEST_BIT;
@@ -227,7 +230,7 @@ static ssize_t nvt_holster_mode_store(struct device *dev, struct device_attribut
 }
 
 static ssize_t nvt_touch_idle_mode_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+					struct device_attribute *attr, char *buf)
 {
 	uint32_t mode;
 	uint8_t spi_buf[2] = {0};
@@ -267,7 +270,8 @@ static ssize_t nvt_touch_idle_mode_show(struct device *dev,
 	return ret;
 }
 
-static ssize_t nvt_touch_idle_mode_store(struct device *dev, struct device_attribute *attr,
+static ssize_t nvt_touch_idle_mode_store(struct device *dev,
+		struct device_attribute *attr,
 		const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
@@ -308,8 +312,9 @@ static ssize_t nvt_touch_idle_mode_store(struct device *dev, struct device_attri
 	}
 }
 
-static ssize_t nvt_heatmap_mode_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_heatmap_mode_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
 {
 	uint8_t spi_buf[6] = {0}, mode;
 	int32_t ret;
@@ -398,7 +403,8 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev, struct device_attribut
 }
 
 
-static ssize_t nvt_cont_report_mode_store(struct device *dev, struct device_attribute *attr,
+static ssize_t nvt_cont_report_mode_store(struct device *dev,
+		struct device_attribute *attr,
 		const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
@@ -441,8 +447,9 @@ static ssize_t nvt_cont_report_mode_store(struct device *dev, struct device_attr
 	}
 }
 
-static ssize_t nvt_noise_mode_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_noise_mode_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = NOISE_MODE_CMD_TEST_BIT;
@@ -484,8 +491,9 @@ static ssize_t nvt_noise_mode_store(struct device *dev, struct device_attribute 
 	}
 }
 
-static ssize_t nvt_water_mode_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_water_mode_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = WATER_MODE_CMD_TEST_BIT;
@@ -527,8 +535,9 @@ static ssize_t nvt_water_mode_store(struct device *dev, struct device_attribute 
 	}
 }
 
-static ssize_t nvt_sw_reset_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_sw_reset_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
 {
 	uint8_t mode;
 
@@ -545,8 +554,9 @@ static ssize_t nvt_sw_reset_store(struct device *dev, struct device_attribute *a
 	return count;
 }
 
-static ssize_t nvt_sensing_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_sensing_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	int32_t ret;
@@ -585,8 +595,9 @@ static ssize_t nvt_sensing_store(struct device *dev, struct device_attribute *at
 	}
 }
 
-static ssize_t nvt_freq_hopping_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_freq_hopping_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
 {
 	uint8_t spi_buf[4] = {0}, mode;
 	int32_t ret;
@@ -674,8 +685,9 @@ static ssize_t nvt_freq_hopping_store(struct device *dev, struct device_attribut
 	}
 }
 
-static ssize_t nvt_grip_level_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_grip_level_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = GRIP_LEVEL_CMD_TEST_BIT;
@@ -738,7 +750,8 @@ static ssize_t nvt_grip_level_store(struct device *dev, struct device_attribute 
 	}
 }
 
-static ssize_t nvt_force_calibration_store(struct device *dev, struct device_attribute *attr,
+static ssize_t nvt_force_calibration_store(struct device *dev,
+		struct device_attribute *attr,
 		const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
@@ -775,7 +788,7 @@ static ssize_t nvt_force_calibration_store(struct device *dev, struct device_att
 }
 
 static ssize_t nvt_get_calibration_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+					struct device_attribute *attr, char *buf)
 {
 	int32_t ret;
 	uint8_t spi_buf[2] = {0};
@@ -795,7 +808,7 @@ static ssize_t nvt_get_calibration_show(struct device *dev,
 }
 
 static ssize_t nvt_sync_freq_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+				  struct device_attribute *attr, char *buf)
 {
 	int32_t ret;
 
@@ -816,15 +829,17 @@ void cal_uniformity(uint8_t *arr, uint32_t size)
 		is_bottom = (size - i <= (ts->x_num * 2));
 		if (!is_right_most && !is_bottom)
 			res = ((abs(((uint16_t)arr[i + 1] << 8) + arr[i] \
-					- ((uint16_t)arr[i + 3] << 8) - arr[i + 2]) \
-					+ abs(((uint16_t)arr[i + 1] << 8) + arr[i] \
-					- ((uint16_t)arr[i + 1 + (ts->x_num * 2)] << 8) - arr[i + (ts->x_num * 2)])) / 2);
+				    - ((uint16_t)arr[i + 3] << 8) - arr[i + 2]) \
+				+ abs(((uint16_t)arr[i + 1] << 8) + arr[i] \
+				      - ((uint16_t)arr[i + 1 + (ts->x_num * 2)] << 8) - arr[i +
+						      (ts->x_num * 2)])) / 2);
 		else if (is_right_most && !is_bottom)
 			res = abs(((uint16_t)arr[i + 1] << 8) + arr[i] \
-					- ((uint16_t)arr[i + 1 + (ts->x_num * 2)] << 8) - arr[i + (ts->x_num * 2)]);
+				  - ((uint16_t)arr[i + 1 + (ts->x_num * 2)] << 8) - arr[i +
+						  (ts->x_num * 2)]);
 		else if (!is_right_most && is_bottom)
 			res = abs(((uint16_t)arr[i + 1] << 8) + arr[i] \
-					- ((uint16_t)arr[i + 3] << 8) - arr[i + 2]);
+				  - ((uint16_t)arr[i + 3] << 8) - arr[i + 2]);
 		else
 			res = 0;
 		memcpy(&arr[i], &res, 2);
@@ -837,7 +852,8 @@ static int32_t nvt_get_rawdata_uniformity(void)
 
 	if (!rawdata_uniformity_spi_buf) {
 		rawdata_uniformity_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
-		rawdata_uniformity_spi_buf = kzalloc(rawdata_uniformity_spi_buf_size, GFP_KERNEL);
+		rawdata_uniformity_spi_buf = kzalloc(rawdata_uniformity_spi_buf_size,
+						     GFP_KERNEL);
 	}
 
 	if (mutex_lock_interruptible(&ts->lock)) {
@@ -873,12 +889,14 @@ static int32_t nvt_get_rawdata_uniformity(void)
 		rawdata_uniformity_spi_buf[0] = ts->mmap->RAW_PIPE1_ADDR & 0x7F;
 	}
 
-	CTP_SPI_READ(ts->client, rawdata_uniformity_spi_buf, rawdata_uniformity_spi_buf_size);
+	CTP_SPI_READ(ts->client, rawdata_uniformity_spi_buf,
+		     rawdata_uniformity_spi_buf_size);
 
 	nvt_change_mode(NORMAL_MODE);
 	mutex_unlock(&ts->lock);
 
-	cal_uniformity(rawdata_uniformity_spi_buf, rawdata_uniformity_spi_buf_size);
+	cal_uniformity(rawdata_uniformity_spi_buf,
+		       rawdata_uniformity_spi_buf_size);
 
 	NVT_LOG("--\n");
 	return 0;
@@ -946,7 +964,8 @@ static int32_t nvt_get_cc_uniformity(void)
 		cc_uniformity_spi_buf[0] = ts->mmap->DIFF_PIPE0_ADDR & 0x7F;
 	}
 
-	CTP_SPI_READ(ts->client, cc_uniformity_spi_buf, cc_uniformity_spi_buf_size);
+	CTP_SPI_READ(ts->client, cc_uniformity_spi_buf,
+		     cc_uniformity_spi_buf_size);
 
 	nvt_change_mode(NORMAL_MODE);
 	mutex_unlock(&ts->lock);
@@ -968,8 +987,10 @@ static ssize_t nvt_verify_calibration_show(struct device *dev,
 		return -EAGAIN;
 
 	for (i = 1; i < rawdata_uniformity_spi_buf_size; i += 2) {
-		if (((uint16_t)rawdata_uniformity_spi_buf[i + 1] << 8) + rawdata_uniformity_spi_buf[i] > max)
-			max = ((uint16_t)rawdata_uniformity_spi_buf[i + 1] << 8) + rawdata_uniformity_spi_buf[i];
+		if (((uint16_t)rawdata_uniformity_spi_buf[i + 1] << 8) +
+		    rawdata_uniformity_spi_buf[i] > max)
+			max = ((uint16_t)rawdata_uniformity_spi_buf[i + 1] << 8) +
+			      rawdata_uniformity_spi_buf[i];
 	}
 
 	if (max > RAWDATA_UNIFORMITY_LIMIT)
@@ -984,8 +1005,9 @@ static ssize_t nvt_verify_calibration_show(struct device *dev,
 	return ret;
 }
 
-static ssize_t nvt_set_cancel_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_set_cancel_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = SET_CANCEL_CMD_TEST_BIT;
@@ -1082,11 +1104,12 @@ static int32_t c_show_heatmap(struct seq_file *m, void *v)
 	for (i = 1; i < heatmap_spi_buf_size; i += 2) {
 		if ((i - 1) % (ts->x_num * 2) == 0 && i != 1)
 			seq_printf(m, "\n");
-		seq_printf(m, "%3d ", (int16_t)(heatmap_spi_buf[i+1] << 8) + heatmap_spi_buf[i]);
+		seq_printf(m, "%3d ", (int16_t)(heatmap_spi_buf[i+1] << 8) +
+			   heatmap_spi_buf[i]);
 	}
 	seq_printf(m, "\n");
 
-    return 0;
+	return 0;
 }
 
 static int32_t c_show_cc_uniformity(struct seq_file *m, void *v)
@@ -1096,11 +1119,12 @@ static int32_t c_show_cc_uniformity(struct seq_file *m, void *v)
 	for (i = 1; i < cc_uniformity_spi_buf_size; i += 2) {
 		if ((i - 1) % (ts->x_num * 2) == 0 && i != 1)
 			seq_printf(m, "\n");
-		seq_printf(m, "%3d ", (uint16_t)(cc_uniformity_spi_buf[i+1] << 8) + cc_uniformity_spi_buf[i]);
+		seq_printf(m, "%3d ", (uint16_t)(cc_uniformity_spi_buf[i+1] << 8) +
+			   cc_uniformity_spi_buf[i]);
 	}
 	seq_printf(m, "\n");
 
-    return 0;
+	return 0;
 }
 
 static void *c_start(struct seq_file *m, loff_t *pos)
@@ -1182,7 +1206,8 @@ static const struct file_operations nvt_heatmap_fops = {
 };
 #endif
 
-static int32_t nvt_cc_uniformity_open(struct inode *inode, struct file *file)
+static int32_t nvt_cc_uniformity_open(struct inode *inode,
+				      struct file *file)
 {
 	NVT_LOG("++\n");
 	if (nvt_get_cc_uniformity())
@@ -1220,11 +1245,13 @@ int32_t nvt_extra_api_init(void)
 	if (ret)
 		NVT_ERR("create sysfs nvt_api_attribute_group failed: %d\n", ret);
 
-	NVT_proc_heatmap_entry = proc_create("nvt_heatmap", 0444, NULL, &nvt_heatmap_fops);
+	NVT_proc_heatmap_entry = proc_create("nvt_heatmap", 0444, NULL,
+					     &nvt_heatmap_fops);
 	if (NVT_proc_heatmap_entry == NULL)
 		NVT_ERR("create /proc/nvt_heatmap Failed!\n");
 
-	NVT_proc_heatmap_entry = proc_create("nvt_cc_uniformity", 0444, NULL, &nvt_cc_uniformity_fops);
+	NVT_proc_heatmap_entry = proc_create("nvt_cc_uniformity", 0444, NULL,
+					     &nvt_cc_uniformity_fops);
 	if (NVT_proc_cc_uniformity_entry == NULL)
 		NVT_ERR("create /proc/nvt_cc_uniformity Failed!\n");
 

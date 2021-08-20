@@ -163,7 +163,8 @@ uint8_t nvt_get_fw_pipe(void)
 	uint8_t buf[8] = {0};
 
 	//---set xdata index to EVENT BUF ADDR---
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE);
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR |
+		     EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE);
 
 	//---read fw status---
 	buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
@@ -214,7 +215,8 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 			//---copy buf to xdata_tmp---
 			for (k = 0; k < BUS_TRANSFER_LENGTH; k++) {
-				xdata_tmp[XDATA_SECTOR_SIZE * i + BUS_TRANSFER_LENGTH * j + k] = buf[k + 1];
+				xdata_tmp[XDATA_SECTOR_SIZE * i + BUS_TRANSFER_LENGTH * j + k] =
+					buf[k + 1];
 				//printk("0x%02X, 0x%04X\n", buf[k+1], (XDATA_SECTOR_SIZE*i + BUS_TRANSFER_LENGTH*j + k));
 			}
 		}
@@ -234,7 +236,8 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 			//---copy buf to xdata_tmp---
 			for (k = 0; k < BUS_TRANSFER_LENGTH; k++) {
-				xdata_tmp[(dummy_len + data_len - residual_len) + BUS_TRANSFER_LENGTH * j + k] = buf[k + 1];
+				xdata_tmp[(dummy_len + data_len - residual_len) +
+					BUS_TRANSFER_LENGTH * j + k] = buf[k + 1];
 				//printk("0x%02X, 0x%04x\n", buf[k+1], ((dummy_len+data_len-residual_len) + BUS_TRANSFER_LENGTH*j + k));
 			}
 		}
@@ -243,7 +246,8 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 	//---remove unused data and 2bytes-to-1data---
 	for (i = 0; i < (data_len / 2); i++) {
-		xdata[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 * xdata_tmp[dummy_len + i * 2 + 1]);
+		xdata[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 *
+				     xdata_tmp[dummy_len + i * 2 + 1]);
 	}
 
 #if TOUCH_KEY_NUM > 0
@@ -257,7 +261,8 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 	//---2bytes-to-1data---
 	for (i = 0; i < TOUCH_KEY_NUM; i++) {
-		xdata[ts->x_num * ts->y_num + i] = (int16_t)(buf[1 + i * 2] + 256 * buf[1 + i * 2 + 1]);
+		xdata[ts->x_num * ts->y_num + i] = (int16_t)(buf[1 + i * 2] + 256 * buf[1 +
+						   i * 2 + 1]);
 	}
 #endif
 
@@ -274,9 +279,10 @@ return:
 *******************************************************/
 void nvt_get_mdata(int32_t *buf, uint8_t *m_x_num, uint8_t *m_y_num)
 {
-    *m_x_num = ts->x_num;
-    *m_y_num = ts->y_num;
-    memcpy(buf, xdata, ((ts->x_num * ts->y_num + TOUCH_KEY_NUM) * sizeof(int32_t)));
+	*m_x_num = ts->x_num;
+	*m_y_num = ts->y_num;
+	memcpy(buf, xdata, ((ts->x_num * ts->y_num + TOUCH_KEY_NUM) * sizeof(
+				    int32_t)));
 }
 
 /*******************************************************
@@ -286,7 +292,8 @@ Description:
 return:
 	n.a.
 *******************************************************/
-void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer, uint32_t num)
+void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer,
+			    uint32_t num)
 {
 	int32_t i = 0;
 	int32_t j = 0;
@@ -318,7 +325,8 @@ void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer, uint32_t num)
 
 			//---copy buf to xdata_tmp---
 			for (k = 0; k < BUS_TRANSFER_LENGTH; k++) {
-				xdata_tmp[XDATA_SECTOR_SIZE * i + BUS_TRANSFER_LENGTH * j + k] = buf[k + 1];
+				xdata_tmp[XDATA_SECTOR_SIZE * i + BUS_TRANSFER_LENGTH * j + k] =
+					buf[k + 1];
 				//printk("0x%02X, 0x%04X\n", buf[k+1], (XDATA_SECTOR_SIZE*i + BUS_TRANSFER_LENGTH*j + k));
 			}
 		}
@@ -338,7 +346,8 @@ void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer, uint32_t num)
 
 			//---copy buf to xdata_tmp---
 			for (k = 0; k < BUS_TRANSFER_LENGTH; k++) {
-				xdata_tmp[(dummy_len + data_len - residual_len) + BUS_TRANSFER_LENGTH * j + k] = buf[k + 1];
+				xdata_tmp[(dummy_len + data_len - residual_len) +
+					BUS_TRANSFER_LENGTH * j + k] = buf[k + 1];
 				//printk("0x%02X, 0x%04x\n", buf[k+1], ((dummy_len+data_len-residual_len) + BUS_TRANSFER_LENGTH*j + k));
 			}
 		}
@@ -347,7 +356,8 @@ void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer, uint32_t num)
 
 	//---remove unused data and 2bytes-to-1data---
 	for (i = 0; i < (data_len / 2); i++) {
-		buffer[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 * xdata_tmp[dummy_len + i * 2 + 1]);
+		buffer[i] = (int16_t)(xdata_tmp[dummy_len + i * 2] + 256 *
+				      xdata_tmp[dummy_len + i * 2 + 1]);
 	}
 
 	//---set xdata index to EVENT BUF ADDR---
@@ -363,7 +373,8 @@ return:
 *******************************************************/
 static int32_t c_fw_version_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "fw_ver=%d, x_num=%d, y_num=%d, button_num=%d\n", ts->fw_ver, ts->x_num, ts->y_num, ts->max_button_num);
+	seq_printf(m, "fw_ver=%d, x_num=%d, y_num=%d, button_num=%d\n", ts->fw_ver,
+		   ts->x_num, ts->y_num, ts->max_button_num);
 	return 0;
 }
 
@@ -832,10 +843,14 @@ static int32_t nvt_pen_diff_open(struct inode *inode, struct file *file)
 		return -EAGAIN;
 	}
 
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_TIP_X_ADDR, xdata_pen_tip_x, ts->x_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_TIP_Y_ADDR, xdata_pen_tip_y, ts->y_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_RING_X_ADDR, xdata_pen_ring_x, ts->x_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_RING_Y_ADDR, xdata_pen_ring_y, ts->y_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_TIP_X_ADDR, xdata_pen_tip_x,
+			       ts->x_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_TIP_Y_ADDR, xdata_pen_tip_y,
+			       ts->y_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_RING_X_ADDR, xdata_pen_ring_x,
+			       ts->x_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_RING_Y_ADDR, xdata_pen_ring_y,
+			       ts->y_num);
 
 	nvt_change_mode(NORMAL_MODE);
 
@@ -877,7 +892,8 @@ return:
 *******************************************************/
 int32_t nvt_extra_proc_init(void)
 {
-	NVT_proc_fw_version_entry = proc_create(NVT_FW_VERSION, 0444, NULL, &nvt_fw_version_fops);
+	NVT_proc_fw_version_entry = proc_create(NVT_FW_VERSION, 0444, NULL,
+						&nvt_fw_version_fops);
 	if (NVT_proc_fw_version_entry == NULL) {
 		NVT_ERR("create proc/%s Failed!\n", NVT_FW_VERSION);
 		return -ENOMEM;
@@ -885,7 +901,8 @@ int32_t nvt_extra_proc_init(void)
 		NVT_LOG("create proc/%s Succeeded!\n", NVT_FW_VERSION);
 	}
 
-	NVT_proc_fw_update_entry = proc_create(NVT_FW_UPDATE, 0444, NULL, &nvt_fw_update_fops);
+	NVT_proc_fw_update_entry = proc_create(NVT_FW_UPDATE, 0444, NULL,
+					       &nvt_fw_update_fops);
 	if (NVT_proc_fw_update_entry == NULL) {
 		NVT_ERR("create proc/%s Failed!\n", NVT_FW_UPDATE);
 		return -ENOMEM;
@@ -893,7 +910,8 @@ int32_t nvt_extra_proc_init(void)
 		NVT_LOG("create proc/%s Succeeded!\n", NVT_FW_UPDATE);
 	}
 
-	NVT_proc_baseline_entry = proc_create(NVT_BASELINE, 0444, NULL, &nvt_baseline_fops);
+	NVT_proc_baseline_entry = proc_create(NVT_BASELINE, 0444, NULL,
+					      &nvt_baseline_fops);
 	if (NVT_proc_baseline_entry == NULL) {
 		NVT_ERR("create proc/%s Failed!\n", NVT_BASELINE);
 		return -ENOMEM;
@@ -918,7 +936,8 @@ int32_t nvt_extra_proc_init(void)
 	}
 
 	if (ts->pen_support) {
-		NVT_proc_pen_diff_entry = proc_create(NVT_PEN_DIFF, 0444, NULL, &nvt_pen_diff_fops);
+		NVT_proc_pen_diff_entry = proc_create(NVT_PEN_DIFF, 0444, NULL,
+						      &nvt_pen_diff_fops);
 		if (NVT_proc_pen_diff_entry == NULL) {
 			NVT_ERR("create proc/%s Failed!\n", NVT_PEN_DIFF);
 			return -ENOMEM;

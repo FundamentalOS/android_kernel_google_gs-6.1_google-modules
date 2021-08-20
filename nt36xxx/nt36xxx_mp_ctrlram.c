@@ -99,9 +99,12 @@ static int8_t nvt_mp_test_result_printed;
 static uint8_t fw_ver;
 
 extern void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr);
-extern void nvt_get_mdata(int32_t *buf, uint8_t *m_x_num, uint8_t *m_y_num);
-extern void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer, uint32_t num);
-int32_t nvt_mp_parse_dt(struct device_node *root, const char *node_compatible);
+extern void nvt_get_mdata(int32_t *buf, uint8_t *m_x_num,
+			  uint8_t *m_y_num);
+extern void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer,
+				   uint32_t num);
+int32_t nvt_mp_parse_dt(struct device_node *root,
+			const char *node_compatible);
 
 /*******************************************************
 Description:
@@ -113,7 +116,8 @@ return:
 static int nvt_mp_buffer_init(void)
 {
 	size_t RecordResult_BufSize = X_Y_DIMENSION_MAX + IC_KEY_CFG_SIZE;
-	size_t RawData_BufSize = (X_Y_DIMENSION_MAX + IC_KEY_CFG_SIZE) * sizeof(int32_t);
+	size_t RawData_BufSize = (X_Y_DIMENSION_MAX + IC_KEY_CFG_SIZE) * sizeof(
+					 int32_t);
 	size_t Pen_RecordResult_BufSize = PEN_X_Y_DIMENSION_MAX;
 	size_t Pen_RawData_BufSize = PEN_X_Y_DIMENSION_MAX * sizeof(int32_t);
 
@@ -129,7 +133,8 @@ static int nvt_mp_buffer_init(void)
 		return -ENOMEM;
 	}
 
-	RecordResult_FWMutual = (uint8_t *)kzalloc(RecordResult_BufSize, GFP_KERNEL);
+	RecordResult_FWMutual = (uint8_t *)kzalloc(RecordResult_BufSize,
+				GFP_KERNEL);
 	if (!RecordResult_FWMutual) {
 		NVT_ERR("kzalloc for RecordResult_FWMutual failed!\n");
 		return -ENOMEM;
@@ -141,86 +146,100 @@ static int nvt_mp_buffer_init(void)
 		return -ENOMEM;
 	}
 
-	RecordResult_FW_DiffMax = (uint8_t *)kzalloc(RecordResult_BufSize, GFP_KERNEL);
+	RecordResult_FW_DiffMax = (uint8_t *)kzalloc(RecordResult_BufSize,
+				  GFP_KERNEL);
 	if (!RecordResult_FW_DiffMax) {
 		NVT_ERR("kzalloc for RecordResult_FW_DiffMax failed!\n");
 		return -ENOMEM;
 	}
 
-	RecordResult_FW_DiffMin = (uint8_t *)kzalloc(RecordResult_BufSize, GFP_KERNEL);
+	RecordResult_FW_DiffMin = (uint8_t *)kzalloc(RecordResult_BufSize,
+				  GFP_KERNEL);
 	if (!RecordResult_FW_DiffMin) {
 		NVT_ERR("kzalloc for RecordResult_FW_DiffMin failed!\n");
 		return -ENOMEM;
 	}
 
 	if (ts->pen_support) {
-		RecordResult_PenTipX_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenTipX_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					   GFP_KERNEL);
 		if (!RecordResult_PenTipX_Raw) {
 			NVT_ERR("kzalloc for RecordResult_PenTipX_Raw failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenTipY_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenTipY_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					   GFP_KERNEL);
 		if (!RecordResult_PenTipY_Raw) {
 			NVT_ERR("kzalloc for RecordResult_PenTipY_Raw failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenRingX_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenRingX_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					    GFP_KERNEL);
 		if (!RecordResult_PenRingX_Raw) {
 			NVT_ERR("kzalloc for RecordResult_PenRingX_Raw failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenRingY_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenRingY_Raw = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					    GFP_KERNEL);
 		if (!RecordResult_PenRingY_Raw) {
 			NVT_ERR("kzalloc for RecordResult_PenRingY_Raw failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenTipX_DiffMax = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenTipX_DiffMax = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					       GFP_KERNEL);
 		if (!RecordResult_PenTipX_DiffMax) {
 			NVT_ERR("kzalloc for RecordResult_PenTipX_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenTipX_DiffMin = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenTipX_DiffMin = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					       GFP_KERNEL);
 		if (!RecordResult_PenTipX_DiffMin) {
 			NVT_ERR("kzalloc for RecordResult_PenTipX_DiffMin failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenTipY_DiffMax = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenTipY_DiffMax = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					       GFP_KERNEL);
 		if (!RecordResult_PenTipY_DiffMax) {
 			NVT_ERR("kzalloc for RecordResult_PenTipY_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenTipY_DiffMin = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenTipY_DiffMin = (uint8_t *)kzalloc(Pen_RecordResult_BufSize,
+					       GFP_KERNEL);
 		if (!RecordResult_PenTipY_DiffMin) {
 			NVT_ERR("kzalloc for RecordResult_PenTipY_DiffMin failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenRingX_DiffMax = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenRingX_DiffMax = (uint8_t *)kzalloc(
+							Pen_RecordResult_BufSize, GFP_KERNEL);
 		if (!RecordResult_PenRingX_DiffMax) {
 			NVT_ERR("kzalloc for RecordResult_PenRingX_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenRingX_DiffMin = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenRingX_DiffMin = (uint8_t *)kzalloc(
+							Pen_RecordResult_BufSize, GFP_KERNEL);
 		if (!RecordResult_PenRingX_DiffMin) {
 			NVT_ERR("kzalloc for RecordResult_PenRingX_DiffMin failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenRingY_DiffMax = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenRingY_DiffMax = (uint8_t *)kzalloc(
+							Pen_RecordResult_BufSize, GFP_KERNEL);
 		if (!RecordResult_PenRingY_DiffMax) {
 			NVT_ERR("kzalloc for RecordResult_PenRingY_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RecordResult_PenRingY_DiffMin = (uint8_t *)kzalloc(Pen_RecordResult_BufSize, GFP_KERNEL);
+		RecordResult_PenRingY_DiffMin = (uint8_t *)kzalloc(
+							Pen_RecordResult_BufSize, GFP_KERNEL);
 		if (!RecordResult_PenRingY_DiffMin) {
 			NVT_ERR("kzalloc for RecordResult_PenRingY_DiffMin failed!\n");
 			return -ENOMEM;
@@ -294,49 +313,57 @@ static int nvt_mp_buffer_init(void)
 			return -ENOMEM;
 		}
 
-		RawData_PenTipX_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenTipX_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					  GFP_KERNEL);
 		if (!RawData_PenTipX_DiffMax) {
 			NVT_ERR("kzalloc for RawData_PenTipX_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenTipX_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenTipX_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					  GFP_KERNEL);
 		if (!RawData_PenTipX_DiffMin) {
 			NVT_ERR("kzalloc for RawData_PenTipX_DiffMin failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenTipY_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenTipY_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					  GFP_KERNEL);
 		if (!RawData_PenTipY_DiffMax) {
 			NVT_ERR("kzalloc for RawData_PenTipY_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenTipY_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenTipY_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					  GFP_KERNEL);
 		if (!RawData_PenTipY_DiffMin) {
 			NVT_ERR("kzalloc for RawData_PenTipY_DiffMin failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenRingX_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenRingX_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					   GFP_KERNEL);
 		if (!RawData_PenRingX_DiffMax) {
 			NVT_ERR("kzalloc for RawData_PenRingX_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenRingX_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenRingX_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					   GFP_KERNEL);
 		if (!RawData_PenRingX_DiffMin) {
 			NVT_ERR("kzalloc for RawData_PenRingX_DiffMin failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenRingY_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenRingY_DiffMax = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					   GFP_KERNEL);
 		if (!RawData_PenRingY_DiffMax) {
 			NVT_ERR("kzalloc for RawData_PenRingY_DiffMax failed!\n");
 			return -ENOMEM;
 		}
 
-		RawData_PenRingY_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize, GFP_KERNEL);
+		RawData_PenRingY_DiffMin = (int32_t *)kzalloc(Pen_RawData_BufSize,
+					   GFP_KERNEL);
 		if (!RawData_PenRingY_DiffMin) {
 			NVT_ERR("kzalloc for RawData_PenRingY_DiffMin failed!\n");
 			return -ENOMEM;
@@ -569,7 +596,8 @@ static void nvt_print_data_log_in_one_line(int32_t *data, int32_t data_num)
 	return;
 }
 
-static void nvt_print_result_log_in_one_line(uint8_t *result, int32_t result_num)
+static void nvt_print_result_log_in_one_line(uint8_t *result,
+		int32_t result_num)
 {
 	char *tmp_log = NULL;
 	int32_t i = 0, len = 0;
@@ -581,7 +609,8 @@ static void nvt_print_result_log_in_one_line(uint8_t *result, int32_t result_num
 	}
 
 	for (i = 0; i < result_num; i++) {
-		len += snprintf(tmp_log + i * 6, result_num * 6 + 1 - len, "0x%02X, ", result[i]);
+		len += snprintf(tmp_log + i * 6, result_num * 6 + 1 - len, "0x%02X, ",
+				result[i]);
 	}
 	tmp_log[result_num * 6] = '\0';
 	printk("%s", tmp_log);
@@ -651,51 +680,67 @@ static void nvt_print_criteria(void)
 	if (ts->pen_support) {
 		//---PS_Config_Lmt_PenTipX_FW_Raw---
 		printk("PS_Config_Lmt_PenTipX_FW_Raw_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Raw_P, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Raw_P, ts->x_num,
+				    ts->y_gang_num);
 		printk("PS_Config_Lmt_PenTipX_FW_Raw_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Raw_N, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Raw_N, ts->x_num,
+				    ts->y_gang_num);
 
 		//---PS_Config_Lmt_PenTipY_FW_Raw---
 		printk("PS_Config_Lmt_PenTipY_FW_Raw_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Raw_P, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Raw_P, ts->x_gang_num,
+				    ts->y_num);
 		printk("PS_Config_Lmt_PenTipY_FW_Raw_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Raw_N, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Raw_N, ts->x_gang_num,
+				    ts->y_num);
 
 		//---PS_Config_Lmt_PenRingX_FW_Raw---
 		printk("PS_Config_Lmt_PenRingX_FW_Raw_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Raw_P, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Raw_P, ts->x_num,
+				    ts->y_gang_num);
 		printk("PS_Config_Lmt_PenRingX_FW_Raw_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Raw_N, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Raw_N, ts->x_num,
+				    ts->y_gang_num);
 
 		//---PS_Config_Lmt_PenRingY_FW_Raw---
 		printk("PS_Config_Lmt_PenRingY_FW_Raw_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Raw_P, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Raw_P, ts->x_gang_num,
+				    ts->y_num);
 		printk("PS_Config_Lmt_PenRingY_FW_Raw_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Raw_N, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Raw_N, ts->x_gang_num,
+				    ts->y_num);
 
 		//---PS_Config_Lmt_PenTipX_FW_Diff---
 		printk("PS_Config_Lmt_PenTipX_FW_Diff_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Diff_P, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Diff_P, ts->x_num,
+				    ts->y_gang_num);
 		printk("PS_Config_Lmt_PenTipX_FW_Diff_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Diff_N, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipX_FW_Diff_N, ts->x_num,
+				    ts->y_gang_num);
 
 		//---PS_Config_Lmt_PenTipY_FW_Diff---
 		printk("PS_Config_Lmt_PenTipY_FW_Diff_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Diff_P, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Diff_P, ts->x_gang_num,
+				    ts->y_num);
 		printk("PS_Config_Lmt_PenTipY_FW_Diff_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Diff_N, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenTipY_FW_Diff_N, ts->x_gang_num,
+				    ts->y_num);
 
 		//---PS_Config_Lmt_PenRingX_FW_Diff---
 		printk("PS_Config_Lmt_PenRingX_FW_Diff_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Diff_P, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Diff_P, ts->x_num,
+				    ts->y_gang_num);
 		printk("PS_Config_Lmt_PenRingX_FW_Diff_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Diff_N, ts->x_num, ts->y_gang_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingX_FW_Diff_N, ts->x_num,
+				    ts->y_gang_num);
 
 		//---PS_Config_Lmt_PenRingY_FW_Diff---
 		printk("PS_Config_Lmt_PenRingY_FW_Diff_P:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Diff_P, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Diff_P, ts->x_gang_num,
+				    ts->y_num);
 		printk("PS_Config_Lmt_PenRingY_FW_Diff_N:\n");
-		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Diff_N, ts->x_gang_num, ts->y_num);
+		nvt_print_lmt_array(PS_Config_Lmt_PenRingY_FW_Diff_N, ts->x_gang_num,
+				    ts->y_num);
 	} /* if (ts->pen_support) */
 
 	NVT_LOG("--\n");
@@ -725,7 +770,8 @@ static int32_t nvt_polling_hand_shake_status(void)
 
 	for (i = 0; i < retry; i++) {
 		//---set xdata index to EVENT BUF ADDR---
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE);
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR |
+			     EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE);
 
 		//---read fw status---
 		buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
@@ -751,7 +797,8 @@ static int32_t nvt_polling_hand_shake_status(void)
 		buf[4] = 0x00;
 		buf[5] = 0x00;
 		CTP_SPI_READ(ts->client, buf, 6);
-		NVT_ERR("Read back 5 bytes from offset EVENT_MAP_HOST_CMD: 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X\n", buf[1], buf[2], buf[3], buf[4], buf[5]);
+		NVT_ERR("Read back 5 bytes from offset EVENT_MAP_HOST_CMD: 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X\n",
+			buf[1], buf[2], buf[3], buf[4], buf[5]);
 
 		return -EPERM;
 	} else {
@@ -787,7 +834,8 @@ int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis)
 	}
 
 	if (unlikely(retry == 20)) {
-		NVT_ERR("switch FreqHopEnDis 0x%02X failed, buf[1]=0x%02X\n", FreqHopEnDis, buf[1]);
+		NVT_ERR("switch FreqHopEnDis 0x%02X failed, buf[1]=0x%02X\n", FreqHopEnDis,
+			buf[1]);
 		ret = -1;
 	}
 
@@ -879,10 +927,14 @@ static int32_t nvt_read_pen_baseline(void)
 {
 	NVT_LOG("++\n");
 
-	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_TIP_X_ADDR, RawData_PenTipX_Raw, ts->x_num * ts->y_gang_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_TIP_Y_ADDR, RawData_PenTipY_Raw, ts->x_gang_num * ts->y_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_RING_X_ADDR, RawData_PenRingX_Raw, ts->x_num * ts->y_gang_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_RING_Y_ADDR, RawData_PenRingY_Raw, ts->x_gang_num * ts->y_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_TIP_X_ADDR, RawData_PenTipX_Raw,
+			       ts->x_num * ts->y_gang_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_TIP_Y_ADDR, RawData_PenTipY_Raw,
+			       ts->x_gang_num * ts->y_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_RING_X_ADDR,
+			       RawData_PenRingX_Raw, ts->x_num * ts->y_gang_num);
+	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_RING_Y_ADDR,
+			       RawData_PenRingY_Raw, ts->x_gang_num * ts->y_num);
 
 	printk("%s:RawData_PenTipX_Raw\n", __func__);
 	nvt_print_rawdata(RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
@@ -970,14 +1022,22 @@ static int32_t nvt_read_fw_noise(int32_t *xdata)
 
 	if (ts->pen_support) {
 		// get pen noise data
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_TIP_X_ADDR, RawData_PenTipX_DiffMax, ts->x_num * ts->y_gang_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_TIP_X_ADDR, RawData_PenTipX_DiffMin, ts->x_num * ts->y_gang_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_TIP_Y_ADDR, RawData_PenTipY_DiffMax, ts->x_gang_num * ts->y_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_TIP_Y_ADDR, RawData_PenTipY_DiffMin, ts->x_gang_num * ts->y_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_RING_X_ADDR, RawData_PenRingX_DiffMax, ts->x_num * ts->y_gang_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_RING_X_ADDR, RawData_PenRingX_DiffMin, ts->x_num * ts->y_gang_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_RING_Y_ADDR, RawData_PenRingY_DiffMax, ts->x_gang_num * ts->y_num);
-		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_RING_Y_ADDR, RawData_PenRingY_DiffMin, ts->x_gang_num * ts->y_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_TIP_X_ADDR,
+				       RawData_PenTipX_DiffMax, ts->x_num * ts->y_gang_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_TIP_X_ADDR,
+				       RawData_PenTipX_DiffMin, ts->x_num * ts->y_gang_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_TIP_Y_ADDR,
+				       RawData_PenTipY_DiffMax, ts->x_gang_num * ts->y_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_TIP_Y_ADDR,
+				       RawData_PenTipY_DiffMin, ts->x_gang_num * ts->y_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_RING_X_ADDR,
+				       RawData_PenRingX_DiffMax, ts->x_num * ts->y_gang_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_RING_X_ADDR,
+				       RawData_PenRingX_DiffMin, ts->x_num * ts->y_gang_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_DIFF_RING_Y_ADDR,
+				       RawData_PenRingY_DiffMax, ts->x_gang_num * ts->y_num);
+		nvt_read_get_num_mdata(ts->mmap->PEN_2D_RAW_RING_Y_ADDR,
+				       RawData_PenRingY_DiffMin, ts->x_gang_num * ts->y_num);
 	} /* if (ts->pen_support) */
 
 	//---Leave Test Mode---
@@ -987,7 +1047,8 @@ static int32_t nvt_read_fw_noise(int32_t *xdata)
 	nvt_print_rawdata(RawData_Diff_Max, X_Channel, Y_Channel);
 
 #if TOUCH_KEY_NUM > 0
-	rawdata_diff_min_offset = Y_Channel * X_Channel * 7 + Y_Channel * 2 + Key_Channel * 7 + 2;
+	rawdata_diff_min_offset = Y_Channel * X_Channel * 7 + Y_Channel * 2 +
+				  Key_Channel * 7 + 2;
 #else
 	rawdata_diff_min_offset = Y_Channel * X_Channel * 7 + Y_Channel * 2;
 #endif /* #if TOUCH_KEY_NUM > 0 */
@@ -1076,9 +1137,11 @@ static int32_t nvt_read_fw_open(int32_t *xdata)
 	}
 
 #if TOUCH_KEY_NUM > 0
-	rawdata_buf = (uint8_t *)kzalloc((IC_X_CFG_SIZE * IC_Y_CFG_SIZE + IC_KEY_CFG_SIZE) * 2, GFP_KERNEL);
+	rawdata_buf = (uint8_t *)kzalloc((IC_X_CFG_SIZE * IC_Y_CFG_SIZE +
+					  IC_KEY_CFG_SIZE) * 2, GFP_KERNEL);
 #else
-	rawdata_buf = (uint8_t *)kzalloc(IC_X_CFG_SIZE * IC_Y_CFG_SIZE * 2, GFP_KERNEL);
+	rawdata_buf = (uint8_t *)kzalloc(IC_X_CFG_SIZE * IC_Y_CFG_SIZE * 2,
+					 GFP_KERNEL);
 #endif /* #if TOUCH_KEY_NUM > 0 */
 	if (!rawdata_buf) {
 		NVT_ERR("kzalloc for rawdata_buf failed!\n");
@@ -1107,20 +1170,25 @@ static int32_t nvt_read_fw_open(int32_t *xdata)
 	nvt_set_page(raw_btn_pipe_addr);
 	buf[0] = (uint8_t)(raw_btn_pipe_addr & 0xFF);
 	CTP_SPI_READ(ts->client, buf, IC_KEY_CFG_SIZE * 2 + 1);
-	memcpy(rawdata_buf + IC_Y_CFG_SIZE * IC_X_CFG_SIZE * 2, buf + 1, IC_KEY_CFG_SIZE * 2);
+	memcpy(rawdata_buf + IC_Y_CFG_SIZE * IC_X_CFG_SIZE * 2, buf + 1,
+	       IC_KEY_CFG_SIZE * 2);
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
 	for (y = 0; y < IC_Y_CFG_SIZE; y++) {
 		for (x = 0; x < IC_X_CFG_SIZE; x++) {
 			if ((AIN_Y[y] != 0xFF) && (AIN_X[x] != 0xFF)) {
-				xdata[AIN_Y[y] * X_Channel + AIN_X[x]] = (int16_t)((rawdata_buf[(y * IC_X_CFG_SIZE + x) * 2] + 256 * rawdata_buf[(y * IC_X_CFG_SIZE + x) * 2 + 1]));
+				xdata[AIN_Y[y] * X_Channel + AIN_X[x]] = (int16_t)
+					((rawdata_buf[(y * IC_X_CFG_SIZE + x) * 2] +
+					256 * rawdata_buf[(y * IC_X_CFG_SIZE + x) * 2 + 1]));
 			}
 		}
 	}
 #if TOUCH_KEY_NUM > 0
 	for (k = 0; k < IC_KEY_CFG_SIZE; k++) {
 		if (AIN_KEY[k] != 0xFF)
-			xdata[Y_Channel * X_Channel + AIN_KEY[k]] = (int16_t)(rawdata_buf[(IC_Y_CFG_SIZE * IC_X_CFG_SIZE + k) * 2] + 256 * rawdata_buf[(IC_Y_CFG_SIZE * IC_X_CFG_SIZE + k) * 2 + 1]);
+			xdata[Y_Channel * X_Channel + AIN_KEY[k]] = (int16_t)(
+				rawdata_buf[(IC_Y_CFG_SIZE * IC_X_CFG_SIZE + k) * 2] +
+				256 * rawdata_buf[(IC_Y_CFG_SIZE * IC_X_CFG_SIZE + k) * 2 + 1]);
 	}
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
@@ -1168,9 +1236,10 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 	}
 
 #if TOUCH_KEY_NUM > 0
-    rawdata_buf = (uint8_t *)kzalloc((X_Channel * Y_Channel + Key_Channel) * 2, GFP_KERNEL);
+	rawdata_buf = (uint8_t *)kzalloc((X_Channel * Y_Channel + Key_Channel) * 2,
+					 GFP_KERNEL);
 #else
-    rawdata_buf = (uint8_t *)kzalloc(X_Channel * Y_Channel * 2, GFP_KERNEL);
+	rawdata_buf = (uint8_t *)kzalloc(X_Channel * Y_Channel * 2, GFP_KERNEL);
 #endif /* #if TOUCH_KEY_NUM > 0 */
 	if (!rawdata_buf) {
 		NVT_ERR("kzalloc for rawdata_buf failed!\n");
@@ -1195,7 +1264,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 	else
 		raw_btn_pipe_addr = ts->mmap->RAW_BTN_PIPE1_ADDR;
 
-    //---change xdata index---
+	//---change xdata index---
 	nvt_set_page(raw_btn_pipe_addr);
 	buf[0] = (uint8_t)(raw_btn_pipe_addr & 0xFF);
 	CTP_SPI_READ(ts->client, buf, Key_Channel * 2 + 1);
@@ -1205,13 +1274,15 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 	for (y = 0; y < Y_Channel; y++) {
 		for (x = 0; x < X_Channel; x++) {
 			iArrayIndex = y * X_Channel + x;
-			xdata[iArrayIndex] = (int16_t)(rawdata_buf[iArrayIndex * 2] + 256 * rawdata_buf[iArrayIndex * 2 + 1]);
+			xdata[iArrayIndex] = (int16_t)(rawdata_buf[iArrayIndex * 2] + 256 *
+						       rawdata_buf[iArrayIndex * 2 + 1]);
 		}
 	}
 #if TOUCH_KEY_NUM > 0
 	for (k = 0; k < Key_Channel; k++) {
 		iArrayIndex = Y_Channel * X_Channel + k;
-		xdata[iArrayIndex] = (int16_t)(rawdata_buf[iArrayIndex * 2] + 256 * rawdata_buf[iArrayIndex * 2 + 1]);
+		xdata[iArrayIndex] = (int16_t)(rawdata_buf[iArrayIndex * 2] + 256 *
+					       rawdata_buf[iArrayIndex * 2 + 1]);
 	}
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
@@ -1245,7 +1316,7 @@ static int32_t RawDataTest_SinglePoint_Sub(
 	int32_t i = 0;
 	int32_t j = 0;
 #if TOUCH_KEY_NUM > 0
-    int32_t k = 0;
+	int32_t k = 0;
 #endif /* #if TOUCH_KEY_NUM > 0 */
 	int32_t iArrayIndex = 0;
 	bool isPass = true;
@@ -1310,7 +1381,8 @@ Description:
 return:
 	n.a.
 *******************************************************/
-void print_selftest_result(struct seq_file *m, int32_t TestResult, uint8_t RecordResult[], int32_t rawdata[], uint8_t x_len, uint8_t y_len)
+void print_selftest_result(struct seq_file *m, int32_t TestResult,
+			   uint8_t RecordResult[], int32_t rawdata[], uint8_t x_len, uint8_t y_len)
 {
 	int32_t i = 0;
 	int32_t j = 0;
@@ -1346,7 +1418,8 @@ void print_selftest_result(struct seq_file *m, int32_t TestResult, uint8_t Recor
 			seq_printf(m, "0x%02X, ", RecordResult[iArrayIndex]);
 		}
 		if (!nvt_mp_test_result_printed)
-			nvt_print_result_log_in_one_line(RecordResult + y_len * x_len, Key_Channel);
+			nvt_print_result_log_in_one_line(RecordResult + y_len * x_len,
+							 Key_Channel);
 		nvt_mp_seq_printf(m, "\n");
 #endif /* #if TOUCH_KEY_NUM > 0 */
 		nvt_mp_seq_printf(m, "ReadData:\n");
@@ -1388,101 +1461,148 @@ static int32_t c_show_selftest(struct seq_file *m, void *v)
 	nvt_mp_seq_printf(m, "FW Version: %d\n\n", fw_ver);
 
 	nvt_mp_seq_printf(m, "Short Test");
-	print_selftest_result(m, TestResult_Short, RecordResult_Short, RawData_Short, X_Channel, Y_Channel);
+	print_selftest_result(m, TestResult_Short, RecordResult_Short,
+			      RawData_Short, X_Channel, Y_Channel);
 
 	nvt_mp_seq_printf(m, "Open Test");
-	print_selftest_result(m, TestResult_Open, RecordResult_Open, RawData_Open, X_Channel, Y_Channel);
+	print_selftest_result(m, TestResult_Open, RecordResult_Open, RawData_Open,
+			      X_Channel, Y_Channel);
 
 	nvt_mp_seq_printf(m, "FW Rawdata Test");
 	if ((TestResult_FW_Rawdata == 0) || (TestResult_FW_Rawdata == 1)) {
-		 print_selftest_result(m, TestResult_FWMutual, RecordResult_FWMutual, RawData_FWMutual, X_Channel, Y_Channel);
+		print_selftest_result(m, TestResult_FWMutual, RecordResult_FWMutual,
+				      RawData_FWMutual, X_Channel, Y_Channel);
 	} else { // TestResult_FW_Rawdata is -1
 		nvt_mp_seq_printf(m, " FAIL!\n");
 		if (TestResult_FWMutual == -1) {
 			nvt_mp_seq_printf(m, "FW Mutual");
-			print_selftest_result(m, TestResult_FWMutual, RecordResult_FWMutual, RawData_FWMutual, X_Channel, Y_Channel);
+			print_selftest_result(m, TestResult_FWMutual, RecordResult_FWMutual,
+					      RawData_FWMutual, X_Channel, Y_Channel);
 		}
 		if (TestResult_FW_CC == -1) {
 			nvt_mp_seq_printf(m, "FW CC");
-			print_selftest_result(m, TestResult_FW_CC, RecordResult_FW_CC, RawData_FW_CC, X_Channel, Y_Channel);
+			print_selftest_result(m, TestResult_FW_CC, RecordResult_FW_CC,
+					      RawData_FW_CC, X_Channel, Y_Channel);
 		}
 	}
 
 	nvt_mp_seq_printf(m, "Noise Test");
 	if ((TestResult_Noise == 0) || (TestResult_Noise == 1)) {
-		print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax, RawData_Diff_Max, X_Channel, Y_Channel);
+		print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax,
+				      RawData_Diff_Max, X_Channel, Y_Channel);
 	} else { // TestResult_Noise is -1
 		nvt_mp_seq_printf(m, " FAIL!\n");
 		if (TestResult_FW_DiffMax == -1) {
 			nvt_mp_seq_printf(m, "FW Diff Max");
-			print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax, RawData_Diff_Max, X_Channel, Y_Channel);
+			print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax,
+					      RawData_Diff_Max, X_Channel, Y_Channel);
 		}
 		if (TestResult_FW_DiffMin == -1) {
 			nvt_mp_seq_printf(m, "FW Diff Min");
-			print_selftest_result(m, TestResult_FW_DiffMin, RecordResult_FW_DiffMin, RawData_Diff_Min, X_Channel, Y_Channel);
+			print_selftest_result(m, TestResult_FW_DiffMin, RecordResult_FW_DiffMin,
+					      RawData_Diff_Min, X_Channel, Y_Channel);
 		}
 	}
 
 	if (ts->pen_support) {
 		nvt_mp_seq_printf(m, "Pen FW Rawdata Test");
 		if ((TestResult_Pen_FW_Raw == 0) || (TestResult_Pen_FW_Raw == 1)) {
-			print_selftest_result(m, TestResult_Pen_FW_Raw, RecordResult_PenTipX_Raw, RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
+			print_selftest_result(m, TestResult_Pen_FW_Raw,
+				RecordResult_PenTipX_Raw,
+				RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
 		} else { // TestResult_Pen_FW_Raw is -1
 			nvt_mp_seq_printf(m, " FAIL!\n");
 			if (TestResult_PenTipX_Raw == -1) {
 				nvt_mp_seq_printf(m, "Pen Tip X Raw");
-				print_selftest_result(m, TestResult_PenTipX_Raw, RecordResult_PenTipX_Raw, RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
+				print_selftest_result(m, TestResult_PenTipX_Raw,
+					RecordResult_PenTipX_Raw,
+					RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
 			}
 			if (TestResult_PenTipY_Raw == -1) {
 				nvt_mp_seq_printf(m, "Pen Tip Y Raw");
-				print_selftest_result(m, TestResult_PenTipY_Raw, RecordResult_PenTipY_Raw, RawData_PenTipY_Raw, ts->x_gang_num, ts->y_num);
+				print_selftest_result(m, TestResult_PenTipY_Raw,
+					RecordResult_PenTipY_Raw,
+					RawData_PenTipY_Raw, ts->x_gang_num, ts->y_num);
 			}
 			if (TestResult_PenRingX_Raw == -1) {
 				nvt_mp_seq_printf(m, "Pen Ring X Raw");
-				print_selftest_result(m, TestResult_PenRingX_Raw, RecordResult_PenRingX_Raw, RawData_PenRingX_Raw, ts->x_num, ts->y_gang_num);
+				print_selftest_result(m, TestResult_PenRingX_Raw,
+						      RecordResult_PenRingX_Raw,
+						      RawData_PenRingX_Raw, ts->x_num,
+						      ts->y_gang_num);
 			}
 			if (TestResult_PenRingY_Raw == -1) {
 				nvt_mp_seq_printf(m, "Pen Ring Y Raw");
-				print_selftest_result(m, TestResult_PenRingY_Raw, RecordResult_PenRingY_Raw, RawData_PenRingY_Raw, ts->x_gang_num, ts->y_num);
+				print_selftest_result(m, TestResult_PenRingY_Raw,
+						      RecordResult_PenRingY_Raw,
+						      RawData_PenRingY_Raw, ts->x_gang_num,
+						      ts->y_num);
 			}
 		}
 
 		nvt_mp_seq_printf(m, "Pen Noise Test");
 		if ((TestResult_Pen_Noise == 0) || (TestResult_Pen_Noise == 1)) {
-			print_selftest_result(m, TestResult_Pen_Noise, RecordResult_PenTipX_DiffMax, RawData_PenTipX_DiffMax, ts->x_num, ts->y_gang_num);
+			print_selftest_result(m, TestResult_Pen_Noise,
+					      RecordResult_PenTipX_DiffMax,
+					      RawData_PenTipX_DiffMax, ts->x_num,
+					      ts->y_gang_num);
 		} else { // TestResult_Pen_Noise is -1
 			nvt_mp_seq_printf(m, " FAIL!\n");
 			if (TestResult_PenTipX_DiffMax == -1) {
 				nvt_mp_seq_printf(m, "Pen Tip X Diff Max");
-				print_selftest_result(m, TestResult_PenTipX_DiffMax, RecordResult_PenTipX_DiffMax, RawData_PenTipX_DiffMax, ts->x_num, ts->y_gang_num);
+				print_selftest_result(m, TestResult_PenTipX_DiffMax,
+						      RecordResult_PenTipX_DiffMax,
+						      RawData_PenTipX_DiffMax, ts->x_num,
+						      ts->y_gang_num);
 			}
 			if (TestResult_PenTipX_DiffMin == -1) {
 				nvt_mp_seq_printf(m, "Pen Tip X Diff Min");
-				print_selftest_result(m, TestResult_PenTipX_DiffMin, RecordResult_PenTipX_DiffMin, RawData_PenTipX_DiffMin, ts->x_num, ts->y_gang_num);
+				print_selftest_result(m, TestResult_PenTipX_DiffMin,
+						      RecordResult_PenTipX_DiffMin,
+						      RawData_PenTipX_DiffMin, ts->x_num,
+						      ts->y_gang_num);
 			}
 			if (TestResult_PenTipY_DiffMax == -1) {
 				nvt_mp_seq_printf(m, "Pen Tip Y Diff Max");
-				print_selftest_result(m, TestResult_PenTipY_DiffMax, RecordResult_PenTipY_DiffMax, RawData_PenTipY_DiffMax, ts->x_gang_num, ts->y_num);
+				print_selftest_result(m, TestResult_PenTipY_DiffMax,
+						      RecordResult_PenTipY_DiffMax,
+						      RawData_PenTipY_DiffMax, ts->x_gang_num,
+						      ts->y_num);
 			}
 			if (TestResult_PenTipY_DiffMin == -1) {
 				nvt_mp_seq_printf(m, "Pen Tip Y Diff Min");
-				print_selftest_result(m, TestResult_PenTipY_DiffMin, RecordResult_PenTipY_DiffMin, RawData_PenTipY_DiffMin, ts->x_gang_num, ts->y_num);
+				print_selftest_result(m, TestResult_PenTipY_DiffMin,
+						      RecordResult_PenTipY_DiffMin,
+						      RawData_PenTipY_DiffMin, ts->x_gang_num,
+						      ts->y_num);
 			}
 			if (TestResult_PenRingX_DiffMax == -1) {
 				nvt_mp_seq_printf(m, "Pen Ring X Diff Max");
-				print_selftest_result(m, TestResult_PenRingX_DiffMax, RecordResult_PenRingX_DiffMax, RawData_PenRingX_DiffMax, ts->x_num, ts->y_gang_num);
+				print_selftest_result(m, TestResult_PenRingX_DiffMax,
+						      RecordResult_PenRingX_DiffMax,
+						      RawData_PenRingX_DiffMax, ts->x_num,
+						      ts->y_gang_num);
 			}
 			if (TestResult_PenRingX_DiffMin == -1) {
 				nvt_mp_seq_printf(m, "Pen Ring X Diff Min");
-				print_selftest_result(m, TestResult_PenRingX_DiffMin, RecordResult_PenRingX_DiffMin, RawData_PenRingX_DiffMin, ts->x_num, ts->y_gang_num);
+				print_selftest_result(m, TestResult_PenRingX_DiffMin,
+						      RecordResult_PenRingX_DiffMin,
+						      RawData_PenRingX_DiffMin, ts->x_num,
+						      ts->y_gang_num);
 			}
 			if (TestResult_PenRingY_DiffMax == -1) {
 				nvt_mp_seq_printf(m, "Pen Ring Y Diff Max");
-				print_selftest_result(m, TestResult_PenRingY_DiffMax, RecordResult_PenRingY_DiffMax, RawData_PenRingY_DiffMax, ts->x_gang_num, ts->y_num);
+				print_selftest_result(m, TestResult_PenRingY_DiffMax,
+						      RecordResult_PenRingY_DiffMax,
+						      RawData_PenRingY_DiffMax, ts->x_gang_num,
+						      ts->y_num);
 			}
 			if (TestResult_PenRingY_DiffMin == -1) {
 				nvt_mp_seq_printf(m, "Pen Ring Y Diff Min");
-				print_selftest_result(m, TestResult_PenRingY_DiffMin, RecordResult_PenRingY_DiffMin, RawData_PenRingY_DiffMin, ts->x_gang_num, ts->y_num);
+				print_selftest_result(m, TestResult_PenRingY_DiffMin,
+						      RecordResult_PenRingY_DiffMin,
+						      RawData_PenRingY_DiffMin, ts->x_gang_num,
+						      ts->y_num);
 			}
 		}
 	} /* if (ts->pen_support) */
@@ -1491,7 +1611,7 @@ static int32_t c_show_selftest(struct seq_file *m, void *v)
 
 	NVT_LOG("--\n");
 
-    return 0;
+	return 0;
 }
 
 /*******************************************************
@@ -1667,14 +1787,16 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	if (nvt_read_baseline(RawData_FWMutual) != 0) {
 		TestResult_FWMutual = 1;
 	} else {
-		TestResult_FWMutual = RawDataTest_SinglePoint_Sub(RawData_FWMutual, RecordResult_FWMutual, X_Channel, Y_Channel,
-												PS_Config_Lmt_FW_Rawdata_P, PS_Config_Lmt_FW_Rawdata_N);
+		TestResult_FWMutual = RawDataTest_SinglePoint_Sub(RawData_FWMutual,
+				      RecordResult_FWMutual, X_Channel, Y_Channel,
+				      PS_Config_Lmt_FW_Rawdata_P, PS_Config_Lmt_FW_Rawdata_N);
 	}
 	if (nvt_read_CC(RawData_FW_CC) != 0) {
 		TestResult_FW_CC = 1;
 	} else {
-		TestResult_FW_CC = RawDataTest_SinglePoint_Sub(RawData_FW_CC, RecordResult_FW_CC, X_Channel, Y_Channel,
-											PS_Config_Lmt_FW_CC_P, PS_Config_Lmt_FW_CC_N);
+		TestResult_FW_CC = RawDataTest_SinglePoint_Sub(RawData_FW_CC,
+				   RecordResult_FW_CC, X_Channel, Y_Channel,
+				   PS_Config_Lmt_FW_CC_P, PS_Config_Lmt_FW_CC_N);
 	}
 
 	if ((TestResult_FWMutual == 1) || (TestResult_FW_CC == 1)) {
@@ -1691,16 +1813,25 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		if (nvt_read_pen_baseline() != 0) {
 			TestResult_Pen_FW_Raw = 1;
 		} else {
-			TestResult_PenTipX_Raw = RawDataTest_SinglePoint_Sub(RawData_PenTipX_Raw, RecordResult_PenTipX_Raw, ts->x_num, ts->y_gang_num,
-											PS_Config_Lmt_PenTipX_FW_Raw_P, PS_Config_Lmt_PenTipX_FW_Raw_N);
-			TestResult_PenTipY_Raw = RawDataTest_SinglePoint_Sub(RawData_PenTipY_Raw, RecordResult_PenTipY_Raw, ts->x_gang_num, ts->y_num,
-											PS_Config_Lmt_PenTipY_FW_Raw_P, PS_Config_Lmt_PenTipY_FW_Raw_N);
-			TestResult_PenRingX_Raw = RawDataTest_SinglePoint_Sub(RawData_PenRingX_Raw, RecordResult_PenRingX_Raw, ts->x_num, ts->y_gang_num,
-											PS_Config_Lmt_PenRingX_FW_Raw_P, PS_Config_Lmt_PenRingX_FW_Raw_N);
-			TestResult_PenRingY_Raw = RawDataTest_SinglePoint_Sub(RawData_PenRingY_Raw, RecordResult_PenRingY_Raw, ts->x_gang_num, ts->y_num,
-											PS_Config_Lmt_PenRingY_FW_Raw_P, PS_Config_Lmt_PenRingY_FW_Raw_N);
+			TestResult_PenTipX_Raw =
+				RawDataTest_SinglePoint_Sub(RawData_PenTipX_Raw,
+				RecordResult_PenTipX_Raw, ts->x_num, ts->y_gang_num,
+				PS_Config_Lmt_PenTipX_FW_Raw_P, PS_Config_Lmt_PenTipX_FW_Raw_N);
+			TestResult_PenTipY_Raw =
+				RawDataTest_SinglePoint_Sub(RawData_PenTipY_Raw,
+				RecordResult_PenTipY_Raw, ts->x_gang_num, ts->y_num,
+				PS_Config_Lmt_PenTipY_FW_Raw_P, PS_Config_Lmt_PenTipY_FW_Raw_N);
+			TestResult_PenRingX_Raw =
+				RawDataTest_SinglePoint_Sub(RawData_PenRingX_Raw,
+				RecordResult_PenRingX_Raw, ts->x_num, ts->y_gang_num,
+				PS_Config_Lmt_PenRingX_FW_Raw_P, PS_Config_Lmt_PenRingX_FW_Raw_N);
+			TestResult_PenRingY_Raw =
+				RawDataTest_SinglePoint_Sub(RawData_PenRingY_Raw,
+				RecordResult_PenRingY_Raw, ts->x_gang_num, ts->y_num,
+				PS_Config_Lmt_PenRingY_FW_Raw_P, PS_Config_Lmt_PenRingY_FW_Raw_N);
 
-			if ((TestResult_PenTipX_Raw == -1) || (TestResult_PenTipY_Raw == -1) || (TestResult_PenRingX_Raw == -1) || (TestResult_PenRingY_Raw == -1))
+			if ((TestResult_PenTipX_Raw == -1) || (TestResult_PenTipY_Raw == -1) ||
+			    (TestResult_PenRingX_Raw == -1) || (TestResult_PenRingY_Raw == -1))
 				TestResult_Pen_FW_Raw = -1;
 			else
 				TestResult_Pen_FW_Raw = 0;
@@ -1727,11 +1858,13 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 			TestResult_PenRingY_DiffMin = 1;
 		} /* if (ts->pen_support) */
 	} else {
-		TestResult_FW_DiffMax = RawDataTest_SinglePoint_Sub(RawData_Diff_Max, RecordResult_FW_DiffMax, X_Channel, Y_Channel,
-											PS_Config_Lmt_FW_Diff_P, PS_Config_Lmt_FW_Diff_N);
+		TestResult_FW_DiffMax = RawDataTest_SinglePoint_Sub(RawData_Diff_Max,
+					RecordResult_FW_DiffMax, X_Channel, Y_Channel,
+					PS_Config_Lmt_FW_Diff_P, PS_Config_Lmt_FW_Diff_N);
 
-		TestResult_FW_DiffMin = RawDataTest_SinglePoint_Sub(RawData_Diff_Min, RecordResult_FW_DiffMin, X_Channel, Y_Channel,
-											PS_Config_Lmt_FW_Diff_P, PS_Config_Lmt_FW_Diff_N);
+		TestResult_FW_DiffMin = RawDataTest_SinglePoint_Sub(RawData_Diff_Min,
+					RecordResult_FW_DiffMin, X_Channel, Y_Channel,
+					PS_Config_Lmt_FW_Diff_P, PS_Config_Lmt_FW_Diff_N);
 
 		if ((TestResult_FW_DiffMax == -1) || (TestResult_FW_DiffMin == -1))
 			TestResult_Noise = -1;
@@ -1739,32 +1872,70 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 			TestResult_Noise = 0;
 
 		if (ts->pen_support) {
-			TestResult_PenTipX_DiffMax = RawDataTest_SinglePoint_Sub(RawData_PenTipX_DiffMax, RecordResult_PenTipX_DiffMax, ts->x_num, ts->y_gang_num,
-											PS_Config_Lmt_PenTipX_FW_Diff_P, PS_Config_Lmt_PenTipX_FW_Diff_N);
+			TestResult_PenTipX_DiffMax = RawDataTest_SinglePoint_Sub(
+							     RawData_PenTipX_DiffMax,
+							     RecordResult_PenTipX_DiffMax,
+							     ts->x_num, ts->y_gang_num,
+							     PS_Config_Lmt_PenTipX_FW_Diff_P,
+							     PS_Config_Lmt_PenTipX_FW_Diff_N);
 
-			TestResult_PenTipX_DiffMin = RawDataTest_SinglePoint_Sub(RawData_PenTipX_DiffMin, RecordResult_PenTipX_DiffMin, ts->x_num, ts->y_gang_num,
-											PS_Config_Lmt_PenTipX_FW_Diff_P, PS_Config_Lmt_PenTipX_FW_Diff_N);
+			TestResult_PenTipX_DiffMin = RawDataTest_SinglePoint_Sub(
+							     RawData_PenTipX_DiffMin,
+							     RecordResult_PenTipX_DiffMin,
+							     ts->x_num, ts->y_gang_num,
+							     PS_Config_Lmt_PenTipX_FW_Diff_P,
+							     PS_Config_Lmt_PenTipX_FW_Diff_N);
 
-			TestResult_PenTipY_DiffMax = RawDataTest_SinglePoint_Sub(RawData_PenTipY_DiffMax, RecordResult_PenTipY_DiffMax, ts->x_gang_num, ts->y_num,
-											PS_Config_Lmt_PenTipY_FW_Diff_P, PS_Config_Lmt_PenTipY_FW_Diff_N);
+			TestResult_PenTipY_DiffMax = RawDataTest_SinglePoint_Sub(
+							     RawData_PenTipY_DiffMax,
+							     RecordResult_PenTipY_DiffMax,
+							     ts->x_gang_num, ts->y_num,
+							     PS_Config_Lmt_PenTipY_FW_Diff_P,
+							     PS_Config_Lmt_PenTipY_FW_Diff_N);
 
-			TestResult_PenTipY_DiffMin = RawDataTest_SinglePoint_Sub(RawData_PenTipY_DiffMin, RecordResult_PenTipY_DiffMin, ts->x_gang_num, ts->y_num,
-											PS_Config_Lmt_PenTipY_FW_Diff_P, PS_Config_Lmt_PenTipY_FW_Diff_N);
+			TestResult_PenTipY_DiffMin = RawDataTest_SinglePoint_Sub(
+							     RawData_PenTipY_DiffMin,
+							     RecordResult_PenTipY_DiffMin,
+							     ts->x_gang_num, ts->y_num,
+							     PS_Config_Lmt_PenTipY_FW_Diff_P,
+							     PS_Config_Lmt_PenTipY_FW_Diff_N);
 
-			TestResult_PenRingX_DiffMax = RawDataTest_SinglePoint_Sub(RawData_PenRingX_DiffMax, RecordResult_PenRingX_DiffMax, ts->x_num, ts->y_gang_num,
-											PS_Config_Lmt_PenRingX_FW_Diff_P, PS_Config_Lmt_PenRingX_FW_Diff_N);
+			TestResult_PenRingX_DiffMax = RawDataTest_SinglePoint_Sub(
+							      RawData_PenRingX_DiffMax,
+							      RecordResult_PenRingX_DiffMax,
+							      ts->x_num, ts->y_gang_num,
+							      PS_Config_Lmt_PenRingX_FW_Diff_P,
+							      PS_Config_Lmt_PenRingX_FW_Diff_N);
 
-			TestResult_PenRingX_DiffMin = RawDataTest_SinglePoint_Sub(RawData_PenRingX_DiffMin, RecordResult_PenRingX_DiffMin, ts->x_num, ts->y_gang_num,
-											PS_Config_Lmt_PenRingX_FW_Diff_P, PS_Config_Lmt_PenRingX_FW_Diff_N);
+			TestResult_PenRingX_DiffMin = RawDataTest_SinglePoint_Sub(
+							      RawData_PenRingX_DiffMin,
+							      RecordResult_PenRingX_DiffMin,
+							      ts->x_num, ts->y_gang_num,
+							      PS_Config_Lmt_PenRingX_FW_Diff_P,
+							      PS_Config_Lmt_PenRingX_FW_Diff_N);
 
-			TestResult_PenRingY_DiffMax = RawDataTest_SinglePoint_Sub(RawData_PenRingY_DiffMax, RecordResult_PenRingY_DiffMax, ts->x_gang_num, ts->y_num,
-											PS_Config_Lmt_PenRingY_FW_Diff_P, PS_Config_Lmt_PenRingY_FW_Diff_N);
+			TestResult_PenRingY_DiffMax = RawDataTest_SinglePoint_Sub(
+							      RawData_PenRingY_DiffMax,
+							      RecordResult_PenRingY_DiffMax,
+							      ts->x_gang_num, ts->y_num,
+							      PS_Config_Lmt_PenRingY_FW_Diff_P,
+							      PS_Config_Lmt_PenRingY_FW_Diff_N);
 
-			TestResult_PenRingY_DiffMin = RawDataTest_SinglePoint_Sub(RawData_PenRingY_DiffMin, RecordResult_PenRingY_DiffMin, ts->x_gang_num, ts->y_num,
-											PS_Config_Lmt_PenRingY_FW_Diff_P, PS_Config_Lmt_PenRingY_FW_Diff_N);
+			TestResult_PenRingY_DiffMin = RawDataTest_SinglePoint_Sub(
+							      RawData_PenRingY_DiffMin,
+							      RecordResult_PenRingY_DiffMin,
+							      ts->x_gang_num, ts->y_num,
+							      PS_Config_Lmt_PenRingY_FW_Diff_P,
+							      PS_Config_Lmt_PenRingY_FW_Diff_N);
 
-			if ((TestResult_PenTipX_DiffMax == -1) || (TestResult_PenTipX_DiffMin == -1) || (TestResult_PenTipY_DiffMax == -1) || (TestResult_PenTipY_DiffMin == -1) ||
-				(TestResult_PenRingX_DiffMax == -1) || (TestResult_PenRingX_DiffMin == -1) || (TestResult_PenRingY_DiffMax == -1) || (TestResult_PenRingY_DiffMin == -1))
+			if ((TestResult_PenTipX_DiffMax == -1) ||
+			    (TestResult_PenTipX_DiffMin == -1) ||
+			    (TestResult_PenTipY_DiffMax == -1) ||
+			    (TestResult_PenTipY_DiffMin == -1) ||
+			    (TestResult_PenRingX_DiffMax == -1) ||
+			    (TestResult_PenRingX_DiffMin == -1) ||
+			    (TestResult_PenRingY_DiffMax == -1) ||
+			    (TestResult_PenRingY_DiffMin == -1))
 				TestResult_Pen_Noise = -1;
 			else
 				TestResult_Pen_Noise = 0;
@@ -1776,8 +1947,9 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		TestResult_Short = 1; // 1:ERROR
 	} else {
 		//---Self Test Check --- // 0:PASS, -1:FAIL
-		TestResult_Short = RawDataTest_SinglePoint_Sub(RawData_Short, RecordResult_Short, X_Channel, Y_Channel,
-										PS_Config_Lmt_Short_Rawdata_P, PS_Config_Lmt_Short_Rawdata_N);
+		TestResult_Short = RawDataTest_SinglePoint_Sub(RawData_Short,
+				   RecordResult_Short, X_Channel, Y_Channel,
+				   PS_Config_Lmt_Short_Rawdata_P, PS_Config_Lmt_Short_Rawdata_N);
 	}
 
 	//---Open Test---
@@ -1785,8 +1957,9 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		TestResult_Open = 1;    // 1:ERROR
 	} else {
 		//---Self Test Check --- // 0:PASS, -1:FAIL
-		TestResult_Open = RawDataTest_SinglePoint_Sub(RawData_Open, RecordResult_Open, X_Channel, Y_Channel,
-											PS_Config_Lmt_Open_Rawdata_P, PS_Config_Lmt_Open_Rawdata_N);
+		TestResult_Open = RawDataTest_SinglePoint_Sub(RawData_Open,
+				  RecordResult_Open, X_Channel, Y_Channel,
+				  PS_Config_Lmt_Open_Rawdata_P, PS_Config_Lmt_Open_Rawdata_N);
 	}
 
 	//---Download Normal FW---
@@ -1826,7 +1999,8 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_mp_parse_ain(struct device_node *np, const char *name, uint8_t *array, int32_t size)
+int32_t nvt_mp_parse_ain(struct device_node *np, const char *name,
+			 uint8_t *array, int32_t size)
 {
 	struct property *data;
 	int32_t len, ret;
@@ -1866,7 +2040,8 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_mp_parse_u32(struct device_node *np, const char *name, int32_t *para)
+int32_t nvt_mp_parse_u32(struct device_node *np, const char *name,
+			 int32_t *para)
 {
 	int32_t ret;
 
@@ -1890,8 +2065,9 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_mp_parse_array(struct device_node *np, const char *name, int32_t *array,
-		int32_t size)
+int32_t nvt_mp_parse_array(struct device_node *np, const char *name,
+			   int32_t *array,
+			   int32_t size)
 {
 	struct property *data;
 	int32_t len, ret;
@@ -1935,8 +2111,9 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_mp_parse_pen_array(struct device_node *np, const char *name, int32_t *array,
-		uint32_t x_num, uint32_t y_num)
+int32_t nvt_mp_parse_pen_array(struct device_node *np, const char *name,
+			       int32_t *array,
+			       uint32_t x_num, uint32_t y_num)
 {
 	struct property *data;
 	int32_t len, ret;
@@ -1978,7 +2155,8 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_mp_parse_dt(struct device_node *root, const char *node_compatible)
+int32_t nvt_mp_parse_dt(struct device_node *root,
+			const char *node_compatible)
 {
 	struct device_node *np = root;
 	struct device_node *child = NULL;
@@ -2029,113 +2207,138 @@ int32_t nvt_mp_parse_dt(struct device_node *root, const char *node_compatible)
 #endif
 
 	/* MP Criteria */
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Short_Rawdata_P", PS_Config_Lmt_Short_Rawdata_P,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Short_Rawdata_P",
+			       PS_Config_Lmt_Short_Rawdata_P,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Short_Rawdata_N", PS_Config_Lmt_Short_Rawdata_N,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Short_Rawdata_N",
+			       PS_Config_Lmt_Short_Rawdata_N,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Open_Rawdata_P", PS_Config_Lmt_Open_Rawdata_P,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Open_Rawdata_P",
+			       PS_Config_Lmt_Open_Rawdata_P,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Open_Rawdata_N", PS_Config_Lmt_Open_Rawdata_N,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_Open_Rawdata_N",
+			       PS_Config_Lmt_Open_Rawdata_N,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Rawdata_P", PS_Config_Lmt_FW_Rawdata_P,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Rawdata_P",
+			       PS_Config_Lmt_FW_Rawdata_P,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Rawdata_N", PS_Config_Lmt_FW_Rawdata_N,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Rawdata_N",
+			       PS_Config_Lmt_FW_Rawdata_N,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
 	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_CC_P", PS_Config_Lmt_FW_CC_P,
-			X_Channel * Y_Channel + Key_Channel))
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
 	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_CC_N", PS_Config_Lmt_FW_CC_N,
-			X_Channel * Y_Channel + Key_Channel))
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Diff_P", PS_Config_Lmt_FW_Diff_P,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Diff_P",
+			       PS_Config_Lmt_FW_Diff_P,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Diff_N", PS_Config_Lmt_FW_Diff_N,
-			X_Channel * Y_Channel + Key_Channel))
+	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_Diff_N",
+			       PS_Config_Lmt_FW_Diff_N,
+			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
 	if (ts->pen_support) {
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Raw_P", PS_Config_Lmt_PenTipX_FW_Raw_P,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Raw_P",
+					   PS_Config_Lmt_PenTipX_FW_Raw_P,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Raw_N", PS_Config_Lmt_PenTipX_FW_Raw_N,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Raw_N",
+					   PS_Config_Lmt_PenTipX_FW_Raw_N,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Raw_P", PS_Config_Lmt_PenTipY_FW_Raw_P,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Raw_P",
+					   PS_Config_Lmt_PenTipY_FW_Raw_P,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Raw_N", PS_Config_Lmt_PenTipY_FW_Raw_N,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Raw_N",
+					   PS_Config_Lmt_PenTipY_FW_Raw_N,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Raw_P", PS_Config_Lmt_PenRingX_FW_Raw_P,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Raw_P",
+					   PS_Config_Lmt_PenRingX_FW_Raw_P,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Raw_N", PS_Config_Lmt_PenRingX_FW_Raw_N,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Raw_N",
+					   PS_Config_Lmt_PenRingX_FW_Raw_N,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Raw_P", PS_Config_Lmt_PenRingY_FW_Raw_P,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Raw_P",
+					   PS_Config_Lmt_PenRingY_FW_Raw_P,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Raw_N", PS_Config_Lmt_PenRingY_FW_Raw_N,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Raw_N",
+					   PS_Config_Lmt_PenRingY_FW_Raw_N,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Diff_P", PS_Config_Lmt_PenTipX_FW_Diff_P,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Diff_P",
+					   PS_Config_Lmt_PenTipX_FW_Diff_P,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Diff_N", PS_Config_Lmt_PenTipX_FW_Diff_N,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipX_FW_Diff_N",
+					   PS_Config_Lmt_PenTipX_FW_Diff_N,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Diff_P", PS_Config_Lmt_PenTipY_FW_Diff_P,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Diff_P",
+					   PS_Config_Lmt_PenTipY_FW_Diff_P,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Diff_N", PS_Config_Lmt_PenTipY_FW_Diff_N,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenTipY_FW_Diff_N",
+					   PS_Config_Lmt_PenTipY_FW_Diff_N,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Diff_P", PS_Config_Lmt_PenRingX_FW_Diff_P,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Diff_P",
+					   PS_Config_Lmt_PenRingX_FW_Diff_P,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Diff_N", PS_Config_Lmt_PenRingX_FW_Diff_N,
-				ts->x_num, ts->y_gang_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingX_FW_Diff_N",
+					   PS_Config_Lmt_PenRingX_FW_Diff_N,
+					   ts->x_num, ts->y_gang_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Diff_P", PS_Config_Lmt_PenRingY_FW_Diff_P,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Diff_P",
+					   PS_Config_Lmt_PenRingY_FW_Diff_P,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 
-		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Diff_N", PS_Config_Lmt_PenRingY_FW_Diff_N,
-				ts->x_gang_num, ts->y_num))
+		if (nvt_mp_parse_pen_array(np, "PS_Config_Lmt_PenRingY_FW_Diff_N",
+					   PS_Config_Lmt_PenRingY_FW_Diff_N,
+					   ts->x_gang_num, ts->y_num))
 			return -EPERM;
 	} /* if (ts->pen_support) */
 
-	if (nvt_mp_parse_u32(np, "PS_Config_Diff_Test_Frame", &PS_Config_Diff_Test_Frame))
+	if (nvt_mp_parse_u32(np, "PS_Config_Diff_Test_Frame",
+			     &PS_Config_Diff_Test_Frame))
 		return -EPERM;
 
 	NVT_LOG("Parse mp criteria done!\n");
@@ -2154,7 +2357,8 @@ return:
 *******************************************************/
 int32_t nvt_mp_proc_init(void)
 {
-	NVT_proc_selftest_entry = proc_create("nvt_selftest", 0444, NULL, &nvt_selftest_fops);
+	NVT_proc_selftest_entry = proc_create("nvt_selftest", 0444, NULL,
+					      &nvt_selftest_fops);
 	if (NVT_proc_selftest_entry == NULL) {
 		NVT_ERR("create /proc/nvt_selftest Failed!\n");
 		return -EPERM;

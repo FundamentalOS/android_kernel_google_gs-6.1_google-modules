@@ -59,16 +59,20 @@ static int32_t nvt_get_fw_need_write_size(const struct firmware *fw_entry)
 	for (i = total_sectors_to_check; i > 0; i--) {
 		/* printk("current end flag address checked = 0x%X\n", i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN); */
 		/* check if there is end flag "NVT" at the end of this sector */
-		if (strncmp(&fw_entry->data[i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN], "NVT", NVT_FLASH_END_FLAG_LEN) == 0) {
+		if (strncmp(&fw_entry->data[i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN],
+			"NVT", NVT_FLASH_END_FLAG_LEN) == 0) {
 			fw_need_write_size = i * FLASH_SECTOR_SIZE;
-			NVT_LOG("fw_need_write_size = %zu(0x%zx), NVT end flag\n", fw_need_write_size, fw_need_write_size);
+			NVT_LOG("fw_need_write_size = %zu(0x%zx), NVT end flag\n",
+				fw_need_write_size, fw_need_write_size);
 			return 0;
 		}
 
 		/* check if there is end flag "MOD" at the end of this sector */
-		if (strncmp(&fw_entry->data[i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN], "MOD", NVT_FLASH_END_FLAG_LEN) == 0) {
+		if (strncmp(&fw_entry->data[i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN],
+			"MOD", NVT_FLASH_END_FLAG_LEN) == 0) {
 			fw_need_write_size = i * FLASH_SECTOR_SIZE;
-			NVT_LOG("fw_need_write_size = %zu(0x%zx), MOD end flag\n", fw_need_write_size, fw_need_write_size);
+			NVT_LOG("fw_need_write_size = %zu(0x%zx), MOD end flag\n",
+				fw_need_write_size, fw_need_write_size);
 			return 0;
 		}
 	}
@@ -91,7 +95,8 @@ static int32_t nvt_download_init(void)
 	//NVT_LOG("NVT_TRANSFER_LEN = 0x%06X\n", NVT_TRANSFER_LEN);
 
 	if (fwbuf == NULL) {
-		fwbuf = (uint8_t *)kzalloc((NVT_TRANSFER_LEN + 1 + DUMMY_BYTES), GFP_KERNEL);
+		fwbuf = (uint8_t *)kzalloc((NVT_TRANSFER_LEN + 1 + DUMMY_BYTES),
+					   GFP_KERNEL);
 		if (fwbuf == NULL) {
 			NVT_ERR("kzalloc for fwbuf failed!\n");
 			return -ENOMEM;
@@ -183,10 +188,11 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 	 */
 	partition = ilm_dlm_num + ovly_sec_num + info_sec_num;
 	NVT_LOG("ovly_info = %d, ilm_dlm_num = %d, ovly_sec_num = %d, info_sec_num = %d, partition = %d\n",
-			ovly_info, ilm_dlm_num, ovly_sec_num, info_sec_num, partition);
+		ovly_info, ilm_dlm_num, ovly_sec_num, info_sec_num, partition);
 
 	/* allocated memory for header info */
-	bin_map = (struct nvt_ts_bin_map *)kzalloc((partition+1) * sizeof(struct nvt_ts_bin_map), GFP_KERNEL);
+	bin_map = (struct nvt_ts_bin_map *)kzalloc((partition+1) *
+		sizeof(struct nvt_ts_bin_map), GFP_KERNEL);
 	if (bin_map == NULL) {
 		NVT_ERR("kzalloc for bin_map failed!\n");
 		return -ENOMEM;
@@ -206,10 +212,13 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 				bin_map[list].crc = byte_to_word(&fwdata[0x18 + list*4]);
 			else { //ts->hw_crc
 				if ((bin_map[list].BIN_addr + bin_map[list].size) < fwsize)
-					bin_map[list].crc = CheckSum(&fwdata[bin_map[list].BIN_addr], bin_map[list].size);
+					bin_map[list].crc =
+						CheckSum(&fwdata[bin_map[list].BIN_addr],
+							bin_map[list].size);
 				else {
 					NVT_ERR("access range (0x%08X to 0x%08X) is larger than bin size!\n",
-							bin_map[list].BIN_addr, bin_map[list].BIN_addr + bin_map[list].size);
+						bin_map[list].BIN_addr,
+						bin_map[list].BIN_addr + bin_map[list].size);
 					return -EINVAL;
 				}
 			} //ts->hw_crc
@@ -239,10 +248,13 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 				bin_map[list].crc = byte_to_word(&fwdata[pos+12]);
 			else { //ts->hw_crc
 				if ((bin_map[list].BIN_addr + bin_map[list].size) < fwsize)
-					bin_map[list].crc = CheckSum(&fwdata[bin_map[list].BIN_addr], bin_map[list].size);
+					bin_map[list].crc =
+						CheckSum(&fwdata[bin_map[list].BIN_addr],
+							bin_map[list].size);
 				else {
 					NVT_ERR("access range (0x%08X to 0x%08X) is larger than bin size!\n",
-							bin_map[list].BIN_addr, bin_map[list].BIN_addr + bin_map[list].size);
+						bin_map[list].BIN_addr,
+						bin_map[list].BIN_addr + bin_map[list].size);
 					return -EINVAL;
 				}
 			} //ts->hw_crc
@@ -251,7 +263,8 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 				snprintf(bin_map[list].name, sizeof(bin_map[list].name), "Header");
 				find_bin_header = 1;
 			} else {
-				snprintf(bin_map[list].name, sizeof(bin_map[list].name), "Info-%d", (list - ilm_dlm_num));
+				snprintf(bin_map[list].name, sizeof(bin_map[list].name), "Info-%d",
+					 (list - ilm_dlm_num));
 			}
 		}
 
@@ -270,20 +283,25 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 				bin_map[list].crc = byte_to_word(&fwdata[pos+12]);
 			else { //ts->hw_crc
 				if ((bin_map[list].BIN_addr + bin_map[list].size) < fwsize)
-					bin_map[list].crc = CheckSum(&fwdata[bin_map[list].BIN_addr], bin_map[list].size);
+					bin_map[list].crc =
+						CheckSum(&fwdata[bin_map[list].BIN_addr],
+							bin_map[list].size);
 				else {
 					NVT_ERR("access range (0x%08X to 0x%08X) is larger than bin size!\n",
-							bin_map[list].BIN_addr, bin_map[list].BIN_addr + bin_map[list].size);
+						bin_map[list].BIN_addr,
+						bin_map[list].BIN_addr + bin_map[list].size);
 					return -EINVAL;
 				}
 			} //ts->hw_crc
-			snprintf(bin_map[list].name, sizeof(bin_map[list].name), "Overlay-%d", (list - ilm_dlm_num - info_sec_num));
+			snprintf(bin_map[list].name, sizeof(bin_map[list].name), "Overlay-%d",
+				 (list - ilm_dlm_num - info_sec_num));
 		}
 
 		/* BIN size error detect */
 		if ((bin_map[list].BIN_addr + bin_map[list].size) > fwsize) {
 			NVT_ERR("access range (0x%08X to 0x%08X) is larger than bin size!\n",
-					bin_map[list].BIN_addr, bin_map[list].BIN_addr + bin_map[list].size);
+				bin_map[list].BIN_addr,
+				bin_map[list].BIN_addr + bin_map[list].size);
 			return -EINVAL;
 		}
 
@@ -344,9 +362,12 @@ static int32_t update_firmware_request(char *filename)
 		}
 
 		// check if FW version add FW version bar equals 0xFF
-		if (*(fw_entry->data + FW_BIN_VER_OFFSET) + *(fw_entry->data + FW_BIN_VER_BAR_OFFSET) != 0xFF) {
+		if (*(fw_entry->data + FW_BIN_VER_OFFSET) + *(fw_entry->data +
+				FW_BIN_VER_BAR_OFFSET) != 0xFF) {
 			NVT_ERR("bin file FW_VER + FW_VER_BAR should be 0xFF!\n");
-			NVT_ERR("FW_VER=0x%02X, FW_VER_BAR=0x%02X\n", *(fw_entry->data+FW_BIN_VER_OFFSET), *(fw_entry->data+FW_BIN_VER_BAR_OFFSET));
+			NVT_ERR("FW_VER=0x%02X, FW_VER_BAR=0x%02X\n",
+				*(fw_entry->data+FW_BIN_VER_OFFSET),
+				*(fw_entry->data+FW_BIN_VER_BAR_OFFSET));
 			ret = -ENOEXEC;
 			goto invalid;
 		}
@@ -391,7 +412,7 @@ return:
 	Executive outcomes. 0---succeed. else---fail.
 *******************************************************/
 static int32_t nvt_write_sram(const u8 *fwdata,
-		uint32_t SRAM_addr, uint32_t size, uint32_t BIN_addr)
+			      uint32_t SRAM_addr, uint32_t size, uint32_t BIN_addr)
 {
 	int32_t ret = 0;
 	uint32_t i = 0;
@@ -460,7 +481,7 @@ static int32_t nvt_write_firmware(const u8 *fwdata, size_t fwsize)
 		/* Check data size */
 		if ((BIN_addr + size) > fwsize) {
 			NVT_ERR("access range (0x%08X to 0x%08X) is larger than bin size!\n",
-					BIN_addr, BIN_addr + size);
+				BIN_addr, BIN_addr + size);
 			ret = -EINVAL;
 			goto out;
 		}
@@ -525,7 +546,7 @@ static int32_t nvt_check_fw_checksum(void)
 
 		if (bin_map[list].crc != fw_checksum) {
 			NVT_ERR("[%d] BIN_checksum=0x%08X, FW_checksum=0x%08X\n",
-					list, bin_map[list].crc, fw_checksum);
+				list, bin_map[list].crc, fw_checksum);
 			ret = -EIO;
 		}
 	}
@@ -542,8 +563,8 @@ return:
 	n.a.
 *******************************************************/
 static void nvt_set_bld_crc_bank(uint32_t DES_ADDR, uint32_t SRAM_ADDR,
-		uint32_t LENGTH_ADDR, uint32_t size,
-		uint32_t G_CHECKSUM_ADDR, uint32_t crc)
+				 uint32_t LENGTH_ADDR, uint32_t size,
+				 uint32_t G_CHECKSUM_ADDR, uint32_t crc)
 {
 	/* write destination address */
 	nvt_set_page(DES_ADDR);
@@ -590,14 +611,14 @@ static void nvt_set_bld_hw_crc(void)
 	/* [0] ILM */
 	/* write register bank */
 	nvt_set_bld_crc_bank(ts->mmap->ILM_DES_ADDR, bin_map[0].SRAM_addr,
-			ts->mmap->ILM_LENGTH_ADDR, bin_map[0].size,
-			ts->mmap->G_ILM_CHECKSUM_ADDR, bin_map[0].crc);
+			     ts->mmap->ILM_LENGTH_ADDR, bin_map[0].size,
+			     ts->mmap->G_ILM_CHECKSUM_ADDR, bin_map[0].crc);
 
 	/* [1] DLM */
 	/* write register bank */
 	nvt_set_bld_crc_bank(ts->mmap->DLM_DES_ADDR, bin_map[1].SRAM_addr,
-			ts->mmap->DLM_LENGTH_ADDR, bin_map[1].size,
-			ts->mmap->G_DLM_CHECKSUM_ADDR, bin_map[1].crc);
+			     ts->mmap->DLM_LENGTH_ADDR, bin_map[1].size,
+			     ts->mmap->G_DLM_CHECKSUM_ADDR, bin_map[1].crc);
 }
 
 /*******************************************************
@@ -619,7 +640,7 @@ static void nvt_read_bld_hw_crc(void)
 	buf[1] = 0x00;
 	CTP_SPI_READ(ts->client, buf, 2);
 	NVT_ERR("crc_done = %d, ilm_crc_flag = %d, dlm_crc_flag = %d\n",
-			(buf[1] >> 2) & 0x01, (buf[1] >> 0) & 0x01, (buf[1] >> 1) & 0x01);
+		(buf[1] >> 2) & 0x01, (buf[1] >> 0) & 0x01, (buf[1] >> 1) & 0x01);
 
 	/* ILM CRC */
 	nvt_set_page(ts->mmap->G_ILM_CHECKSUM_ADDR);
@@ -641,7 +662,7 @@ static void nvt_read_bld_hw_crc(void)
 	r_crc = buf[1] | (buf[2] << 8) | (buf[3] << 16) | (buf[4] << 24);
 
 	NVT_ERR("ilm: bin crc = 0x%08X, golden = 0x%08X, result = 0x%08X\n",
-			bin_map[0].crc, g_crc, r_crc);
+		bin_map[0].crc, g_crc, r_crc);
 
 	/* DLM CRC */
 	nvt_set_page(ts->mmap->G_DLM_CHECKSUM_ADDR);
@@ -663,7 +684,7 @@ static void nvt_read_bld_hw_crc(void)
 	r_crc = buf[1] | (buf[2] << 8) | (buf[3] << 16) | (buf[4] << 24);
 
 	NVT_ERR("dlm: bin crc = 0x%08X, golden = 0x%08X, result = 0x%08X\n",
-			bin_map[1].crc, g_crc, r_crc);
+		bin_map[1].crc, g_crc, r_crc);
 
 	return;
 }
@@ -853,7 +874,7 @@ int32_t nvt_update_firmware(char *firmware_name)
 	}
 
 	NVT_LOG("Update firmware success! <%ld us>\n",
-			(long) ktime_us_delta(end, start));
+		(long) ktime_us_delta(end, start));
 
 	/* Get FW Info */
 	ret = nvt_get_fw_info();
