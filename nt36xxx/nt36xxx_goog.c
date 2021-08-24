@@ -9,12 +9,19 @@
 
 static void panel_bridge_enable(struct drm_bridge *bridge)
 {
+	struct nvt_ts_data *ts =
+		container_of(bridge, struct nvt_ts_data, panel_bridge);
 
 	NVT_LOG("\n");
+	if (!ts->is_panel_lp_mode)
+		nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, true);
 }
 
 static void panel_bridge_disable(struct drm_bridge *bridge)
 {
+	struct nvt_ts_data *ts =
+		container_of(bridge, struct nvt_ts_data, panel_bridge);
+
 	if (bridge->encoder && bridge->encoder->crtc) {
 		const struct drm_crtc_state *crtc_state = bridge->encoder->crtc->state;
 
@@ -23,6 +30,7 @@ static void panel_bridge_disable(struct drm_bridge *bridge)
 	}
 
 	NVT_LOG("\n");
+	nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, false);
 }
 
 struct drm_connector *get_bridge_connector(struct drm_bridge *bridge)
@@ -60,6 +68,7 @@ static void panel_bridge_mode_set(struct drm_bridge *bridge,
 		ts->connector = get_bridge_connector(bridge);
 
 	ts->is_panel_lp_mode = bridge_is_lp_mode(ts->connector);
+	nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, !ts->is_panel_lp_mode);
 }
 
 static const struct drm_bridge_funcs panel_bridge_funcs = {
@@ -104,3 +113,64 @@ void unregister_panel_bridge(struct drm_bridge *bridge)
 	bridge->dev = NULL;
 }
 #endif /* #ifdef NVT_TS_PANEL_BRIDGE */
+
+void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts)
+{
+	/* Complete or cancel any outstanding transitions */
+	cancel_work_sync(&ts->suspend_work);
+	cancel_work_sync(&ts->resume_work);
+
+	if ((ts->bus_refmask == 0 && ts->bTouchIsAwake == false) ||
+	    (ts->bus_refmask && ts->bTouchIsAwake))
+		return;
+
+	if (ts->bus_refmask == 0)
+		queue_work(ts->event_wq, &ts->suspend_work);
+	else
+		queue_work(ts->event_wq, &ts->resume_work);
+}
+
+int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
+{
+	int result = 0;
+
+	mutex_lock(&ts->bus_mutex);
+
+	if ((enable && (ts->bus_refmask & ref)) ||
+	    (!enable && !(ts->bus_refmask & ref))) {
+		NVT_LOG("reference is unexpectedly set: mask=0x%04X, ref=0x%04X, enable=%d\n",
+		ts->bus_refmask, ref, enable);
+		mutex_unlock(&ts->bus_mutex);
+		return -EINVAL;
+	}
+
+	if (enable) {
+		/*
+		 * IRQs can only keep the bus active. IRQs received while the
+		 * bus is transferred to AOC should be ignored.
+		 */
+		if (ref == NVT_BUS_REF_IRQ && ts->bus_refmask == 0)
+			result = -EAGAIN;
+		else
+			ts->bus_refmask |= ref;
+	} else
+		ts->bus_refmask &= ~ref;
+	nvt_ts_aggregate_bus_state(ts);
+
+	mutex_unlock(&ts->bus_mutex);
+
+	/*
+	 * When triggering a wake, wait up to one second to resume. SCREEN_ON
+	 * and IRQ references do not need to wait.
+	 */
+	if (enable &&
+	    ref != NVT_BUS_REF_SCREEN_ON && ref != NVT_BUS_REF_IRQ) {
+		wait_for_completion_timeout(&ts->bus_resumed, HZ);
+		if (!ts->bTouchIsAwake) {
+			NVT_ERR("Failed to wake the touch bus.\n");
+			result = -ETIMEDOUT;
+		}
+	}
+
+	return result;
+}

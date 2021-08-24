@@ -205,6 +205,12 @@ struct nvt_ts_data {
 	struct work_struct resume_work;
 
 	struct workqueue_struct *event_wq;
+
+	/*
+	 * Used for bus refernece.
+	 */
+	u32 bus_refmask;
+	struct mutex bus_mutex;
 };
 
 #if NVT_TOUCH_PROC

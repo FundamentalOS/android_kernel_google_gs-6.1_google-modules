@@ -8,6 +8,8 @@
 #define _NT36XXX_GOOG_H_
 
 struct nvt_ts_data; /* forward declaration */
+void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts);
+int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable);
 #ifdef NVT_TS_PANEL_BRIDGE
 int register_panel_bridge(struct nvt_ts_data *ts);
 void unregister_panel_bridge(struct drm_bridge *bridge);
@@ -15,5 +17,13 @@ void unregister_panel_bridge(struct drm_bridge *bridge);
 #define register_panel_bridge(ts) do { 0; } while (0)
 #define unregister_panel_bridge(bridge) do {} while (0)
 #endif
+
+enum {
+	NVT_BUS_REF_SCREEN_ON		= 0x0001,
+	NVT_BUS_REF_IRQ			= 0x0002,
+	NVT_BUS_REF_FW_UPDATE		= 0x0004,
+	NVT_BUS_REF_FORCE_ACTIVE	= 0x0008,
+	NVT_BUS_REF_BUGREPORT		= 0x8000
+};
 
 #endif /* _NT36XXX_GOOG_H_ */

@@ -2131,6 +2131,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	recovery_cnt = 0;
 #endif
 
+#if defined(CONFIG_SOC_GOOGLE)
+        /* Assume screen is on throughout probe */
+        ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
+#endif
 	ts->bTouchIsAwake = true;
 
 	register_panel_bridge(ts);
