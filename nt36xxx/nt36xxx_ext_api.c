@@ -3,7 +3,7 @@
  * Copyright (C) 2010 - 2021 Novatek, Inc.
  *
  * $Revision: 83893 $
- * $Date: 2021-06-21 10:52:25 +0800 (週一, 21 六月 2021) $
+ * $Date: 2021-08-11 10:52:25 +0800 (週一, 21 六月 2021) $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,12 +22,42 @@
 #include <linux/kernel.h>
 #include "nt36xxx.h"
 
+#define PLAYBACK_RAWDATA_ADDR             0x26238
 #define GET_CALIBRATION_ADDR              0x2B31A
+#define GET_GRIP_LEVEL_ADDR               0x2B31B
+#define DTTW_TOUCH_AREA_MIN_ADDR          0x2B36A
+#define DTTW_TOUCH_AREA_MAX_ADDR          0x2B36C
+#define DTTW_CONTACT_DURATION_MIN_ADDR    0x2B36E
+#define DTTW_CONTACT_DURATION_MAX_ADDR    0x2B370
+#define DTTW_TAP_OFFSET_ADDR              0x2B372
+#define DTTW_TAP_GAP_DURATION_MIN_ADDR    0x2B374
+#define DTTW_TAP_GAP_DURATION_MAX_ADDR    0x2B376
+#define DTTW_MOTION_TOLERANCE_ADDR        0x2B378
+#define DTTW_DETECTION_WINDOW_EDGE_ADDR   0x2B37A
 #define GET_MODE_HISTORY_ADDR             0x2B32A
 #define HEATMAP_ADDR                      0x2FE20
 #define TOUCH_CMD_STATUS_ADDR             0x2FE5C
+#define PLAYBACK_DIFFDATA_ADDR            0x373E8
 #define TOUCH_MODE_ADDR                   0x38D33
+
 #define RAWDATA_UNIFORMITY_LIMIT          200
+#define INPUT_TYPE_RAWDATA                1
+#define INPUT_TYPE_DIFFDATA               2
+#define SYNC_FREQ                         "120Hz"
+#define LAST_ROUND_POS                    12288
+#define DTTW_TOUCH_AREA_WIDTH_HEIGHT_MAX  540
+#define DTTW_TOUCH_AREA_WIDTH_HEIGHT_MIN  70
+#define DTTW_CONTACT_DURATION_MAX         26
+#define DTTW_CONTACT_DURATION_MIN         2
+#define DTTW_TAP_OFFSET_MAX               150
+#define DTTW_TAP_OFFSET_MIN               0
+#define DTTW_TAP_GAP_DURATION_MAX         10
+#define DTTW_TAP_GAP_DURATION_MIN         2
+#define DTTW_MOTION_TOLERANCE_MAX         150
+#define DTTW_MOTION_TOLERANCE_MIN         70
+#define DTTW_DETECTION_WINDOW_EDGE_MAX    136
+#define DTTW_DETECTION_WINDOW_EDGE_MIN    0
+
 #define PALM_MODE_CMD_TEST_BIT            BIT(0)
 #define HIGH_SENSI_MODE_CMD_TEST_BIT      BIT(1)
 #define HOLSTER_MODE_CMD_TEST_BIT         BIT(3)
@@ -36,8 +66,10 @@
 #define CONT_REPORT_MODE_CMD_TEST_BIT     BIT(9)
 #define NOISE_MODE_CMD_TEST_BIT           BIT(10)
 #define WATER_MODE_CMD_TEST_BIT           BIT(11)
+#define DTTW_MODE_CMD_TEST_BIT            BIT(12)
 #define GRIP_LEVEL_CMD_TEST_BIT           BIT(13)
 #define SET_CANCEL_CMD_TEST_BIT           BIT(14)
+#define PLAYBACK_MODE_CMD_TEST_BIT        BIT(15)
 
 enum {
 	CMD_DISABLE = 0,
@@ -61,19 +93,27 @@ enum {
 
 uint32_t heatmap_spi_buf_size;
 uint8_t *heatmap_spi_buf;
+uint8_t  heatmap_enabled;
 uint32_t cc_uniformity_spi_buf_size;
 uint32_t rawdata_uniformity_spi_buf_size;
+uint32_t playback_spi_buf_size;
 uint8_t *cc_uniformity_spi_buf;
 uint8_t *rawdata_uniformity_spi_buf;
+uint8_t *playback_spi_buf;
+uint8_t *playback_spi_buf_offset;
+uint32_t playback_addr;
+uint8_t  playback_enabled;
+uint8_t  grip_level;
 
 ssize_t nvt_check_api_cmd_result(uint16_t cmd_test_bit, uint16_t pattern)
 {
 	uint8_t spi_buf[3] = {0}, shift = 0;
 	uint16_t result;
 
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	spi_buf[0] = TOUCH_CMD_STATUS_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 3);
-	result = ((spi_buf[2] << 8) | spi_buf[1]) & cmd_test_bit;
+	result = ((uint16_t)(spi_buf[2] << 8) | spi_buf[1]) & cmd_test_bit;
 	while ((cmd_test_bit & 1) == 0) {
 		cmd_test_bit = cmd_test_bit >> 1;
 		shift += 1;
@@ -81,6 +121,23 @@ ssize_t nvt_check_api_cmd_result(uint16_t cmd_test_bit, uint16_t pattern)
 	if (result != pattern << shift)
 		return -EINVAL;
 	return 0;
+}
+
+ssize_t nvt_get_api_status(uint16_t cmd_get_bit)
+{
+	uint8_t spi_buf[3] = {0}, shift = 0;
+	uint16_t status;
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	spi_buf[0] = TOUCH_CMD_STATUS_ADDR & 0x7F;
+	CTP_SPI_READ(ts->client, spi_buf, 3);
+	status = ((uint16_t)(spi_buf[2] << 8) | spi_buf[1]) & cmd_get_bit;
+	while ((cmd_get_bit & 1) == 0) {
+		cmd_get_bit = cmd_get_bit >> 1;
+		shift += 1;
+	}
+	status = status >> shift;
+	return status;
 }
 
 static ssize_t nvt_get_mode_history_show(struct device *dev,
@@ -91,12 +148,33 @@ static ssize_t nvt_get_mode_history_show(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(GET_MODE_HISTORY_ADDR);
 	spi_buf[0] = GET_MODE_HISTORY_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 65);
 	ret = snprintf(buf, PAGE_SIZE, "%*ph\n", 64, &spi_buf[1]);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_palm_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = PALM_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
 	mutex_unlock(&ts->lock);
 
 	NVT_LOG("--\n");
@@ -116,7 +194,9 @@ static ssize_t nvt_palm_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
@@ -137,7 +217,7 @@ static ssize_t nvt_palm_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
@@ -145,9 +225,29 @@ static ssize_t nvt_palm_mode_store(struct device *dev,
 	}
 }
 
-static ssize_t nvt_high_sensi_mode_store(struct device *dev,
-		struct device_attribute *attr,
-		const char *buf, size_t count)
+static ssize_t nvt_high_sensi_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = HIGH_SENSI_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+/*
+static ssize_t nvt_holster_mode_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = HIGH_SENSI_MODE_CMD_TEST_BIT;
@@ -158,7 +258,9 @@ static ssize_t nvt_high_sensi_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
@@ -179,58 +281,17 @@ static ssize_t nvt_high_sensi_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
 		return count;
 	}
 }
-
-static ssize_t nvt_holster_mode_store(struct device *dev,
-				      struct device_attribute *attr,
-				      const char *buf, size_t count)
-{
-	uint8_t spi_buf[3] = {0}, mode;
-	uint16_t cmd_test_bit = HOLSTER_MODE_CMD_TEST_BIT;
-	int32_t ret;
-
-	NVT_LOG("++\n");
-
-	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
-		return -EINVAL;
-
-	mutex_lock(&ts->lock);
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-	switch (mode) {
-	case CMD_ENABLE:
-		NVT_LOG("Enable Holster Mode\n");
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0xB5;
-		CTP_SPI_WRITE(ts->client, spi_buf, 3);
-		break;
-	case CMD_DISABLE:
-		NVT_LOG("Disable Holster Mode\n");
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0xB6;
-		CTP_SPI_WRITE(ts->client, spi_buf, 3);
-		break;
-	}
-	msleep(20);
-	ret = nvt_check_api_cmd_result(cmd_test_bit, mode);
-	mutex_unlock(&ts->lock);
-
-	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
-		return -EINVAL;
-	} else {
-		NVT_LOG("--\n");
-		return count;
-	}
-}
+*/
 
 static ssize_t nvt_touch_idle_mode_show(struct device *dev,
-					struct device_attribute *attr, char *buf)
+		struct device_attribute *attr, char *buf)
 {
 	uint32_t mode;
 	uint8_t spi_buf[2] = {0};
@@ -238,7 +299,9 @@ static ssize_t nvt_touch_idle_mode_show(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(TOUCH_MODE_ADDR);
 	spi_buf[0] = TOUCH_MODE_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 2);
@@ -283,7 +346,9 @@ static ssize_t nvt_touch_idle_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
@@ -304,7 +369,7 @@ static ssize_t nvt_touch_idle_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
@@ -324,8 +389,14 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_3)
 		return -EINVAL;
 
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
 
-	mutex_lock(&ts->lock);
+	if (!heatmap_spi_buf) {
+		heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
+		heatmap_spi_buf = kzalloc(heatmap_spi_buf_size, GFP_KERNEL);
+	}
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_DISABLE:
@@ -390,18 +461,33 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		if (mode != CMD_DISABLE && !heatmap_spi_buf) {
-			heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
-			heatmap_spi_buf = kzalloc(heatmap_spi_buf_size, GFP_KERNEL);
-		}
+		heatmap_enabled = (mode == CMD_DISABLE ? 0 : 1);
 		NVT_LOG("--\n");
 		return count;
 	}
 }
 
+static ssize_t nvt_cont_report_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = CONT_REPORT_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
 
 static ssize_t nvt_cont_report_mode_store(struct device *dev,
 		struct device_attribute *attr,
@@ -416,18 +502,20 @@ static ssize_t nvt_cont_report_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
-		NVT_LOG("Enable Continuously Report Mode\n");
+		NVT_LOG("Enable FW Continuously Report Mode\n");
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
 		spi_buf[1] = 0x70;
 		spi_buf[2] = 0x01;
 		CTP_SPI_WRITE(ts->client, spi_buf, 3);
 		break;
 	case CMD_DISABLE:
-		NVT_LOG("Disable Continuously Report Mode\n");
+		NVT_LOG("Disable FW Continuously Report Mode\n");
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
 		spi_buf[1] = 0x70;
 		spi_buf[2] = 0x00;
@@ -439,12 +527,31 @@ static ssize_t nvt_cont_report_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
 		return count;
 	}
+}
+
+static ssize_t nvt_noise_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = NOISE_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
 }
 
 static ssize_t nvt_noise_mode_store(struct device *dev,
@@ -460,7 +567,9 @@ static ssize_t nvt_noise_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
@@ -483,12 +592,31 @@ static ssize_t nvt_noise_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
 		return count;
 	}
+}
+
+static ssize_t nvt_water_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = WATER_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
 }
 
 static ssize_t nvt_water_mode_store(struct device *dev,
@@ -504,7 +632,9 @@ static ssize_t nvt_water_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
@@ -527,7 +657,7 @@ static ssize_t nvt_water_mode_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
@@ -545,8 +675,11 @@ static ssize_t nvt_sw_reset_store(struct device *dev,
 
 	if (kstrtou8(buf, 10, &mode) || mode != CMD_ENABLE)
 		return -EINVAL;
-	mutex_lock(&ts->lock);
-	nvt_bootloader_reset();
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
 	mutex_unlock(&ts->lock);
 
 	NVT_LOG("--\n");
@@ -566,12 +699,15 @@ static ssize_t nvt_sensing_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
 		NVT_LOG("Enable Sensing Mode\n");
 		ret = nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
+		break;
 	case CMD_DISABLE:
 		NVT_LOG("Disable Sensing Mode\n");
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
@@ -587,7 +723,7 @@ static ssize_t nvt_sensing_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
@@ -607,7 +743,9 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_4 || (mode == 0))
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	if (nvt_switch_FreqHopEnDis(FREQ_HOP_DISABLE)) {
 		mutex_unlock(&ts->lock);
 		NVT_ERR("switch frequency hopping disable failed!\n");
@@ -628,11 +766,6 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 		spi_buf[2] = 0x01;
 		spi_buf[3] = 0x01;
 		CTP_SPI_WRITE(ts->client, spi_buf, 4);
-		msleep(50);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0xFF;
-		CTP_SPI_READ(ts->client, spi_buf, 2);
-		ret = (spi_buf[1] == 0) ? 0 : -EINVAL;
 		break;
 	case MODE_2:
 		NVT_LOG("Set Frequency Hopping to Mode 2\n");
@@ -641,11 +774,6 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 		spi_buf[2] = 0x01;
 		spi_buf[3] = 0x02;
 		CTP_SPI_WRITE(ts->client, spi_buf, 4);
-		msleep(50);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0xFF;
-		CTP_SPI_READ(ts->client, spi_buf, 2);
-		ret = (spi_buf[1] == 0) ? 0 : -EINVAL;
 		break;
 	case MODE_3:
 		NVT_LOG("Set Frequency Hopping to Mode 3\n");
@@ -654,11 +782,6 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 		spi_buf[2] = 0x01;
 		spi_buf[3] = 0x03;
 		CTP_SPI_WRITE(ts->client, spi_buf, 4);
-		msleep(50);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0xFF;
-		CTP_SPI_READ(ts->client, spi_buf, 2);
-		ret = (spi_buf[1] == 0) ? 0 : -EINVAL;
 		break;
 	case MODE_4:
 		NVT_LOG("Set Frequency Hopping to Mode 4\n");
@@ -667,22 +790,45 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 		spi_buf[2] = 0x01;
 		spi_buf[3] = 0x04;
 		CTP_SPI_WRITE(ts->client, spi_buf, 4);
-		msleep(50);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0xFF;
-		CTP_SPI_READ(ts->client, spi_buf, 2);
-		ret = (spi_buf[1] == 0) ? 0 : -EINVAL;
 		break;
 	}
+
+	msleep(50);
+	spi_buf[1] = 0xFF;
+	CTP_SPI_READ(ts->client, spi_buf, 2);
 	mutex_unlock(&ts->lock);
 
+	ret = (spi_buf[1] == 0) ? 0 : -EINVAL;
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
 		return count;
 	}
+}
+
+static ssize_t nvt_grip_level_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint8_t spi_buf[2] = {0};
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(GET_GRIP_LEVEL_ADDR);
+	spi_buf[0] = GET_GRIP_LEVEL_ADDR & 0x7F;
+	CTP_SPI_READ(ts->client, spi_buf, 2);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", spi_buf[1]);
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
 }
 
 static ssize_t nvt_grip_level_store(struct device *dev,
@@ -698,7 +844,9 @@ static ssize_t nvt_grip_level_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_4)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
 	switch (mode) {
@@ -742,9 +890,10 @@ static ssize_t nvt_grip_level_store(struct device *dev,
 	ret = nvt_check_api_cmd_result(cmd_test_bit, mode > 0);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
+		grip_level = mode;
 		NVT_LOG("--\n");
 		return count;
 	}
@@ -762,7 +911,8 @@ static ssize_t nvt_force_calibration_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode != CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
 
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	NVT_LOG("Force Calibration\n");
@@ -779,7 +929,7 @@ static ssize_t nvt_force_calibration_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
@@ -795,12 +945,15 @@ static ssize_t nvt_get_calibration_show(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(GET_CALIBRATION_ADDR);
 	spi_buf[0] = GET_CALIBRATION_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 2);
 	ret = snprintf(buf, PAGE_SIZE, "%d\n", spi_buf[1]);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
 	mutex_unlock(&ts->lock);
 
 	NVT_LOG("--\n");
@@ -813,7 +966,7 @@ static ssize_t nvt_sync_freq_show(struct device *dev,
 	int32_t ret;
 
 	NVT_LOG("++\n");
-	ret = snprintf(buf, PAGE_SIZE, "%s\n", "120Hz");
+	ret = snprintf(buf, PAGE_SIZE, "%s\n", SYNC_FREQ);
 	NVT_LOG("--\n");
 
 	return ret;
@@ -856,9 +1009,8 @@ static int32_t nvt_get_rawdata_uniformity(void)
 						     GFP_KERNEL);
 	}
 
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-	}
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -911,16 +1063,17 @@ static int32_t nvt_get_cc_uniformity(void)
 		cc_uniformity_spi_buf = kzalloc(cc_uniformity_spi_buf_size, GFP_KERNEL);
 	}
 
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-	}
 
 	nvt_update_firmware(MP_UPDATE_FIRMWARE_NAME);
+
 	if (nvt_get_fw_info()) {
 		mutex_unlock(&ts->lock);
 		NVT_ERR("get fw info failed!\n");
 		return -EAGAIN;
 	}
+
 	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
 		mutex_unlock(&ts->lock);
 		NVT_ERR("check fw reset state failed!\n");
@@ -968,6 +1121,7 @@ static int32_t nvt_get_cc_uniformity(void)
 		     cc_uniformity_spi_buf_size);
 
 	nvt_change_mode(NORMAL_MODE);
+	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
 	mutex_unlock(&ts->lock);
 
 	cal_uniformity(cc_uniformity_spi_buf, cc_uniformity_spi_buf_size);
@@ -1005,9 +1159,27 @@ static ssize_t nvt_verify_calibration_show(struct device *dev,
 	return ret;
 }
 
-static ssize_t nvt_set_cancel_store(struct device *dev,
-				    struct device_attribute *attr,
-				    const char *buf, size_t count)
+static ssize_t nvt_cancel_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = SET_CANCEL_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_cancel_mode_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = SET_CANCEL_CMD_TEST_BIT;
@@ -1018,7 +1190,9 @@ static ssize_t nvt_set_cancel_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
 
-	mutex_lock(&ts->lock);
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_ENABLE:
@@ -1041,7 +1215,7 @@ static ssize_t nvt_set_cancel_store(struct device *dev,
 	mutex_unlock(&ts->lock);
 
 	if (ret) {
-		NVT_ERR("%s failed, ret = %d\n", __func__, ret);
+		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
 		NVT_LOG("--\n");
@@ -1049,14 +1223,697 @@ static ssize_t nvt_set_cancel_store(struct device *dev,
 	}
 }
 
+static ssize_t nvt_playback_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint16_t cmd_get_bit = PLAYBACK_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_playback_mode_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	uint8_t spi_buf[7] = {0}, mode;
+	uint16_t cmd_test_bit = PLAYBACK_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou8(buf, 10, &mode) || mode > MODE_2)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	if (!playback_spi_buf) {
+		playback_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
+		playback_spi_buf = kzalloc(playback_spi_buf_size, GFP_KERNEL);
+	}
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	switch (mode) {
+	case CMD_DISABLE:
+		NVT_LOG("Disable Playback Mode\n");
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x00;
+		spi_buf[2] = 0xBB;
+		CTP_SPI_WRITE(ts->client, spi_buf, 3);
+		msleep(20);
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x70;
+		spi_buf[2] = 0x60;
+		CTP_SPI_WRITE(ts->client, spi_buf, 3);
+		break;
+	case MODE_1:
+		NVT_LOG("Playback Raw Data Mode\n");
+		playback_addr = PLAYBACK_RAWDATA_ADDR;
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x70;
+		spi_buf[2] = 0x61;
+		CTP_SPI_WRITE(ts->client, spi_buf, 3);
+		msleep(20);
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x25;
+		spi_buf[2] = 0x00;
+		spi_buf[3] = 0x00;
+		spi_buf[4] = 0x00;
+		spi_buf[5] = 0x01;
+		spi_buf[6] = 0x00;
+		CTP_SPI_WRITE(ts->client, spi_buf, 7);
+		break;
+	case MODE_2:
+		NVT_LOG("Playback Diff Data Mode\n");
+		playback_addr = PLAYBACK_DIFFDATA_ADDR;
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x70;
+		spi_buf[2] = 0x62;
+		CTP_SPI_WRITE(ts->client, spi_buf, 3);
+		msleep(20);
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x25;
+		spi_buf[2] = 0x00;
+		spi_buf[3] = 0x00;
+		spi_buf[4] = 0x00;
+		spi_buf[5] = 0x01;
+		spi_buf[6] = 0x00;
+		CTP_SPI_WRITE(ts->client, spi_buf, 7);
+		break;
+	}
+
+	msleep(20);
+	ret = nvt_check_api_cmd_result(cmd_test_bit, mode > 0);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	playback_enabled = (mode == CMD_DISABLE ? 0 : 1);
+	NVT_LOG("--\n");
+	return count;
+}
+
+static uint16_t nvt_get_dttw_para(uint64_t dttw_addr)
+{
+	uint8_t spi_buf[3] = {0};
+
+	nvt_set_page(dttw_addr);
+	spi_buf[0] = dttw_addr & 0x7F;
+	CTP_SPI_READ(ts->client, spi_buf, 3);
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	return ((uint16_t)(spi_buf[2] << 8) + spi_buf[1]);
+}
+
+ssize_t nvt_set_dttw(uint8_t wkg_flag)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t cmd_test_bit = DTTW_MODE_CMD_TEST_BIT;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	ts->dttw_touch_area_max = nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR);
+	ts->dttw_touch_area_min = nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR);
+	ts->dttw_contact_duration_max = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR);
+	ts->dttw_contact_duration_min = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR);
+	ts->dttw_tap_offset = nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR);
+	ts->dttw_tap_gap_duration_max = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR);
+	ts->dttw_tap_gap_duration_min = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR);
+	ts->dttw_motion_tolerance = nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR);
+	ts->dttw_detection_window_edge = nvt_get_dttw_para(DTTW_DETECTION_WINDOW_EDGE_ADDR);
+
+	if (wkg_flag) {
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x70;
+		spi_buf[2] = 0x31;
+		CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	} else {
+		spi_buf[0] = EVENT_MAP_HOST_CMD;
+		spi_buf[1] = 0x70;
+		spi_buf[2] = 0x30;
+		CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	}
+	msleep(20);
+	ret = nvt_check_api_cmd_result(cmd_test_bit, wkg_flag == 1);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	NVT_LOG("--\n");
+	return (wkg_flag == 1);
+}
+
+static ssize_t nvt_dttw_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", ts->wkg_flag);
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_mode_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	uint8_t mode;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE || !ts->bTouchIsAwake)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	switch (mode) {
+	case CMD_DISABLE:
+		NVT_LOG("Disable DTTW Mode\n");
+		ts->wkg_flag = 0;
+		break;
+	case CMD_ENABLE:
+		NVT_LOG("Enable DTTW Mode\n");
+		ts->wkg_flag = 1;
+		break;
+	}
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_touch_area_max_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_touch_area_max_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value > DTTW_TOUCH_AREA_WIDTH_HEIGHT_MAX)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_TOUCH_AREA_MAX_ADDR);
+	spi_buf[0] = DTTW_TOUCH_AREA_MAX_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_touch_area_max = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_touch_area_min_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_touch_area_min_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value < DTTW_TOUCH_AREA_WIDTH_HEIGHT_MIN)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_TOUCH_AREA_MIN_ADDR);
+	spi_buf[0] = DTTW_TOUCH_AREA_MIN_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_touch_area_min = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_contact_duration_max_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_contact_duration_max_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value > DTTW_CONTACT_DURATION_MAX)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_CONTACT_DURATION_MAX_ADDR);
+	spi_buf[0] = DTTW_CONTACT_DURATION_MAX_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_contact_duration_max = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_contact_duration_min_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_contact_duration_min_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value < DTTW_CONTACT_DURATION_MIN)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_CONTACT_DURATION_MIN_ADDR);
+	spi_buf[0] = DTTW_CONTACT_DURATION_MIN_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_contact_duration_min = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_tap_offset_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_tap_offset_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value < DTTW_TAP_OFFSET_MIN ||
+			value > DTTW_TAP_OFFSET_MAX)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_TAP_OFFSET_ADDR);
+	spi_buf[0] = DTTW_TAP_OFFSET_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_tap_offset = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_tap_gap_duration_max_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_tap_gap_duration_max_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value > DTTW_TAP_GAP_DURATION_MAX)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_TAP_GAP_DURATION_MAX_ADDR);
+	spi_buf[0] = DTTW_TAP_GAP_DURATION_MAX_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_tap_gap_duration_max = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_tap_gap_duration_min_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_tap_gap_duration_min_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value < DTTW_TAP_GAP_DURATION_MIN)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_TAP_GAP_DURATION_MIN_ADDR);
+	spi_buf[0] = DTTW_TAP_GAP_DURATION_MIN_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_tap_gap_duration_min = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_motion_tolerance_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_motion_tolerance_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value > DTTW_MOTION_TOLERANCE_MAX
+			|| value < DTTW_MOTION_TOLERANCE_MIN)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_MOTION_TOLERANCE_ADDR);
+	spi_buf[0] = DTTW_MOTION_TOLERANCE_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_motion_tolerance = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_dttw_detection_window_edge_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = snprintf(buf, PAGE_SIZE, "%d\n",
+		nvt_get_dttw_para(DTTW_DETECTION_WINDOW_EDGE_ADDR));
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {0};
+	uint16_t value;
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou16(buf, 10, &value) || value > DTTW_DETECTION_WINDOW_EDGE_MAX
+			|| value < DTTW_DETECTION_WINDOW_EDGE_MIN)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(DTTW_DETECTION_WINDOW_EDGE_ADDR);
+	spi_buf[0] = DTTW_DETECTION_WINDOW_EDGE_ADDR & 0x7F;
+	spi_buf[1] = value & 0xFF;
+	spi_buf[2] = value >> 8;
+	CTP_SPI_WRITE(ts->client, spi_buf, 3);
+	msleep(20);
+	ret = nvt_get_dttw_para(DTTW_DETECTION_WINDOW_EDGE_ADDR) == value ? 0 : -EINVAL;
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	}
+
+	ts->dttw_detection_window_edge = value;
+	NVT_LOG("--\n");
+	return count;
+}
+
 static DEVICE_ATTR_RO(nvt_get_mode_history);
 static DEVICE_ATTR_RO(nvt_sync_freq);
-static DEVICE_ATTR_WO(nvt_palm_mode);
-static DEVICE_ATTR_WO(nvt_high_sensi_mode);
-static DEVICE_ATTR_WO(nvt_holster_mode);
-static DEVICE_ATTR_WO(nvt_cont_report_mode);
-static DEVICE_ATTR_WO(nvt_noise_mode);
-static DEVICE_ATTR_WO(nvt_water_mode);
+static DEVICE_ATTR_RW(nvt_palm_mode);
+static DEVICE_ATTR_RO(nvt_high_sensi_mode);
+static DEVICE_ATTR_RW(nvt_cont_report_mode);
+static DEVICE_ATTR_RW(nvt_noise_mode);
+static DEVICE_ATTR_RW(nvt_water_mode);
 static DEVICE_ATTR_WO(nvt_sw_reset);
 static DEVICE_ATTR_WO(nvt_sensing);
 static DEVICE_ATTR_WO(nvt_freq_hopping);
@@ -1065,15 +1922,25 @@ static DEVICE_ATTR_WO(nvt_force_calibration);
 static DEVICE_ATTR_RO(nvt_get_calibration);
 static DEVICE_ATTR_RO(nvt_verify_calibration);
 static DEVICE_ATTR_WO(nvt_heatmap_mode);
-static DEVICE_ATTR_WO(nvt_set_cancel);
-static DEVICE_ATTR_WO(nvt_grip_level);
+static DEVICE_ATTR_RW(nvt_cancel_mode);
+static DEVICE_ATTR_RW(nvt_grip_level);
+static DEVICE_ATTR_RW(nvt_playback_mode);
+static DEVICE_ATTR_RW(nvt_dttw_mode);
+static DEVICE_ATTR_RW(nvt_dttw_touch_area_max);
+static DEVICE_ATTR_RW(nvt_dttw_touch_area_min);
+static DEVICE_ATTR_RW(nvt_dttw_contact_duration_max);
+static DEVICE_ATTR_RW(nvt_dttw_contact_duration_min);
+static DEVICE_ATTR_RW(nvt_dttw_tap_offset);
+static DEVICE_ATTR_RW(nvt_dttw_tap_gap_duration_max);
+static DEVICE_ATTR_RW(nvt_dttw_tap_gap_duration_min);
+static DEVICE_ATTR_RW(nvt_dttw_motion_tolerance);
+static DEVICE_ATTR_RW(nvt_dttw_detection_window_edge);
 
 static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_get_mode_history.attr,
 	&dev_attr_nvt_sync_freq.attr,
 	&dev_attr_nvt_palm_mode.attr,
 	&dev_attr_nvt_high_sensi_mode.attr,
-	&dev_attr_nvt_holster_mode.attr,
 	&dev_attr_nvt_touch_idle_mode.attr,
 	&dev_attr_nvt_cont_report_mode.attr,
 	&dev_attr_nvt_noise_mode.attr,
@@ -1085,13 +1952,87 @@ static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_force_calibration.attr,
 	&dev_attr_nvt_get_calibration.attr,
 	&dev_attr_nvt_verify_calibration.attr,
-	&dev_attr_nvt_set_cancel.attr,
+	&dev_attr_nvt_cancel_mode.attr,
 	&dev_attr_nvt_grip_level.attr,
+	&dev_attr_nvt_playback_mode.attr,
+	&dev_attr_nvt_dttw_mode.attr,
+	&dev_attr_nvt_dttw_touch_area_max.attr,
+	&dev_attr_nvt_dttw_touch_area_min.attr,
+	&dev_attr_nvt_dttw_contact_duration_max.attr,
+	&dev_attr_nvt_dttw_contact_duration_min.attr,
+	&dev_attr_nvt_dttw_tap_offset.attr,
+	&dev_attr_nvt_dttw_tap_gap_duration_max.attr,
+	&dev_attr_nvt_dttw_tap_gap_duration_min.attr,
+	&dev_attr_nvt_dttw_motion_tolerance.attr,
+	&dev_attr_nvt_dttw_detection_window_edge.attr,
 	NULL
+};
+
+static ssize_t nvt_playback_write_buf(struct file *data_file,
+		struct kobject *kobj, struct bin_attribute *attributes,
+		char *buf, loff_t pos, size_t count)
+{
+	uint8_t spi_buf[2] = {0};
+	int16_t i, data_buf[1], retry = 500;
+
+	if (!playback_enabled) {
+		NVT_ERR("playback mode is not enabled\n");
+		return -EINVAL;
+	}
+
+	playback_spi_buf_offset = playback_spi_buf + 1 + (pos / 4); //data start from 1
+
+	for (i = 0; i < count; i += 8) {
+		if (sscanf(buf + i, "%d%*s", data_buf) > 0)
+			memcpy(playback_spi_buf_offset + (i / 4), data_buf, 2);
+	}
+	if (pos == LAST_ROUND_POS) {
+		mutex_lock(&ts->lock);
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		for (i = 0; i < retry; i++) {
+			spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
+			spi_buf[1] = 0x00;
+			CTP_SPI_READ(ts->client, spi_buf, 2);
+			if ((spi_buf[1] & 0xF0) == 0xA0)
+				break;
+			usleep_range(500, 500 + 1);
+		}
+
+		if (i == retry) {
+			mutex_unlock(&ts->lock);
+			return -EAGAIN;
+		}
+
+		nvt_set_page(playback_addr);
+		playback_spi_buf[0] = playback_addr & 0x7F;
+		CTP_SPI_WRITE(ts->client, playback_spi_buf, playback_spi_buf_size);
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
+		spi_buf[1] = 0xBB;
+		CTP_SPI_WRITE(ts->client, spi_buf, 2);
+		mutex_unlock(&ts->lock);
+	}
+
+	return count;
+}
+
+static struct bin_attribute bin_attr_nvt_playback_write_buf = {
+	.attr = {
+		.name = "nvt_playback_write_buf",
+		.mode = 0220,
+	},
+	.size = 0,
+	.write = nvt_playback_write_buf,
+};
+
+static struct bin_attribute *nvt_api_bin_attrs[] = {
+	&bin_attr_nvt_playback_write_buf,
+	NULL,
 };
 
 static const struct attribute_group nvt_api_attribute_group = {
 	.attrs = nvt_api_attrs,
+	.bin_attrs = nvt_api_bin_attrs,
 };
 
 static struct proc_dir_entry *NVT_proc_heatmap_entry;
@@ -1101,13 +2042,15 @@ static int32_t c_show_heatmap(struct seq_file *m, void *v)
 {
 	uint32_t i;
 
+	// Set size = 8 to align page with 4096 and fit in the data range for raw data
 	for (i = 1; i < heatmap_spi_buf_size; i += 2) {
-		if ((i - 1) % (ts->x_num * 2) == 0 && i != 1)
-			seq_printf(m, "\n");
-		seq_printf(m, "%3d ", (int16_t)(heatmap_spi_buf[i+1] << 8) +
-			   heatmap_spi_buf[i]);
+		seq_printf(m, "%7d",
+			(int16_t)((heatmap_spi_buf[i + 1] << 8) + heatmap_spi_buf[i]));
+		if ((i + 1) % (ts->x_num * 2) == 0)
+			seq_puts(m, "\n");
+		else
+			seq_puts(m, " ");
 	}
-	seq_printf(m, "\n");
 
 	return 0;
 }
@@ -1116,13 +2059,15 @@ static int32_t c_show_cc_uniformity(struct seq_file *m, void *v)
 {
 	uint32_t i;
 
+	// Set size = 8 to align page with 4096 and fit in the data range for raw data
 	for (i = 1; i < cc_uniformity_spi_buf_size; i += 2) {
-		if ((i - 1) % (ts->x_num * 2) == 0 && i != 1)
-			seq_printf(m, "\n");
-		seq_printf(m, "%3d ", (uint16_t)(cc_uniformity_spi_buf[i+1] << 8) +
-			   cc_uniformity_spi_buf[i]);
+		seq_printf(m, "%7d",
+			(cc_uniformity_spi_buf[i + 1] << 8) + cc_uniformity_spi_buf[i]);
+		if ((i + 1) % (ts->x_num * 2) == 0)
+			seq_puts(m, "\n");
+		else
+			seq_puts(m, " ");
 	}
-	seq_printf(m, "\n");
 
 	return 0;
 }
@@ -1159,15 +2104,16 @@ const struct seq_operations nvt_cc_uniformity_seq_ops = {
 
 static int32_t nvt_heatmap_open(struct inode *inode, struct file *file)
 {
-	uint32_t i, retry = 20;
+	uint32_t i, retry = 50;
 	uint8_t spi_buf[3] = {0};
 
-	if (!heatmap_spi_buf) {
-		NVT_ERR("heatmap_mode not specified\n");
+	if (!heatmap_enabled) {
+		NVT_ERR("heatmap_mode is not enabled\n");
 		return -EINVAL;
 	}
 
-	nvt_set_page(HEATMAP_ADDR);
+	mutex_lock(&ts->lock);
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
 	for (i = 0; i < retry; i++) {
 		spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
@@ -1177,14 +2123,19 @@ static int32_t nvt_heatmap_open(struct inode *inode, struct file *file)
 			break;
 		usleep_range(500, 500);
 	}
-	if (i == retry)
+
+	if (i == retry) {
+		mutex_unlock(&ts->lock);
 		return -EAGAIN;
+	}
 
 	heatmap_spi_buf[0] = HEATMAP_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, heatmap_spi_buf, heatmap_spi_buf_size);
 	spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
 	spi_buf[1] = 0xBB;
 	CTP_SPI_WRITE(ts->client, spi_buf, 2);
+
+	mutex_unlock(&ts->lock);
 
 	return seq_open(file, &nvt_heatmap_seq_ops);
 }
@@ -1235,28 +2186,37 @@ static const struct file_operations nvt_cc_uniformity_fops = {
 };
 #endif
 
+#define NVT_TOUCH_SYSFS_LINK "nvt_touch"
 int32_t nvt_extra_api_init(void)
 {
 	int32_t ret;
 
 	NVT_LOG("++\n");
 
-	ret = devm_device_add_group(&ts->client->dev, &nvt_api_attribute_group);
+	ret = sysfs_create_link(ts->input_dev->dev.kobj.parent,
+				&ts->input_dev->dev.kobj, NVT_TOUCH_SYSFS_LINK);
+	if (ret != 0) {
+		NVT_ERR("sysfs create link %s failed. ret=%d", NVT_TOUCH_SYSFS_LINK, ret);
+		goto exit_nvt_touch_sysfs_init;
+	}
+
+	ret = devm_device_add_group(&ts->input_dev->dev, &nvt_api_attribute_group);
 	if (ret)
 		NVT_ERR("create sysfs nvt_api_attribute_group failed: %d\n", ret);
 
-	NVT_proc_heatmap_entry = proc_create("nvt_heatmap", 0444, NULL,
+	NVT_proc_heatmap_entry = proc_create("nvt_heatmap", 0440, NULL,
 					     &nvt_heatmap_fops);
 	if (NVT_proc_heatmap_entry == NULL)
 		NVT_ERR("create /proc/nvt_heatmap Failed!\n");
 
-	NVT_proc_heatmap_entry = proc_create("nvt_cc_uniformity", 0444, NULL,
+	NVT_proc_cc_uniformity_entry = proc_create("nvt_cc_uniformity", 0440, NULL,
 					     &nvt_cc_uniformity_fops);
 	if (NVT_proc_cc_uniformity_entry == NULL)
 		NVT_ERR("create /proc/nvt_cc_uniformity Failed!\n");
 
 	NVT_LOG("--\n");
 
+exit_nvt_touch_sysfs_init:
 	return ret;
 }
 
@@ -1264,6 +2224,7 @@ void nvt_extra_api_deinit(void)
 {
 	NVT_LOG("++\n");
 	devm_device_remove_group(&ts->client->dev, &nvt_api_attribute_group);
+	sysfs_remove_link(ts->input_dev->dev.kobj.parent, NVT_TOUCH_SYSFS_LINK);
 	kfree(heatmap_spi_buf);
 	heatmap_spi_buf = NULL;
 	kfree(cc_uniformity_spi_buf);

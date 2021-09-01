@@ -41,7 +41,7 @@
 #include <linux/platform_data/spi-mt65xx.h>
 #endif
 
-#include <drm/drm_panel.h> /*struct drm_panel */
+#include <drm/drm_panel.h> /* struct drm_panel */
 #include <drm/drm_bridge.h> /* struct drm_bridge */
 #include <drm/drm_connector.h> /* struct drm_connector */
 #if defined(CONFIG_SOC_GOOGLE)
@@ -56,7 +56,7 @@
  * 2. add pinctrl on/off for touch bus handshaking.
  *
  */
-#ifdef CONFIG_SOC_GOOGLE
+#if defined(CONFIG_SOC_GOOGLE)
 #undef CONFIG_FB
 #undef CONFIG_HAS_EARLYSUSPEND
 #undef CONFIG_ARCH_QCOM
@@ -77,12 +77,12 @@
 //---SPI driver info.---
 #define NVT_SPI_NAME "NVT-ts"
 
-#if NVT_DEBUG
-#define NVT_LOG(fmt, args...)    pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
-#else
-#define NVT_LOG(fmt, args...)    pr_info("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
-#endif
-#define NVT_ERR(fmt, args...)    pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME, __func__, __LINE__, ##args)
+#define NVT_DBG(fmt, args...)    pr_debug("[%s] %s %d: " fmt, NVT_SPI_NAME,\
+					__func__, __LINE__, ##args)
+#define NVT_LOG(fmt, args...)    pr_info("[%s] %s %d: " fmt, NVT_SPI_NAME,\
+					__func__, __LINE__, ##args)
+#define NVT_ERR(fmt, args...)    pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME,\
+					__func__, __LINE__, ##args)
 
 //---Input device info.---
 #define NVT_TS_NAME "NVTCapacitiveTouchScreen"
@@ -110,12 +110,11 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define NVT_TOUCH_PROC 1
 #define NVT_TOUCH_EXT_PROC 1
 #define NVT_TOUCH_EXT_API 1
+#define REPORT_PROTOCOL_A 1
+#define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
-#define MT_PROTOCOL_B 1
-#define WAKEUP_GESTURE 1
-#if WAKEUP_GESTURE
+#define WAKEUP_GESTURE 0
 extern const uint16_t gesture_key_array[];
-#endif
 #define BOOT_UPDATE_FIRMWARE 1
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 1000
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
@@ -137,8 +136,13 @@ extern const uint16_t gesture_key_array[];
 #define FREQ_HOP_DISABLE 0x66
 #define FREQ_HOP_ENABLE 0x65
 
-// Status bit
+// NVT_MT_CUSTOM for Cancel Mode Finger Status
+#define NVT_MT_CUSTOM 1
+#if NVT_MT_CUSTOM
+#define ABS_MT_CUSTOM 0x3e
+#define GRIP_TOUCH 0x04
 #define PALM_TOUCH 0x05
+#endif
 
 struct nvt_ts_data {
 	struct spi_device *client;
@@ -189,7 +193,20 @@ struct nvt_ts_data {
 #ifdef CONFIG_SPI_MT65XX
 	struct mtk_chip_config spi_ctrl;
 #endif
-	bool bTouchIsAwake;
+	uint8_t report_protocol;
+	uint8_t wkg_flag;
+	uint8_t bTouchIsAwake;
+#if NVT_TOUCH_EXT_API
+	uint16_t dttw_touch_area_max;
+	uint16_t dttw_touch_area_min;
+	uint16_t dttw_contact_duration_max;
+	uint16_t dttw_contact_duration_min;
+	uint16_t dttw_tap_offset;
+	uint16_t dttw_tap_gap_duration_max;
+	uint16_t dttw_tap_gap_duration_min;
+	uint16_t dttw_motion_tolerance;
+	uint16_t dttw_detection_window_edge;
+#endif
 
 	/*
 	 * Used for event handler, suspend and resume work.
@@ -242,7 +259,7 @@ typedef enum {
 
 #define DUMMY_BYTES (1)
 #define NVT_TRANSFER_LEN	(63*1024)
-#define NVT_READ_LEN		(2*1024)
+#define NVT_READ_LEN		(4*1024)
 #define NVT_XBUF_LEN		(NVT_TRANSFER_LEN+1+DUMMY_BYTES)
 
 typedef enum {
@@ -278,6 +295,7 @@ extern uint8_t nvt_get_fw_pipe(void);
 #if NVT_TOUCH_EXT_API
 extern int32_t nvt_extra_api_init(void);
 extern void nvt_extra_api_deinit(void);
+extern ssize_t nvt_set_dttw(uint8_t wkg_flag);
 #endif
 
 #if NVT_TOUCH_ESD_PROTECT

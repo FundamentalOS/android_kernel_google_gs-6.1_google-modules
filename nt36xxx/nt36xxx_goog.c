@@ -68,7 +68,10 @@ static void panel_bridge_mode_set(struct drm_bridge *bridge,
 		ts->connector = get_bridge_connector(bridge);
 
 	ts->is_panel_lp_mode = bridge_is_lp_mode(ts->connector);
-	nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, !ts->is_panel_lp_mode);
+
+	NVT_LOG("LP %d\n", ts->is_panel_lp_mode);
+	if (!(ts->bus_refmask & NVT_BUS_REF_SCREEN_ON))
+		nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, !ts->is_panel_lp_mode);
 }
 
 static const struct drm_bridge_funcs panel_bridge_funcs = {
@@ -135,6 +138,9 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 	int result = 0;
 
 	mutex_lock(&ts->bus_mutex);
+
+	NVT_DBG("mask=0x%04X, ref=0x%04X, enable=%d\n",
+		ts->bus_refmask, ref, enable);
 
 	if ((enable && (ts->bus_refmask & ref)) ||
 	    (!enable && !(ts->bus_refmask & ref))) {

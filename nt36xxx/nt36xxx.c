@@ -103,7 +103,6 @@ const uint16_t touch_key_array[TOUCH_KEY_NUM] = {
 };
 #endif
 
-#if WAKEUP_GESTURE
 const uint16_t gesture_key_array[] = {
 	KEY_POWER,  //GESTURE_WORD_C
 	KEY_POWER,  //GESTURE_WORD_W
@@ -119,7 +118,6 @@ const uint16_t gesture_key_array[] = {
 	KEY_POWER,  //GESTURE_SLIDE_LEFT
 	KEY_POWER,  //GESTURE_SLIDE_RIGHT
 };
-#endif
 
 #ifdef CONFIG_MTK_SPI
 const struct mt_chip_conf spi_ctrdata = {
@@ -955,7 +953,6 @@ static void nvt_flash_proc_deinit(void)
 }
 #endif
 
-#if WAKEUP_GESTURE
 #define GESTURE_WORD_C          12
 #define GESTURE_WORD_W          13
 #define GESTURE_WORD_V          14
@@ -1063,7 +1060,6 @@ void nvt_ts_wakeup_gesture_report(uint8_t gesture_id, uint8_t *data)
 		input_sync(ts->input_dev);
 	}
 }
-#endif
 
 /*******************************************************
 Description:
@@ -1334,16 +1330,14 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 {
 	int32_t ret = -1;
 	uint8_t point_data[POINT_DATA_LEN + PEN_DATA_LEN + 1 + DUMMY_BYTES] = {0};
-	uint32_t position = 0;
+	uint32_t position = 1;
 	uint32_t input_x = 0;
 	uint32_t input_y = 0;
 	uint32_t input_w = 0;
 	uint32_t input_p = 0;
 	uint8_t input_id = 0;
 	uint8_t input_status = 0;
-#if MT_PROTOCOL_B
 	uint8_t press_id[TOUCH_MAX_FINGER_NUM] = {0};
-#endif /* MT_PROTOCOL_B */
 	int32_t i = 0;
 	int32_t finger_cnt = 0;
 	uint8_t pen_format_id = 0;
@@ -1357,10 +1351,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_btn2 = 0;
 	uint32_t pen_battery = 0;
 
-#if WAKEUP_GESTURE
-	if (ts->bTouchIsAwake == false)
+	if (ts->wkg_flag && ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5000);
-#endif
 
 	mutex_lock(&ts->lock);
 
@@ -1409,16 +1401,27 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	}
 #endif /* POINT_DATA_CHECKSUM */
 
-#if WAKEUP_GESTURE
-	if (ts->bTouchIsAwake == false) {
+	if (ts->wkg_flag && ts->bTouchIsAwake == false) {
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
 		mutex_unlock(&ts->lock);
 		return IRQ_HANDLED;
 	}
-#endif
 
 	finger_cnt = 0;
+
+#if NVT_MT_CUSTOM
+	switch (point_data[position] & 0x07) {
+	case PALM_TOUCH:
+		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, PALM_TOUCH);
+		break;
+	case GRIP_TOUCH:
+		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, GRIP_TOUCH);
+		break;
+	default:
+		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
+	}
+#endif
 
 	for (i = 0; i < ts->max_touch_num; i++) {
 		position = 1 + 6 * i;
@@ -1455,14 +1458,16 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			if (input_p == 0)
 				input_p = 1;
 
-#if MT_PROTOCOL_B
-			press_id[input_id - 1] = 1;
-			input_mt_slot(ts->input_dev, input_id - 1);
-			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, true);
-#else /* MT_PROTOCOL_B */
-			input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID, input_id - 1);
-			input_report_key(ts->input_dev, BTN_TOUCH, 1);
-#endif /* MT_PROTOCOL_B */
+			if (ts->report_protocol == REPORT_PROTOCOL_B) {
+				press_id[input_id - 1] = 1;
+				input_mt_slot(ts->input_dev, input_id - 1);
+				input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, true);
+			}
+
+			if (ts->report_protocol == REPORT_PROTOCOL_A) {
+				input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID, input_id - 1);
+				input_report_key(ts->input_dev, BTN_TOUCH, 1);
+			}
 
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_X, input_x);
 			input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, input_y);
@@ -1470,42 +1475,33 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, input_p);
 
 
-#if MT_PROTOCOL_B
-#else /* MT_PROTOCOL_B */
-			input_mt_sync(ts->input_dev);
-#endif /* MT_PROTOCOL_B */
+			if (ts->report_protocol == REPORT_PROTOCOL_A)
+				input_mt_sync(ts->input_dev);
 
 			finger_cnt++;
 		}
 	}
 
-#ifdef ABS_MT_CUSTOM
-	if ((point_data[position] & 0x07) == PALM_TOUCH)
-		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, PALM_TOUCH);
-	else
-		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
-#endif
-
-#if MT_PROTOCOL_B
-	for (i = 0; i < ts->max_touch_num; i++) {
-		if (press_id[i] != 1) {
-			input_mt_slot(ts->input_dev, i);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, false);
+	if (ts->report_protocol == REPORT_PROTOCOL_B) {
+		for (i = 0; i < ts->max_touch_num; i++) {
+			if (press_id[i] != 1) {
+				input_mt_slot(ts->input_dev, i);
+				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+				input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+				input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, false);
+			}
 		}
 	}
 
 	input_report_key(ts->input_dev, BTN_TOUCH, (finger_cnt > 0));
-#else /* MT_PROTOCOL_B */
-	if (finger_cnt == 0) {
+
+	if (ts->report_protocol == REPORT_PROTOCOL_A && finger_cnt == 0) {
 #ifdef ABS_MT_CUSTOM
 		input_report_abs(ts->input_dev, ABS_MT_CUSTOM, 0);
 #endif
 		input_report_key(ts->input_dev, BTN_TOUCH, 0);
 		input_mt_sync(ts->input_dev);
 	}
-#endif /* MT_PROTOCOL_B */
 
 #if TOUCH_KEY_NUM > 0
 	if (point_data[61] == 0xF8) {
@@ -1674,8 +1670,8 @@ out:
 	return ret;
 }
 
-#if IS_ENABLED(CONFIG_DRM_PANEL)
-#if IS_ENABLED(CONFIG_SOC_GOOGLE)
+#if defined(CONFIG_DRM_PANEL)
+#if defined(CONFIG_SOC_GOOGLE)
 static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 {
 	int index;
@@ -1745,7 +1741,7 @@ return:
 static int32_t nvt_ts_probe(struct spi_device *client)
 {
 	int32_t ret = 0;
-#if ((TOUCH_KEY_NUM > 0) || WAKEUP_GESTURE)
+#if (TOUCH_KEY_NUM || WAKEUP_GESTURE)
 	int32_t retry = 0;
 #endif
 
@@ -1801,7 +1797,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		ret = -EIO;
 		goto err_ckeck_full_duplex;
 	}
+#if defined(CONFIG_SOC_GOOGLE)
 	ts->client->rt = true;
+#endif
 	ts->client->bits_per_word = 8;
 	ts->client->mode = SPI_MODE_0;
 
@@ -1905,31 +1903,27 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 					  EV_ABS);
 	ts->input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 	ts->input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
-
-#if MT_PROTOCOL_B
-	input_mt_init_slots(ts->input_dev, ts->max_touch_num, 0);
+	ts->report_protocol = REPORT_PROTOCOL_B;
+#if WAKEUP_GESTURE
+	ts->wkg_flag = 1;
 #endif
 
-	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE, 0, TOUCH_FORCE_NUM, 0,
-			     0);    //pressure = TOUCH_FORCE_NUM
-#ifdef ABS_MT_CUSTOM
+	if (ts->report_protocol == REPORT_PROTOCOL_B)
+		input_mt_init_slots(ts->input_dev, ts->max_touch_num, 0);
+
+	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE, 0,
+			TOUCH_FORCE_NUM, 0, 0);    //pressure = TOUCH_FORCE_NUM
+
+#if NVT_MT_CUSTOM
 	input_set_abs_params(ts->input_dev, ABS_MT_CUSTOM, 0, 0x8, 0, 0);
 #endif
 
 #if TOUCH_MAX_FINGER_NUM > 1
-	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0,
-			     0);    //area = 255
-
-	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, 0, ts->abs_x_max, 0,
-			     0);
-	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, 0, ts->abs_y_max, 0,
-			     0);
-#if MT_PROTOCOL_B
-	// no need to set ABS_MT_TRACKING_ID, input_mt_init_slots() already set it
-#else
-	input_set_abs_params(ts->input_dev, ABS_MT_TRACKING_ID, 0,
-			     ts->max_touch_num, 0, 0);
-#endif //MT_PROTOCOL_B
+	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);    //area = 255
+	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, 0, ts->abs_x_max, 0, 0);
+	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, 0, ts->abs_y_max, 0, 0);
+	if (ts->report_protocol == REPORT_PROTOCOL_A)
+		input_set_abs_params(ts->input_dev, ABS_MT_TRACKING_ID, 0, ts->max_touch_num, 0, 0);
 #endif //TOUCH_MAX_FINGER_NUM > 1
 
 #if TOUCH_KEY_NUM > 0
@@ -2145,7 +2139,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	return 0;
 
-
 #if defined(CONFIG_FB)
 #if defined(CONFIG_DRM_PANEL) && (defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM))
 err_register_drm_panel_notif_failed:
@@ -2300,7 +2293,6 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 		nvt_fwu_wq = NULL;
 	}
 #endif
-
 #if WAKEUP_GESTURE
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif
@@ -2392,7 +2384,6 @@ static void nvt_ts_shutdown(struct spi_device *client)
 		nvt_fwu_wq = NULL;
 	}
 #endif
-
 #if WAKEUP_GESTURE
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif
@@ -2409,18 +2400,12 @@ return:
 static int32_t nvt_ts_suspend(struct device *dev)
 {
 	uint8_t buf[4] = {0};
-#if MT_PROTOCOL_B
 	uint32_t i = 0;
-#endif
 
 	if (!ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
 		return 0;
 	}
-
-#if !WAKEUP_GESTURE
-	nvt_irq_enable(false);
-#endif
 
 #if NVT_TOUCH_ESD_PROTECT
 	NVT_LOG("cancel delayed work sync\n");
@@ -2428,43 +2413,66 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-	NVT_LOG("start\n");
 	mutex_lock(&ts->lock);
+
+	NVT_LOG("start\n");
+
+	if (!ts->wkg_flag)
+		nvt_irq_enable(false);
+
 	reinit_completion(&ts->bus_resumed);
 	ts->bTouchIsAwake = false;
 
 #if WAKEUP_GESTURE
-	//---write command to enter "wakeup gesture mode"---
-	buf[0] = EVENT_MAP_HOST_CMD;
-	buf[1] = 0x13;
-	CTP_SPI_WRITE(ts->client, buf, 2);
+	if (nvt_set_dttw(ts->wkg_flag) == 0)
+		NVT_LOG("Disable DTTW\n");
+	else if (nvt_set_dttw(ts->wkg_flag) == 1)
+		NVT_LOG("Enable DTTW with :\ndttw_touch_area_max = %d\n"
+				"dttw_touch_area_min = %d\ndttw_contact_duration_max = %d\n"
+				"dttw_contact_duration_min = %d\ndttw_tap_offset = %d\n"
+				"dttw_tap_gap_duration_max = %d\ndttw_tap_gap_duration_min = %d\n"
+				"dttw_motion_tolerance = %d\ndttw_detection_window_edge = %d\n",
+				ts->dttw_touch_area_max, ts->dttw_touch_area_min,
+				ts->dttw_contact_duration_max, ts->dttw_contact_duration_min,
+				ts->dttw_tap_offset,
+				ts->dttw_tap_gap_duration_max, ts->dttw_tap_gap_duration_min,
+				ts->dttw_motion_tolerance, ts->dttw_detection_window_edge);
+	else
+		NVT_ERR("Failed to setup DTTW\n");
+#endif
 
-	enable_irq_wake(ts->client->irq);
+	if (ts->wkg_flag) {
+		//---write command to enter "wakeup gesture mode"---
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x13;
+		CTP_SPI_WRITE(ts->client, buf, 2);
 
-	NVT_LOG("Enabled touch wakeup gesture\n");
+		enable_irq_wake(ts->client->irq);
 
-#else // WAKEUP_GESTURE
-	//---write command to enter "deep sleep mode"---
-	buf[0] = EVENT_MAP_HOST_CMD;
-	buf[1] = 0x11;
-	CTP_SPI_WRITE(ts->client, buf, 2);
-#endif // WAKEUP_GESTURE
+		NVT_LOG("Enabled touch wakeup gesture\n");
+	} else {
+		//---write command to enter "deep sleep mode"---
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x11;
+		CTP_SPI_WRITE(ts->client, buf, 2);
+	}
 
 	mutex_unlock(&ts->lock);
 
 	/* release all touches */
-#if MT_PROTOCOL_B
-	for (i = 0; i < ts->max_touch_num; i++) {
-		input_mt_slot(ts->input_dev, i);
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
+	if (ts->report_protocol == REPORT_PROTOCOL_B) {
+		for (i = 0; i < ts->max_touch_num; i++) {
+			input_mt_slot(ts->input_dev, i);
+			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
+		}
 	}
-#endif
 	input_report_key(ts->input_dev, BTN_TOUCH, 0);
-#if !MT_PROTOCOL_B
-	input_mt_sync(ts->input_dev);
-#endif
+
+	if (ts->report_protocol == REPORT_PROTOCOL_A)
+		input_mt_sync(ts->input_dev);
+
 	input_sync(ts->input_dev);
 
 	/* release pen event */
@@ -2517,9 +2525,8 @@ static int32_t nvt_ts_resume(struct device *dev)
 		nvt_check_fw_reset_state(RESET_STATE_REK);
 	}
 
-#if !WAKEUP_GESTURE
-	nvt_irq_enable(true);
-#endif
+	if (!ts->wkg_flag)
+		nvt_irq_enable(true);
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -2530,6 +2537,7 @@ static int32_t nvt_ts_resume(struct device *dev)
 	ts->bTouchIsAwake = true;
 	complete_all(&ts->bus_resumed);
 	mutex_unlock(&ts->lock);
+
 	NVT_LOG("end\n");
 
 	return 0;

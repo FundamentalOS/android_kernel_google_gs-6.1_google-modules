@@ -569,15 +569,20 @@ return:
 *******************************************************/
 static int32_t nvt_fw_update_open(struct inode *inode, struct file *file)
 {
+	int32_t ret;
 
 	NVT_LOG("++\n");
 
 	mutex_lock(&ts->lock);
-	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
+	ret = nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EIO;
+	}
 
+	NVT_LOG("--\n");
 	return seq_open(file, &nvt_fw_version_seq_ops);
 }
 

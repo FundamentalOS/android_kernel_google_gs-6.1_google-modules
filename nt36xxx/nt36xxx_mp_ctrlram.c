@@ -34,7 +34,7 @@
 
 static uint8_t *RecordResult_Short;
 static uint8_t *RecordResult_Open;
-static uint8_t *RecordResult_FWMutual;
+static uint8_t *RecordResult_FW_Rawdata;
 static uint8_t *RecordResult_FW_CC;
 static uint8_t *RecordResult_FW_DiffMax;
 static uint8_t *RecordResult_FW_DiffMin;
@@ -54,7 +54,6 @@ static uint8_t *RecordResult_PenRingY_DiffMin;
 static int32_t TestResult_Short;
 static int32_t TestResult_Open;
 static int32_t TestResult_FW_Rawdata;
-static int32_t TestResult_FWMutual;
 static int32_t TestResult_FW_CC;
 static int32_t TestResult_Noise;
 static int32_t TestResult_FW_DiffMax;
@@ -79,7 +78,7 @@ static int32_t *RawData_Open;
 static int32_t *RawData_Diff;
 static int32_t *RawData_Diff_Min;
 static int32_t *RawData_Diff_Max;
-static int32_t *RawData_FWMutual;
+static int32_t *RawData_FW_Rawdata;
 static int32_t *RawData_FW_CC;
 static int32_t *RawData_PenTipX_Raw;
 static int32_t *RawData_PenTipY_Raw;
@@ -116,8 +115,8 @@ return:
 static int nvt_mp_buffer_init(void)
 {
 	size_t RecordResult_BufSize = X_Y_DIMENSION_MAX + IC_KEY_CFG_SIZE;
-	size_t RawData_BufSize = (X_Y_DIMENSION_MAX + IC_KEY_CFG_SIZE) * sizeof(
-					 int32_t);
+	size_t RawData_BufSize = (X_Y_DIMENSION_MAX +
+					IC_KEY_CFG_SIZE) * sizeof(int32_t);
 	size_t Pen_RecordResult_BufSize = PEN_X_Y_DIMENSION_MAX;
 	size_t Pen_RawData_BufSize = PEN_X_Y_DIMENSION_MAX * sizeof(int32_t);
 
@@ -133,10 +132,10 @@ static int nvt_mp_buffer_init(void)
 		return -ENOMEM;
 	}
 
-	RecordResult_FWMutual = (uint8_t *)kzalloc(RecordResult_BufSize,
+	RecordResult_FW_Rawdata = (uint8_t *)kzalloc(RecordResult_BufSize,
 				GFP_KERNEL);
-	if (!RecordResult_FWMutual) {
-		NVT_ERR("kzalloc for RecordResult_FWMutual failed!\n");
+	if (!RecordResult_FW_Rawdata) {
+		NVT_ERR("kzalloc for RecordResult_FW_Rawdata failed!\n");
 		return -ENOMEM;
 	}
 
@@ -276,9 +275,9 @@ static int nvt_mp_buffer_init(void)
 		return -ENOMEM;
 	}
 
-	RawData_FWMutual = (int32_t *)kzalloc(RawData_BufSize, GFP_KERNEL);
-	if (!RawData_FWMutual) {
-		NVT_ERR("kzalloc for RawData_FWMutual failed!\n");
+	RawData_FW_Rawdata = (int32_t *)kzalloc(RawData_BufSize, GFP_KERNEL);
+	if (!RawData_FW_Rawdata) {
+		NVT_ERR("kzalloc for RawData_FW_Rawdata failed!\n");
 		return -ENOMEM;
 	}
 
@@ -392,9 +391,9 @@ static void nvt_mp_buffer_deinit(void)
 		RecordResult_Open = NULL;
 	}
 
-	if (RecordResult_FWMutual) {
-		kfree(RecordResult_FWMutual);
-		RecordResult_FWMutual = NULL;
+	if (RecordResult_FW_Rawdata) {
+		kfree(RecordResult_FW_Rawdata);
+		RecordResult_FW_Rawdata = NULL;
 	}
 
 	if (RecordResult_FW_CC) {
@@ -499,9 +498,9 @@ static void nvt_mp_buffer_deinit(void)
 		RawData_Diff_Max = NULL;
 	}
 
-	if (RawData_FWMutual) {
-		kfree(RawData_FWMutual);
-		RawData_FWMutual = NULL;
+	if (RawData_FW_Rawdata) {
+		kfree(RawData_FW_Rawdata);
+		RawData_FW_Rawdata = NULL;
 	}
 
 	if (RawData_FW_CC) {
@@ -1376,6 +1375,29 @@ static int32_t RawDataTest_SinglePoint_Sub(
 
 /*******************************************************
 Description:
+	Novatek touchscreen print self-test data function.
+
+return:
+	n.a.
+*******************************************************/
+void print_selftest_data(struct seq_file *m, int32_t rawdata[], uint8_t x_len, uint8_t y_len)
+{
+	int32_t i, j, iArrayIndex;
+
+	for (i = 0; i < y_len; i++) {
+		for (j = 0; j < x_len; j++) {
+			iArrayIndex = i * x_len + j;
+			seq_printf(m, "%5d", rawdata[iArrayIndex]);
+			if (j != x_len - 1)
+				seq_puts(m, " ");
+			else
+				seq_puts(m, "\n");
+		}
+	}
+}
+
+/*******************************************************
+Description:
 	Novatek touchscreen print self-test result function.
 
 return:
@@ -1458,6 +1480,36 @@ static int32_t c_show_selftest(struct seq_file *m, void *v)
 {
 	NVT_LOG("++\n");
 
+	seq_puts(m, "\n***** Selftest Data *****\n");
+
+	seq_puts(m, "\n[Short]\n\n");
+	print_selftest_data(m, RawData_Short, X_Channel, Y_Channel);
+	seq_puts(m, "\n[Open]\n\n");
+	print_selftest_data(m, RawData_Open, X_Channel, Y_Channel);
+	seq_puts(m, "\n[Rawdata]\n\n");
+	print_selftest_data(m, RawData_FW_Rawdata, X_Channel, Y_Channel);
+	seq_puts(m, "\n[CC]\n\n");
+	print_selftest_data(m, RawData_FW_CC, X_Channel, Y_Channel);
+	seq_puts(m, "\n[Noise]\n\n");
+	print_selftest_data(m, RawData_Diff_Max, X_Channel, Y_Channel);
+	print_selftest_data(m, RawData_Diff_Min, X_Channel, Y_Channel);
+	seq_puts(m, "\n[Pen_Rawdata]\n\n");
+	print_selftest_data(m, RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
+	print_selftest_data(m, RawData_PenTipY_Raw, ts->x_gang_num, ts->y_num);
+	print_selftest_data(m, RawData_PenRingX_Raw, ts->x_num, ts->y_gang_num);
+	print_selftest_data(m, RawData_PenRingY_Raw, ts->x_gang_num, ts->y_num);
+	seq_puts(m, "\n[Pen_Noise]\n\n");
+	print_selftest_data(m, RawData_PenTipX_DiffMax, ts->x_num, ts->y_gang_num);
+	print_selftest_data(m, RawData_PenTipX_DiffMin, ts->x_num, ts->y_gang_num);
+	print_selftest_data(m, RawData_PenTipY_DiffMax, ts->x_gang_num, ts->y_num);
+	print_selftest_data(m, RawData_PenTipY_DiffMin, ts->x_gang_num, ts->y_num);
+	print_selftest_data(m, RawData_PenRingX_DiffMax, ts->x_num, ts->y_gang_num);
+	print_selftest_data(m, RawData_PenRingX_DiffMin, ts->x_num, ts->y_gang_num);
+	print_selftest_data(m, RawData_PenRingY_DiffMax, ts->x_gang_num, ts->y_num);
+	print_selftest_data(m, RawData_PenRingY_DiffMin, ts->x_gang_num, ts->y_num);
+
+	seq_puts(m, "\n\n===== Test Result =====\n\n");
+
 	nvt_mp_seq_printf(m, "FW Version: %d\n\n", fw_ver);
 
 	nvt_mp_seq_printf(m, "Short Test");
@@ -1469,27 +1521,17 @@ static int32_t c_show_selftest(struct seq_file *m, void *v)
 			      X_Channel, Y_Channel);
 
 	nvt_mp_seq_printf(m, "FW Rawdata Test");
-	if ((TestResult_FW_Rawdata == 0) || (TestResult_FW_Rawdata == 1)) {
-		print_selftest_result(m, TestResult_FWMutual, RecordResult_FWMutual,
-				      RawData_FWMutual, X_Channel, Y_Channel);
-	} else { // TestResult_FW_Rawdata is -1
-		nvt_mp_seq_printf(m, " FAIL!\n");
-		if (TestResult_FWMutual == -1) {
-			nvt_mp_seq_printf(m, "FW Mutual");
-			print_selftest_result(m, TestResult_FWMutual, RecordResult_FWMutual,
-					      RawData_FWMutual, X_Channel, Y_Channel);
-		}
-		if (TestResult_FW_CC == -1) {
-			nvt_mp_seq_printf(m, "FW CC");
-			print_selftest_result(m, TestResult_FW_CC, RecordResult_FW_CC,
-					      RawData_FW_CC, X_Channel, Y_Channel);
-		}
-	}
+	print_selftest_result(m, TestResult_FW_Rawdata, RecordResult_FW_Rawdata,
+			RawData_FW_Rawdata, X_Channel, Y_Channel);
+
+	nvt_mp_seq_printf(m, "FW CC Test");
+	print_selftest_result(m, TestResult_FW_CC,
+			RecordResult_FW_CC, RawData_FW_CC, X_Channel, Y_Channel);
 
 	nvt_mp_seq_printf(m, "Noise Test");
 	if ((TestResult_Noise == 0) || (TestResult_Noise == 1)) {
 		print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax,
-				      RawData_Diff_Max, X_Channel, Y_Channel);
+				RawData_Diff_Max, X_Channel, Y_Channel);
 	} else { // TestResult_Noise is -1
 		nvt_mp_seq_printf(m, " FAIL!\n");
 		if (TestResult_FW_DiffMax == -1) {
@@ -1679,7 +1721,6 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	TestResult_Short = 0;
 	TestResult_Open = 0;
 	TestResult_FW_Rawdata = 0;
-	TestResult_FWMutual = 0;
 	TestResult_FW_CC = 0;
 	TestResult_Noise = 0;
 	TestResult_FW_DiffMax = 0;
@@ -1784,28 +1825,23 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	}
 
 	//---FW Rawdata Test---
-	if (nvt_read_baseline(RawData_FWMutual) != 0) {
-		TestResult_FWMutual = 1;
+	if (nvt_read_baseline(RawData_FW_Rawdata) != 0) {
+		TestResult_FW_Rawdata = 1;
 	} else {
-		TestResult_FWMutual = RawDataTest_SinglePoint_Sub(RawData_FWMutual,
-				      RecordResult_FWMutual, X_Channel, Y_Channel,
-				      PS_Config_Lmt_FW_Rawdata_P, PS_Config_Lmt_FW_Rawdata_N);
+		TestResult_FW_Rawdata = RawDataTest_SinglePoint_Sub(
+						RawData_FW_Rawdata,
+						RecordResult_FW_Rawdata,
+						X_Channel, Y_Channel,
+						PS_Config_Lmt_FW_Rawdata_P,
+						PS_Config_Lmt_FW_Rawdata_N);
 	}
+
 	if (nvt_read_CC(RawData_FW_CC) != 0) {
 		TestResult_FW_CC = 1;
 	} else {
 		TestResult_FW_CC = RawDataTest_SinglePoint_Sub(RawData_FW_CC,
 				   RecordResult_FW_CC, X_Channel, Y_Channel,
 				   PS_Config_Lmt_FW_CC_P, PS_Config_Lmt_FW_CC_N);
-	}
-
-	if ((TestResult_FWMutual == 1) || (TestResult_FW_CC == 1)) {
-		TestResult_FW_Rawdata = 1;
-	} else {
-		if ((TestResult_FWMutual == -1) || (TestResult_FW_CC == -1))
-			TestResult_FW_Rawdata = -1;
-		else
-			TestResult_FW_Rawdata = 0;
 	}
 
 	if (ts->pen_support) {
