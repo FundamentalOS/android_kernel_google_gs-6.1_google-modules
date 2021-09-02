@@ -53,6 +53,7 @@
 /*
  * TODO:
  * 1. b/193467478: WHI panel bridge porting for suspend/resume.
+ *    - No panel bridge disable after 1st booting
  * 2. add pinctrl on/off for touch bus handshaking.
  *
  */
