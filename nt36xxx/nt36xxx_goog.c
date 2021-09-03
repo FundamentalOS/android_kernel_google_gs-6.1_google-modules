@@ -61,17 +61,20 @@ static void panel_bridge_mode_set(struct drm_bridge *bridge,
 				  const struct drm_display_mode *mode,
 				  const struct drm_display_mode *adjusted_mode)
 {
+	bool is_panel_lp_mode;
 	struct nvt_ts_data *ts =
 		container_of(bridge, struct nvt_ts_data, panel_bridge);
 
 	if (!ts->connector || !ts->connector->state)
 		ts->connector = get_bridge_connector(bridge);
 
-	ts->is_panel_lp_mode = bridge_is_lp_mode(ts->connector);
+	is_panel_lp_mode = bridge_is_lp_mode(ts->connector);
 
-	NVT_LOG("LP %d\n", ts->is_panel_lp_mode);
-	if (!(ts->bus_refmask & NVT_BUS_REF_SCREEN_ON))
-		nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, !ts->is_panel_lp_mode);
+	NVT_LOG("LP from %d to %d\n", ts->is_panel_lp_mode, is_panel_lp_mode);
+	if (ts->is_panel_lp_mode != is_panel_lp_mode)
+		nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, !is_panel_lp_mode);
+
+	ts->is_panel_lp_mode = is_panel_lp_mode;
 }
 
 static const struct drm_bridge_funcs panel_bridge_funcs = {
@@ -120,17 +123,19 @@ void unregister_panel_bridge(struct drm_bridge *bridge)
 void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts)
 {
 	/* Complete or cancel any outstanding transitions */
-	cancel_work_sync(&ts->suspend_work);
-	cancel_work_sync(&ts->resume_work);
+	cancel_delayed_work_sync(&ts->suspend_work);
+	cancel_delayed_work_sync(&ts->resume_work);
 
 	if ((ts->bus_refmask == 0 && ts->bTouchIsAwake == false) ||
 	    (ts->bus_refmask && ts->bTouchIsAwake))
 		return;
 
 	if (ts->bus_refmask == 0)
-		queue_work(ts->event_wq, &ts->suspend_work);
+		queue_delayed_work(ts->event_wq, &ts->suspend_work,
+				msecs_to_jiffies(NTV_SUSPEND_WORK_MS_DELAY));
 	else
-		queue_work(ts->event_wq, &ts->resume_work);
+		queue_delayed_work(ts->event_wq, &ts->resume_work,
+				msecs_to_jiffies(NTV_RESUME_WORK_MS_DELAY));
 }
 
 int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)

@@ -1810,8 +1810,8 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 
 #ifdef NVT_TS_PANEL_BRIDGE
-	INIT_WORK(&ts->suspend_work, nvt_ts_suspend_work);
-	INIT_WORK(&ts->resume_work, nvt_ts_resume_work);
+	INIT_DELAYED_WORK(&ts->suspend_work, nvt_ts_suspend_work);
+	INIT_DELAYED_WORK(&ts->resume_work, nvt_ts_resume_work);
 #endif
 	ts->event_wq = alloc_workqueue("nvt_event_wq", WQ_UNBOUND |
 				       WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
@@ -2545,14 +2545,14 @@ static int32_t nvt_ts_resume(struct device *dev)
 
 static void nvt_ts_suspend_work(struct work_struct *work)
 {
-	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, suspend_work);
+	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, suspend_work.work);
 
 	nvt_ts_suspend(&ts->client->dev);
 }
 
 static void nvt_ts_resume_work(struct work_struct *work)
 {
-	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, resume_work);
+	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, resume_work.work);
 
 	nvt_ts_resume(&ts->client->dev);
 }

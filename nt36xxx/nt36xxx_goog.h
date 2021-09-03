@@ -18,6 +18,9 @@ void unregister_panel_bridge(struct drm_bridge *bridge);
 #define unregister_panel_bridge(bridge) do {} while (0)
 #endif
 
+#define NTV_SUSPEND_WORK_MS_DELAY	0
+#define NTV_RESUME_WORK_MS_DELAY	50
+
 enum {
 	NVT_BUS_REF_SCREEN_ON		= 0x0001,
 	NVT_BUS_REF_IRQ			= 0x0002,

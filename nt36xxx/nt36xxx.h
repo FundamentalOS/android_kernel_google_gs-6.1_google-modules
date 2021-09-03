@@ -55,6 +55,7 @@
  * 1. b/193467478: WHI panel bridge porting for suspend/resume.
  *    - No panel bridge disable after 1st booting
  * 2. add pinctrl on/off for touch bus handshaking.
+ * 3. fine tune the resume timing for NTV_RESUME_WORK_MS_DELAY
  *
  */
 #if defined(CONFIG_SOC_GOOGLE)
@@ -220,8 +221,8 @@ struct nvt_ts_data {
 	struct drm_bridge panel_bridge;
 	struct drm_connector *connector;
 	bool is_panel_lp_mode;
-	struct work_struct suspend_work;
-	struct work_struct resume_work;
+	struct delayed_work suspend_work;
+	struct delayed_work resume_work;
 
 	struct workqueue_struct *event_wq;
 
