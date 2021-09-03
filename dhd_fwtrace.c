@@ -206,14 +206,9 @@ fwtrace_write_to_file(uint8 *buf, uint16 buf_len, dhd_pub_t *dhdp)
 	fwtrace_info_t *fwtrace_info = dhdp->fwtrace_info;
 	int ret_val = BCME_OK;
 	int ret_val_1 = 0;
-	mm_segment_t old_fs;
 	loff_t pos = 0;
 	struct kstat stat;
 	int error;
-
-	/* Change to KERNEL_DS address limit */
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
 
 	if (buf == NULL) {
 		ret_val = BCME_ERROR;
@@ -261,8 +256,6 @@ fwtrace_write_to_file(uint8 *buf, uint16 buf_len, dhd_pub_t *dhdp)
 	}
 
 done:
-	/* restore previous address limit */
-	set_fs(old_fs);
 	return (ret_val);
 }
 

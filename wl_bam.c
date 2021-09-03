@@ -224,7 +224,6 @@ wl_bad_ap_mngr_fread(struct bcm_cfg80211 *cfg, const char *fname)
 {
 	int ret = BCME_ERROR;
 
-	mm_segment_t fs;
 	struct file *fp = NULL;
 
 	if (fname == NULL) {
@@ -232,9 +231,6 @@ wl_bad_ap_mngr_fread(struct bcm_cfg80211 *cfg, const char *fname)
 		return ret;
 	}
 	mutex_lock(&cfg->bad_ap_mngr.fs_lock);
-
-	fs = get_fs();
-	set_fs(KERNEL_DS);
 
 	fp = dhd_filp_open(fname, O_RDONLY, 0);
 	if (IS_ERR(fp) || (fp == NULL)) {
@@ -250,7 +246,6 @@ fail:
 	if (fp) {
 		dhd_filp_close(fp, NULL);
 	}
-	set_fs(fs);
 
 	mutex_unlock(&cfg->bad_ap_mngr.fs_lock);
 
@@ -262,7 +257,6 @@ wl_bad_ap_mngr_fwrite(struct bcm_cfg80211 *cfg, const char *fname)
 {
 	int ret = BCME_ERROR;
 
-	mm_segment_t fs;
 	struct file *fp = NULL;
 
 	int len = 0;
@@ -279,9 +273,6 @@ wl_bad_ap_mngr_fwrite(struct bcm_cfg80211 *cfg, const char *fname)
 	}
 
 	mutex_lock(&cfg->bad_ap_mngr.fs_lock);
-
-	fs = get_fs();
-	set_fs(KERNEL_DS);
 
 	fp = dhd_filp_open(fname, O_CREAT | O_RDWR | O_TRUNC,  0666);
 	if (IS_ERR(fp) || (fp == NULL)) {
@@ -326,7 +317,6 @@ fail:
 	if (fp) {
 		dhd_filp_close(fp, NULL);
 	}
-	set_fs(fs);
 	mutex_unlock(&cfg->bad_ap_mngr.fs_lock);
 
 	return ret;

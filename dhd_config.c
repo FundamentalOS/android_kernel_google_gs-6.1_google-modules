@@ -975,7 +975,6 @@ extern char config_path[];
 int
 dhd_preinit_config(dhd_pub_t *dhd, int ifidx)
 {
-	mm_segment_t old_fs;
 	struct kstat stat;
 	struct file *fp = NULL;
 	unsigned int len;
@@ -987,15 +986,11 @@ dhd_preinit_config(dhd_pub_t *dhd, int ifidx)
 		return 0;
 	}
 
-	old_fs = get_fs();
-	set_fs(get_ds());
 	if ((ret = dhd_vfs_stat(config_path, &stat))) {
-		set_fs(old_fs);
 		printk(KERN_ERR "%s: Failed to get information (%d)\n",
 			config_path, ret);
 		return ret;
 	}
-	set_fs(old_fs);
 
 	if (!(buf = MALLOC(dhd->osh, stat.size + 1))) {
 		printk(KERN_ERR "Failed to allocate memory %llu bytes\n", stat.size);
