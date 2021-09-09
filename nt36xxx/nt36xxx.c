@@ -1653,6 +1653,9 @@ static int8_t nvt_ts_check_chip_ver_trim(uint32_t chip_ver_trim_addr)
 
 			if (found_nvt_chip) {
 				NVT_LOG("This is NVT touch IC\n");
+#if defined(CONFIG_SOC_GOOGLE)
+				ts->trim_table = &trim_id_table[list];
+#endif
 				ts->mmap = trim_id_table[list].mmap;
 				ts->hw_crc = trim_id_table[list].hwinfo->hw_crc;
 				ret = 0;

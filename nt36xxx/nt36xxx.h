@@ -176,6 +176,9 @@ struct nvt_ts_data {
 	int32_t reset_gpio;
 	uint32_t reset_flags;
 	struct mutex lock;
+#if defined(CONFIG_SOC_GOOGLE)
+	const struct nvt_ts_trim_id_table *trim_table;
+#endif
 	const struct nvt_ts_mem_map *mmap;
 	uint8_t hw_crc;
 	uint16_t nvt_pid;

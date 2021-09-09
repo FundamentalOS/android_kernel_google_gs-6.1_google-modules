@@ -375,6 +375,12 @@ static int32_t c_fw_version_show(struct seq_file *m, void *v)
 {
 	seq_printf(m, "fw_ver=%d, x_num=%d, y_num=%d, button_num=%d\n", ts->fw_ver,
 		   ts->x_num, ts->y_num, ts->max_button_num);
+#if defined(CONFIG_SOC_GOOGLE)
+	seq_printf(m, "id= 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
+		ts->trim_table->id[0], ts->trim_table->id[1],
+		ts->trim_table->id[2], ts->trim_table->id[3],
+		ts->trim_table->id[4], ts->trim_table->id[5]);
+#endif
 	return 0;
 }
 
