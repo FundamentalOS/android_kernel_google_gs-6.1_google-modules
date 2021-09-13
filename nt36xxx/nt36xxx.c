@@ -1876,7 +1876,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		ret = nvt_ts_check_chip_ver_trim(CHIP_VER_TRIM_OLD_ADDR);
 		if (ret) {
 			NVT_ERR("chip is not identified\n");
-			ret = -EINVAL;
+			ret = -EPROBE_DEFER;
 			goto err_chipvertrim_failed;
 		}
 	}
