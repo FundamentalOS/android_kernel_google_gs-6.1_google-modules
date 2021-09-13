@@ -1209,7 +1209,7 @@ static void nvt_esd_check_func(struct work_struct *work)
 {
 	unsigned int timer = jiffies_to_msecs(jiffies - irq_timer);
 
-	//NVT_LOG("esd_check = %d (retry %d)\n", esd_check, esd_retry);	//DEBUG
+	NVT_DBG("esd_check = %d (retry %d)\n", esd_check, esd_retry);
 
 	if ((timer > NVT_TOUCH_ESD_CHECK_PERIOD) && esd_check) {
 		mutex_lock(&ts->lock);
@@ -1223,8 +1223,9 @@ static void nvt_esd_check_func(struct work_struct *work)
 		esd_retry++;
 	}
 
-	queue_delayed_work(nvt_esd_check_wq, &nvt_esd_check_work,
-			   msecs_to_jiffies(NVT_TOUCH_ESD_CHECK_PERIOD));
+	if (ts->bTouchIsAwake)
+		queue_delayed_work(nvt_esd_check_wq, &nvt_esd_check_work,
+				msecs_to_jiffies(NVT_TOUCH_ESD_CHECK_PERIOD));
 }
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
