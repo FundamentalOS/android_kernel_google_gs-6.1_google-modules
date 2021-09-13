@@ -132,10 +132,10 @@ void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts)
 
 	if (ts->bus_refmask == 0)
 		queue_delayed_work(ts->event_wq, &ts->suspend_work,
-				msecs_to_jiffies(NTV_SUSPEND_WORK_MS_DELAY));
+				msecs_to_jiffies(NVT_SUSPEND_WORK_MS_DELAY));
 	else
 		queue_delayed_work(ts->event_wq, &ts->resume_work,
-				msecs_to_jiffies(NTV_RESUME_WORK_MS_DELAY));
+				msecs_to_jiffies(NVT_RESUME_WORK_MS_DELAY));
 }
 
 int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)

@@ -2411,7 +2411,7 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	}
 
 #if NVT_TOUCH_ESD_PROTECT
-	NVT_LOG("cancel delayed work sync\n");
+	NVT_LOG("cancel delayed work sync on nvt_esd_check_work\n");
 	cancel_delayed_work_sync(&nvt_esd_check_work);
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
@@ -2493,6 +2493,9 @@ static int32_t nvt_ts_suspend(struct device *dev)
 		input_sync(ts->pen_input_dev);
 	}
 
+#if defined(CONFIG_SOC_GOOGLE)
+	nvt_pinctrl_configure(ts, false);
+#endif
 	msleep(50);
 
 	NVT_LOG("end\n");
@@ -2517,6 +2520,10 @@ static int32_t nvt_ts_resume(struct device *dev)
 	mutex_lock(&ts->lock);
 
 	NVT_LOG("start\n");
+#if defined(CONFIG_SOC_GOOGLE)
+	nvt_pinctrl_configure(ts, true);
+	usleep_range(NVT_PINCTRL_US_DELAY, NVT_PINCTRL_US_DELAY + 1);
+#endif
 
 	// please make sure display reset(RESX) sequence and mipi dsi cmds sent before this
 #if NVT_TOUCH_SUPPORT_HW_RST
