@@ -2223,7 +2223,7 @@ exit_nvt_touch_sysfs_init:
 void nvt_extra_api_deinit(void)
 {
 	NVT_LOG("++\n");
-	devm_device_remove_group(&ts->client->dev, &nvt_api_attribute_group);
+	devm_device_remove_group(&ts->input_dev->dev, &nvt_api_attribute_group);
 	sysfs_remove_link(ts->input_dev->dev.kobj.parent, NVT_TOUCH_SYSFS_LINK);
 	kfree(heatmap_spi_buf);
 	heatmap_spi_buf = NULL;
