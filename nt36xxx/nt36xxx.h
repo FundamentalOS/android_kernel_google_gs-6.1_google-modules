@@ -118,7 +118,7 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define WAKEUP_GESTURE 0
 extern const uint16_t gesture_key_array[];
 #define BOOT_UPDATE_FIRMWARE 1
-#define BOOT_UPDATE_FIRMWARE_MS_DELAY 1000
+#define BOOT_UPDATE_FIRMWARE_MS_DELAY 100
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
 #define MP_UPDATE_FIRMWARE_NAME   "novatek_ts_mp.bin"
 #define POINT_DATA_CHECKSUM 0
