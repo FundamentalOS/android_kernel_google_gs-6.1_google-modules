@@ -131,7 +131,7 @@ extern const uint16_t gesture_key_array[];
 
 #define CHECK_PEN_DATA_CHECKSUM 0
 
-//MP
+// MP
 #define NORMAL_MODE 0x00
 #define TEST_MODE_2 0x22
 #define MP_MODE_CC 0x41
@@ -144,6 +144,16 @@ extern const uint16_t gesture_key_array[];
 #define ABS_MT_CUSTOM 0x3e
 #define GRIP_TOUCH 0x04
 #define PALM_TOUCH 0x05
+#endif
+
+// HEATMAP ADDR
+#if NVT_TOUCH_EXT_API
+#define HM_RAWDATA_ADDR 0x26238
+#define HM_BASELINE_ADDR 0x36510
+#define HM_DIFF_ADDR 0x373E8
+extern uint32_t heatmap_spi_buf_size;
+extern uint8_t *heatmap_spi_buf;
+extern uint32_t heatmap_addr;
 #endif
 
 struct nvt_ts_data {
@@ -211,6 +221,7 @@ struct nvt_ts_data {
 	uint16_t dttw_tap_gap_duration_min;
 	uint16_t dttw_motion_tolerance;
 	uint16_t dttw_detection_window_edge;
+	uint8_t heatmap_en;
 #endif
 
 	/*

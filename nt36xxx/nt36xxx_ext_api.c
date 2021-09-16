@@ -22,7 +22,7 @@
 #include <linux/kernel.h>
 #include "nt36xxx.h"
 
-#define PLAYBACK_RAWDATA_ADDR             0x26238
+#if NVT_TOUCH_EXT_API
 #define GET_CALIBRATION_ADDR              0x2B31A
 #define GET_GRIP_LEVEL_ADDR               0x2B31B
 #define DTTW_TOUCH_AREA_MIN_ADDR          0x2B36A
@@ -93,7 +93,7 @@ enum {
 
 uint32_t heatmap_spi_buf_size;
 uint8_t *heatmap_spi_buf;
-uint8_t  heatmap_enabled;
+uint32_t heatmap_addr;
 uint32_t cc_uniformity_spi_buf_size;
 uint32_t rawdata_uniformity_spi_buf_size;
 uint32_t playback_spi_buf_size;
@@ -244,10 +244,9 @@ static ssize_t nvt_high_sensi_mode_show(struct device *dev,
 	return ret;
 }
 
-/*
-static ssize_t nvt_holster_mode_store(struct device *dev,
-				      struct device_attribute *attr,
-				      const char *buf, size_t count)
+static ssize_t nvt_high_sensi_mode_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
 {
 	uint8_t spi_buf[3] = {0}, mode;
 	uint16_t cmd_test_bit = HIGH_SENSI_MODE_CMD_TEST_BIT;
@@ -288,7 +287,6 @@ static ssize_t nvt_holster_mode_store(struct device *dev,
 		return count;
 	}
 }
-*/
 
 static ssize_t nvt_touch_idle_mode_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -381,93 +379,39 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 				      struct device_attribute *attr,
 				      const char *buf, size_t count)
 {
-	uint8_t spi_buf[6] = {0}, mode;
-	int32_t ret;
+	uint8_t mode;
 
 	NVT_LOG("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_3)
 		return -EINVAL;
 
-	if (mutex_lock_interruptible(&ts->lock))
-		return -ERESTARTSYS;
-
 	if (!heatmap_spi_buf) {
 		heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
 		heatmap_spi_buf = kzalloc(heatmap_spi_buf_size, GFP_KERNEL);
 	}
 
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	switch (mode) {
 	case CMD_DISABLE:
 		NVT_LOG("Disable Heatmap Mode\n");
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x00;
-		spi_buf[2] = 0xbb;
-		CTP_SPI_WRITE(ts->client, spi_buf, 3);
-		ret = 0;
 		break;
 	case MODE_1: // Rawdata
 		NVT_LOG("Enter Heatmap Rawdata Mode\n");
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x61;
-		CTP_SPI_WRITE(ts->client, spi_buf, 2);
-		msleep(20);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x26;
-		spi_buf[2] = 0xBB;
-		spi_buf[3] = 0xAA;
-		spi_buf[4] = 0x00;
-		spi_buf[5] = 0x00;
-		CTP_SPI_WRITE(ts->client, spi_buf, 6);
+		heatmap_addr = HM_RAWDATA_ADDR;
 		break;
 	case MODE_2: // Baseline
 		NVT_LOG("Enter Heatmap Baseline Mode\n");
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x61;
-		CTP_SPI_WRITE(ts->client, spi_buf, 2);
-		msleep(20);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x26;
-		spi_buf[2] = 0xBB;
-		spi_buf[3] = 0xAA;
-		spi_buf[4] = 0x01;
-		spi_buf[5] = 0x00;
-		CTP_SPI_WRITE(ts->client, spi_buf, 6);
+		heatmap_addr = HM_BASELINE_ADDR;
 		break;
 	case MODE_3: // Diff
 		NVT_LOG("Enter Heatmap Diff Mode\n");
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x61;
-		CTP_SPI_WRITE(ts->client, spi_buf, 2);
-		msleep(20);
-		spi_buf[0] = EVENT_MAP_HOST_CMD;
-		spi_buf[1] = 0x26;
-		spi_buf[2] = 0xBB;
-		spi_buf[3] = 0xAA;
-		spi_buf[4] = 0x02;
-		spi_buf[5] = 0x00;
-		CTP_SPI_WRITE(ts->client, spi_buf, 6);
+		heatmap_addr = HM_DIFF_ADDR;
 		break;
+	}
 
-	}
-	if (mode != CMD_DISABLE) {
-		msleep(20);
-		spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
-		spi_buf[1] = 0x00;
-		CTP_SPI_READ(ts->client, spi_buf, 2);
-		ret = ((spi_buf[1] & 0xF0) != 0xA0);
-	}
-	mutex_unlock(&ts->lock);
-
-	if (ret) {
-		NVT_ERR("failed, ret = %d\n", ret);
-		return -EINVAL;
-	} else {
-		heatmap_enabled = (mode == CMD_DISABLE ? 0 : 1);
-		NVT_LOG("--\n");
-		return count;
-	}
+	ts->heatmap_en = (mode == CMD_DISABLE ? 0 : 1);
+	NVT_LOG("--\n");
+	return count;
 }
 
 static ssize_t nvt_cont_report_mode_show(struct device *dev,
@@ -1278,7 +1222,7 @@ static ssize_t nvt_playback_mode_store(struct device *dev, struct device_attribu
 		break;
 	case MODE_1:
 		NVT_LOG("Playback Raw Data Mode\n");
-		playback_addr = PLAYBACK_RAWDATA_ADDR;
+		playback_addr = HM_RAWDATA_ADDR;
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
 		spi_buf[1] = 0x70;
 		spi_buf[2] = 0x61;
@@ -1910,7 +1854,7 @@ static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
 static DEVICE_ATTR_RO(nvt_get_mode_history);
 static DEVICE_ATTR_RO(nvt_sync_freq);
 static DEVICE_ATTR_RW(nvt_palm_mode);
-static DEVICE_ATTR_RO(nvt_high_sensi_mode);
+static DEVICE_ATTR_RW(nvt_high_sensi_mode);
 static DEVICE_ATTR_RW(nvt_cont_report_mode);
 static DEVICE_ATTR_RW(nvt_noise_mode);
 static DEVICE_ATTR_RW(nvt_water_mode);
@@ -2104,38 +2048,10 @@ const struct seq_operations nvt_cc_uniformity_seq_ops = {
 
 static int32_t nvt_heatmap_open(struct inode *inode, struct file *file)
 {
-	uint32_t i, retry = 50;
-	uint8_t spi_buf[3] = {0};
-
-	if (!heatmap_enabled) {
+	if (!ts->heatmap_en) {
 		NVT_ERR("heatmap_mode is not enabled\n");
 		return -EINVAL;
 	}
-
-	mutex_lock(&ts->lock);
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-
-	for (i = 0; i < retry; i++) {
-		spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
-		spi_buf[1] = 0x00;
-		CTP_SPI_READ(ts->client, spi_buf, 2);
-		if ((spi_buf[1] & 0xF0) == 0xA0)
-			break;
-		usleep_range(500, 500);
-	}
-
-	if (i == retry) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-
-	heatmap_spi_buf[0] = HEATMAP_ADDR & 0x7F;
-	CTP_SPI_READ(ts->client, heatmap_spi_buf, heatmap_spi_buf_size);
-	spi_buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
-	spi_buf[1] = 0xBB;
-	CTP_SPI_WRITE(ts->client, spi_buf, 2);
-
-	mutex_unlock(&ts->lock);
 
 	return seq_open(file, &nvt_heatmap_seq_ops);
 }
@@ -2233,4 +2149,4 @@ void nvt_extra_api_deinit(void)
 	rawdata_uniformity_spi_buf = NULL;
 	NVT_LOG("--\n");
 }
-
+#endif /* #if NVT_TOUCH_EXT_API */

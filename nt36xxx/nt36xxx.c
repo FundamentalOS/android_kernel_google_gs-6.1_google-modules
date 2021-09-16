@@ -1592,6 +1592,13 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		input_sync(ts->pen_input_dev);
 	} /* if (ts->pen_support) */
 
+	if (ts->heatmap_en) {
+		nvt_set_page(heatmap_addr);
+		heatmap_spi_buf[0] = heatmap_addr & 0x7F;
+		CTP_SPI_READ(ts->client, heatmap_spi_buf, heatmap_spi_buf_size);
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	}
+
 XFER_ERROR:
 
 	mutex_unlock(&ts->lock);
