@@ -19,7 +19,7 @@ void unregister_panel_bridge(struct drm_bridge *bridge);
 #endif
 
 #define NVT_SUSPEND_WORK_MS_DELAY	0
-#define NVT_RESUME_WORK_MS_DELAY	50
+#define NVT_RESUME_WORK_MS_DELAY	0
 #define NVT_PINCTRL_US_DELAY		(10*1000)
 
 enum {
