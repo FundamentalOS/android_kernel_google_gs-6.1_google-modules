@@ -449,7 +449,7 @@ void nvt_tx_auto_copy_mode(void)
 	//---write TX_AUTO_COPY_EN cmds---
 	nvt_write_addr(ts->mmap->TX_AUTO_COPY_EN, 0x69);
 
-	NVT_ERR("tx auto copy mode enable\n");
+	NVT_LOG("tx auto copy mode enable\n");
 }
 
 /*******************************************************
@@ -1829,7 +1829,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	if (!ts->event_wq) {
 		NVT_ERR("Cannot create work thread\n");
 		ret = -ENOMEM;
-		goto error_alloc_workqueue;
+		goto err_alloc_workqueue;
 	}
 
 	init_completion(&ts->bus_resumed);
@@ -1854,7 +1854,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ret = nvt_parse_dt(&client->dev);
 	if (ret) {
 		NVT_ERR("parse dt error\n");
-		goto err_spi_setup;
+		goto err_parse_dt;
 	}
 
 	//---request and config GPIOs---
@@ -2223,10 +2223,11 @@ err_chipvertrim_failed:
 	mutex_destroy(&ts->lock);
 	nvt_gpio_deconfig(ts);
 err_gpio_config_failed:
-error_alloc_workqueue:
-err_spi_setup:
+err_parse_dt:
 	if (ts->event_wq)
 		destroy_workqueue(ts->event_wq);
+err_alloc_workqueue:
+err_spi_setup:
 err_ckeck_full_duplex:
 err_check_dt:
 	spi_set_drvdata(client, NULL);

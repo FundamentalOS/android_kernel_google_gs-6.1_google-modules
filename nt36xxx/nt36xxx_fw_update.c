@@ -639,7 +639,7 @@ static void nvt_read_bld_hw_crc(void)
 	buf[0] = ts->mmap->BLD_ILM_DLM_CRC_ADDR & 0x7F;
 	buf[1] = 0x00;
 	CTP_SPI_READ(ts->client, buf, 2);
-	NVT_ERR("crc_done = %d, ilm_crc_flag = %d, dlm_crc_flag = %d\n",
+	NVT_LOG("crc_done = %d, ilm_crc_flag = %d, dlm_crc_flag = %d\n",
 		(buf[1] >> 2) & 0x01, (buf[1] >> 0) & 0x01, (buf[1] >> 1) & 0x01);
 
 	/* ILM CRC */
@@ -661,7 +661,7 @@ static void nvt_read_bld_hw_crc(void)
 	CTP_SPI_READ(ts->client, buf, 5);
 	r_crc = buf[1] | (buf[2] << 8) | (buf[3] << 16) | (buf[4] << 24);
 
-	NVT_ERR("ilm: bin crc = 0x%08X, golden = 0x%08X, result = 0x%08X\n",
+	NVT_LOG("ilm: bin crc = 0x%08X, golden = 0x%08X, result = 0x%08X\n",
 		bin_map[0].crc, g_crc, r_crc);
 
 	/* DLM CRC */
@@ -683,7 +683,7 @@ static void nvt_read_bld_hw_crc(void)
 	CTP_SPI_READ(ts->client, buf, 5);
 	r_crc = buf[1] | (buf[2] << 8) | (buf[3] << 16) | (buf[4] << 24);
 
-	NVT_ERR("dlm: bin crc = 0x%08X, golden = 0x%08X, result = 0x%08X\n",
+	NVT_LOG("dlm: bin crc = 0x%08X, golden = 0x%08X, result = 0x%08X\n",
 		bin_map[1].crc, g_crc, r_crc);
 
 	return;
