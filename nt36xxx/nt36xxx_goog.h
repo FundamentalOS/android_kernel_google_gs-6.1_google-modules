@@ -10,6 +10,8 @@
 struct nvt_ts_data; /* forward declaration */
 void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts);
 int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable);
+int nvt_ts_pm_suspend(struct device *dev);
+int nvt_ts_pm_resume(struct device *dev);
 #ifdef NVT_TS_PANEL_BRIDGE
 int register_panel_bridge(struct nvt_ts_data *ts);
 void unregister_panel_bridge(struct drm_bridge *bridge);

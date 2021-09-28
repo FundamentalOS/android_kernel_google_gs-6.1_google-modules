@@ -185,3 +185,39 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 
 	return result;
 }
+
+int nvt_ts_pm_suspend(struct device *dev)
+{
+	struct nvt_ts_data *ts = dev_get_drvdata(dev);
+
+	if (ts->bus_refmask)
+		NVT_LOG("bus_refmask %#x\n", ts->bus_refmask);
+
+	/* Flush work in case a suspend is in progress */
+	flush_workqueue(ts->event_wq);
+
+	if (ts->bTouchIsAwake) {
+		NVT_ERR("can't suspend because touch bus is in use, bus_refmask %#x!\n",
+			ts->bus_refmask);
+		if (ts->bus_refmask & NVT_BUS_REF_BUGREPORT) {
+			s64 delta_ms = ktime_ms_delta(ktime_get(),
+							ts->bugreport_ktime_start);
+			if (delta_ms > 30 * MSEC_PER_SEC) {
+				nvt_ts_set_bus_ref(ts, NVT_BUS_REF_BUGREPORT, false);
+				pm_relax(&ts->client->dev);
+				ts->bugreport_ktime_start = 0;
+				NVT_ERR("force release NVT_BUS_REF_BUGREPORT(delta: %lld)!\n",
+					delta_ms);
+			}
+		}
+		return -EBUSY;
+	}
+
+	return 0;
+}
+
+int nvt_ts_pm_resume(struct device *dev)
+{
+	return 0;
+}
+

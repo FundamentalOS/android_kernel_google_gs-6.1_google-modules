@@ -1908,6 +1908,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	mutex_init(&ts->lock);
 	mutex_init(&ts->xbuf_lock);
+	mutex_init(&ts->bus_mutex);
 
 	//---eng reset before TP_RESX high
 	nvt_eng_reset();
@@ -2180,10 +2181,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #endif
 
 #if defined(CONFIG_SOC_GOOGLE)
-        /* Assume screen is on throughout probe */
-//        ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
+	/* Assume screen is on throughout probe */
+	ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
 #endif
-//	ts->bTouchIsAwake = true;
+	ts->bTouchIsAwake = true;
 
 	register_panel_bridge(ts);
 	NVT_LOG("end\n");
@@ -2261,6 +2262,7 @@ err_input_register_device_failed:
 	}
 err_input_dev_alloc_failed:
 err_chipvertrim_failed:
+	mutex_destroy(&ts->bus_mutex);
 	mutex_destroy(&ts->xbuf_lock);
 	mutex_destroy(&ts->lock);
 	nvt_gpio_deconfig(ts);
@@ -2354,6 +2356,7 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 	nvt_irq_enable(false);
 	free_irq(client->irq, ts);
 
+	mutex_destroy(&ts->bus_mutex);
 	mutex_destroy(&ts->xbuf_lock);
 	mutex_destroy(&ts->lock);
 
@@ -2748,6 +2751,13 @@ static struct of_device_id nvt_match_table[] = {
 };
 #endif
 
+#if defined(CONFIG_PM) && defined(CONFIG_SOC_GOOGLE)
+static const struct dev_pm_ops nvt_ts_dev_pm_ops = {
+	.suspend = nvt_ts_pm_suspend,
+	.resume = nvt_ts_pm_resume,
+};
+#endif
+
 static struct spi_driver nvt_spi_driver = {
 	.probe		= nvt_ts_probe,
 	.remove		= nvt_ts_remove,
@@ -2758,6 +2768,9 @@ static struct spi_driver nvt_spi_driver = {
 		.owner	= THIS_MODULE,
 #ifdef CONFIG_OF
 		.of_match_table = nvt_match_table,
+#endif
+#if defined(CONFIG_PM) && defined(CONFIG_SOC_GOOGLE)
+		.pm = &nvt_ts_dev_pm_ops,
 #endif
 	},
 };

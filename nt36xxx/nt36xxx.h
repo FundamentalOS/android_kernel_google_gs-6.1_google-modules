@@ -249,6 +249,8 @@ struct nvt_ts_data {
 	 */
 	u32 bus_refmask;
 	struct mutex bus_mutex;
+
+	ktime_t bugreport_ktime_start;
 };
 
 #if NVT_TOUCH_PROC
