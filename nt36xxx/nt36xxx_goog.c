@@ -144,12 +144,12 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 
 	mutex_lock(&ts->bus_mutex);
 
-	NVT_DBG("mask=0x%04X, ref=0x%04X, enable=%d\n",
+	NVT_DBG("bus_refmask=0x%04X, ref=0x%04X, enable=%d\n",
 		ts->bus_refmask, ref, enable);
 
 	if ((enable && (ts->bus_refmask & ref)) ||
 	    (!enable && !(ts->bus_refmask & ref))) {
-		NVT_LOG("reference is unexpectedly set: mask=0x%04X, ref=0x%04X, enable=%d\n",
+		NVT_LOG("unexpected ref: bus_refmask=0x%04X, ref=0x%04X, enable=%d\n",
 		ts->bus_refmask, ref, enable);
 		mutex_unlock(&ts->bus_mutex);
 		return -EINVAL;
@@ -176,7 +176,12 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 	 */
 	if (enable &&
 	    ref != NVT_BUS_REF_SCREEN_ON && ref != NVT_BUS_REF_IRQ) {
-		wait_for_completion_timeout(&ts->bus_resumed, HZ);
+		if (!ts->bTouchIsAwake &&
+			!completion_done(&ts->bus_resumed)) {
+			NVT_LOG("Wait for bus resume.\n");
+			wait_for_completion_timeout(&ts->bus_resumed,
+				msecs_to_jiffies(MSEC_PER_SEC));
+		}
 		if (!ts->bTouchIsAwake) {
 			NVT_ERR("Failed to wake the touch bus.\n");
 			result = -ETIMEDOUT;
@@ -186,12 +191,94 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 	return result;
 }
 
+ssize_t force_touch_active_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	ret = scnprintf(buf, PAGE_SIZE, "bus_refmask %#x\n", ts->bus_refmask);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+ssize_t force_touch_active_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	u8 mode;
+	int ret;
+	bool active;
+	u32 ref = 0;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou8(buf, 0, &mode)) {
+		NVT_ERR("invalid input!\n");
+		return -EINVAL;
+	}
+
+	switch (mode) {
+	case 0x10:
+		ref = NVT_BUS_REF_FORCE_ACTIVE;
+		active = false;
+		break;
+	case 0x11:
+		ref = NVT_BUS_REF_FORCE_ACTIVE;
+		active = true;
+		break;
+	case 0x20:
+		ref = NVT_BUS_REF_BUGREPORT;
+		active = false;
+		ts->bugreport_ktime_start = 0;
+		break;
+	case 0x21:
+		ref = NVT_BUS_REF_BUGREPORT;
+		active = true;
+		ts->bugreport_ktime_start = ktime_get();
+		break;
+	}
+
+	if (ref == 0) {
+		NVT_ERR("invalid input %#x.\n", mode);
+		return -EINVAL;
+	}
+
+	NVT_LOG("%s ref %#x\n",
+		(active) ? "enable" : "disable", ref);
+
+	if (active) {
+		if (!ts->bTouchIsAwake) {
+			input_report_key(ts->input_dev, KEY_WAKEUP, false);
+			input_sync(ts->input_dev);
+			input_report_key(ts->input_dev, KEY_WAKEUP, true);
+			input_sync(ts->input_dev);
+			NVT_LOG("KEY_WAKEUP triggered.\n");
+		}
+		pm_stay_awake(&ts->client->dev);
+	} else {
+		pm_relax(&ts->client->dev);
+	}
+
+	if (!ts->bTouchIsAwake)
+		msleep(NVT_FORCE_ACTIVE_MS_DELAY);
+
+	ret = nvt_ts_set_bus_ref(ts, ref, active);
+
+	if (ret)
+		NVT_ERR("failed, ret %d bus_ref %#x!\n", ret, ts->bus_refmask);
+
+	NVT_LOG("--\n");
+	return count;
+}
+
 int nvt_ts_pm_suspend(struct device *dev)
 {
 	struct nvt_ts_data *ts = dev_get_drvdata(dev);
 
-	if (ts->bus_refmask)
-		NVT_LOG("bus_refmask %#x\n", ts->bus_refmask);
+	NVT_LOG("bus_refmask %#x\n", ts->bus_refmask);
 
 	/* Flush work in case a suspend is in progress */
 	flush_workqueue(ts->event_wq);

@@ -10,6 +10,11 @@
 struct nvt_ts_data; /* forward declaration */
 void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts);
 int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable);
+ssize_t force_touch_active_show(struct device *dev,
+				struct device_attribute *attr, char *buf);
+ssize_t force_touch_active_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count);
 int nvt_ts_pm_suspend(struct device *dev);
 int nvt_ts_pm_resume(struct device *dev);
 #ifdef NVT_TS_PANEL_BRIDGE
@@ -22,6 +27,7 @@ void unregister_panel_bridge(struct drm_bridge *bridge);
 
 #define NVT_SUSPEND_WORK_MS_DELAY	0
 #define NVT_RESUME_WORK_MS_DELAY	0
+#define NVT_FORCE_ACTIVE_MS_DELAY	500
 #define NVT_PINCTRL_US_DELAY		(10*1000)
 
 enum {

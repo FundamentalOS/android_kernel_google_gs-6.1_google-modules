@@ -1870,6 +1870,9 @@ static ssize_t nvt_fw_history_show(struct device *dev,
 	return idx;
 }
 
+#if defined(CONFIG_SOC_GOOGLE)
+static DEVICE_ATTR_RW(force_touch_active);
+#endif
 static DEVICE_ATTR_RO(nvt_get_mode_history);
 static DEVICE_ATTR_RO(nvt_sync_freq);
 static DEVICE_ATTR_RW(nvt_palm_mode);
@@ -1901,6 +1904,9 @@ static DEVICE_ATTR_RW(nvt_dttw_detection_window_edge);
 static DEVICE_ATTR_RO(nvt_fw_history);
 
 static struct attribute *nvt_api_attrs[] = {
+#if defined(CONFIG_SOC_GOOGLE)
+	&dev_attr_force_touch_active.attr,
+#endif
 	&dev_attr_nvt_get_mode_history.attr,
 	&dev_attr_nvt_sync_freq.attr,
 	&dev_attr_nvt_palm_mode.attr,

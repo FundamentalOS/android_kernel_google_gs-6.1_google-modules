@@ -1956,6 +1956,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(
 					  EV_ABS);
 	ts->input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
+#if defined(CONFIG_SOC_GOOGLE)
+	__set_bit(KEY_WAKEUP & KEY_MAX, ts->input_dev->keybit);
+#endif
 	ts->input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
 	ts->report_protocol = REPORT_PROTOCOL_B;
 #if WAKEUP_GESTURE
@@ -2181,6 +2184,8 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #endif
 
 #if defined(CONFIG_SOC_GOOGLE)
+	if (device_init_wakeup(&ts->client->dev, true))
+		NVT_ERR("failed to init wakeup dev!\n");
 	/* Assume screen is on throughout probe */
 	ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
 #endif
