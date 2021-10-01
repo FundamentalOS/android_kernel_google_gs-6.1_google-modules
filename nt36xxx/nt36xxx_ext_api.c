@@ -173,7 +173,7 @@ static ssize_t nvt_palm_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -236,7 +236,7 @@ static ssize_t nvt_high_sensi_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -425,7 +425,7 @@ static ssize_t nvt_cont_report_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -490,7 +490,7 @@ static ssize_t nvt_noise_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -555,7 +555,7 @@ static ssize_t nvt_water_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -1114,7 +1114,7 @@ static ssize_t nvt_cancel_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -1178,7 +1178,7 @@ static ssize_t nvt_playback_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_api_status(cmd_get_bit));
+	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
@@ -1927,7 +1927,7 @@ static ssize_t nvt_playback_write_buf(struct file *data_file,
 	playback_spi_buf_offset = playback_spi_buf + 1 + (pos / 4); //data start from 1
 
 	for (i = 0; i < count; i += 8) {
-		if (sscanf(buf + i, "%d%*s", data_buf) > 0)
+		if (sscanf(buf + i, "%hd%*s", data_buf) > 0)
 			memcpy(playback_spi_buf_offset + (i / 4), data_buf, 2);
 	}
 	if (pos == LAST_ROUND_POS) {
