@@ -30,6 +30,7 @@
 #define FW_BIN_VER_BAR_OFFSET (FW_BIN_VER_OFFSET + 1)
 #define NVT_FLASH_END_FLAG_LEN 3
 #define NVT_FLASH_END_FLAG_ADDR (fw_need_write_size - NVT_FLASH_END_FLAG_LEN)
+#undef NVT_FW_UPDATE_PROFILING
 
 static ktime_t start, end;
 const struct firmware *fw_entry;
@@ -89,7 +90,7 @@ for download firmware function.
 return:
 	n.a.
 *******************************************************/
-static int32_t nvt_download_init(void)
+static inline int32_t nvt_download_init(void)
 {
 	/* allocate buffer for transfer firmware */
 	//NVT_LOG("NVT_TRANSFER_LEN = 0x%06X\n", NVT_TRANSFER_LEN);
@@ -323,10 +324,15 @@ return:
 static void update_firmware_release(void)
 {
 	if (fw_entry) {
+		NVT_LOG("\n");
 		release_firmware(fw_entry);
+		fw_entry = NULL;
 	}
 
-	fw_entry = NULL;
+	if (!IS_ERR_OR_NULL(bin_map)) {
+		kfree(bin_map);
+		bin_map = NULL;
+	}
 }
 
 /*******************************************************
@@ -383,10 +389,6 @@ static int32_t update_firmware_request(char *filename)
 
 invalid:
 		update_firmware_release();
-		if (!IS_ERR_OR_NULL(bin_map)) {
-			kfree(bin_map);
-			bin_map = NULL;
-		}
 
 request_fail:
 		retry++;
@@ -920,13 +922,34 @@ return:
 int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 {
 	int32_t ret = 0;
+#if defined(NVT_FW_UPDATE_PROFILING)
+	ktime_t profile_start = ktime_get();
+	ktime_t profile_end;
+#endif
+	bool release_fw = true;
 
-	// request bin file in "/etc/firmware"
-	ret = update_firmware_request(firmware_name);
-	if (ret) {
-		NVT_ERR("update_firmware_request failed. (%d)\n", ret);
-		goto request_firmware_fail;
+	if (strncmp(firmware_name, BOOT_UPDATE_FIRMWARE_NAME,
+		sizeof(BOOT_UPDATE_FIRMWARE_NAME)) == 0) {
+		release_fw = false;
+	} else {
+		update_firmware_release();
 	}
+
+	/* request bin file in "/etc/firmware" */
+	if (!fw_entry) {
+		ret = update_firmware_request(firmware_name);
+		if (ret) {
+			NVT_ERR("update_firmware_request failed. (%d)\n", ret);
+			goto request_firmware_fail;
+		}
+	}
+
+#if defined(NVT_FW_UPDATE_PROFILING)
+	profile_end = ktime_get();
+	NVT_LOG("update_firmware_request() time us delta %lld\n",
+		ktime_us_delta(profile_end, profile_start));
+	profile_start = profile_end;
+#endif
 
 	/* initial buffer and variable */
 	ret = nvt_download_init();
@@ -934,6 +957,13 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 		NVT_ERR("Download Init failed. (%d)\n", ret);
 		goto download_fail;
 	}
+
+#if defined(NVT_FW_UPDATE_PROFILING)
+	profile_end = ktime_get();
+	NVT_LOG("nvt_download_init() time us delta %lld\n",
+		ktime_us_delta(profile_end, profile_start));
+	profile_start = profile_end;
+#endif
 
 	/* download firmware process */
 	if (ts->hw_crc)
@@ -945,6 +975,13 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 		goto download_fail;
 	}
 
+#if defined(NVT_FW_UPDATE_PROFILING)
+	profile_end = ktime_get();
+	NVT_LOG("nvt_download_firmware/_hw_crc() time us delta %lld\n",
+		ktime_us_delta(profile_end, profile_start));
+	profile_start = profile_end;
+#endif
+
 	NVT_LOG("Update firmware success! <%ld us>\n",
 		(long) ktime_us_delta(end, start));
 
@@ -955,12 +992,8 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 	}
 
 download_fail:
-	if (!IS_ERR_OR_NULL(bin_map)) {
-		kfree(bin_map);
-		bin_map = NULL;
-	}
-
-	update_firmware_release();
+	if (release_fw)
+		update_firmware_release();
 request_firmware_fail:
 
 	return ret;
