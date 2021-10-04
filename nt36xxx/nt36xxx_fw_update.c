@@ -459,12 +459,14 @@ firmware into each partition.
 return:
 	n.a.
 *******************************************************/
-static int32_t nvt_write_firmware(const u8 *fwdata, size_t fwsize)
+static int32_t nvt_write_firmware(const u8 *fwdata, size_t fwsize, uint8_t full)
 {
 	uint32_t list = 0;
 	char *name;
 	uint32_t BIN_addr, SRAM_addr, size;
 	int32_t ret = 0;
+
+	NVT_LOG("full download = %d\n", full);
 
 	memset(fwbuf, 0, (NVT_TRANSFER_LEN+1));
 
@@ -474,6 +476,9 @@ static int32_t nvt_write_firmware(const u8 *fwdata, size_t fwsize)
 		size = bin_map[list].size;
 		BIN_addr = bin_map[list].BIN_addr;
 		name = bin_map[list].name;
+		/* ignore ilm (list-0) if not full download */
+		if ((full == false) && (list == 0))
+			continue;
 
 //		NVT_LOG("[%d][%s] SRAM (0x%08X), SIZE (0x%08X), BIN (0x%08X)\n",
 //				list, name, SRAM_addr, size, BIN_addr);
@@ -690,6 +695,65 @@ static void nvt_read_bld_hw_crc(void)
 }
 
 /*******************************************************
+ Description:
+	Novatek touchscreen check DMA hw crc function.
+This function will check hw crc result is pass or not.
+
+return:
+	n.a.
+*******************************************************/
+static int32_t nvt_check_dma_hw_crc(void)
+{
+	uint8_t retry = 0, crc_flag = 0, retry_max = 20;
+	int32_t ret = 0;
+
+	/* write register bank */
+	nvt_set_bld_crc_bank(ts->mmap->BLD_DES_ADDR, bin_map[0].SRAM_addr,
+			ts->mmap->BLD_LENGTH_ADDR, bin_map[0].size,
+			ts->mmap->G_DLM_CHECKSUM_ADDR, bin_map[0].crc);
+
+	/* bld dma crc enable */
+	nvt_set_page(ts->mmap->DMA_CRC_EN_ADDR);
+	fwbuf[0] = ts->mmap->DMA_CRC_EN_ADDR & 0x7F;
+	fwbuf[1] = 0x01;	//enable
+	CTP_SPI_WRITE(ts->client, fwbuf, 2);
+
+	/* polling for dma crc check finish */
+	while (1) {
+		nvt_set_page(ts->mmap->DMA_CRC_FLAG_ADDR);
+		fwbuf[0] = ts->mmap->DMA_CRC_FLAG_ADDR & 0x7F;
+		fwbuf[1] = 0xFF;
+		ret = CTP_SPI_READ(ts->client, fwbuf, 2);
+		if (ret) {
+			NVT_ERR("Read dma crc flag failed\n");
+			return ret;
+		}
+
+		mdelay(1);
+
+		/*
+		 * [Bit-0] DMA_CRC_FLAG: 0-DMA CRC pass, 1-DMA CRC error
+		 * [Bit-1] DMA_CRC_DONE: 0-CRC checking, 1-finish
+		 */
+		crc_flag = (fwbuf[1] & 0x03);
+		if ((crc_flag == 0x02) || (crc_flag == 0x03))
+			break;
+
+		retry++;
+		if (retry > retry_max)
+			break;
+	}
+
+	if (crc_flag != 0x02) {
+		NVT_ERR("[0][%s] dma crc error 0x%02X, retry %d\n",
+				bin_map[0].name, crc_flag, retry);
+		ret = -EIO;
+	}
+
+	return ret;
+}
+
+/*******************************************************
 Description:
 	Novatek touchscreen Download_Firmware with HW CRC
 function. It's complete download firmware flow.
@@ -697,7 +761,7 @@ function. It's complete download firmware flow.
 return:
 	Executive outcomes. 0---succeed. else---fail.
 *******************************************************/
-static int32_t nvt_download_firmware_hw_crc(void)
+static int32_t nvt_download_firmware_hw_crc(uint8_t full)
 {
 	uint8_t retry = 0;
 	int32_t ret = 0;
@@ -707,6 +771,13 @@ static int32_t nvt_download_firmware_hw_crc(void)
 	while (1) {
 		/* bootloader reset to reset MCU */
 		nvt_bootloader_reset();
+		/* check ilm crc if not doing full download */
+		if (!full) {
+			if (nvt_check_dma_hw_crc()) {
+				NVT_ERR("ILM crc is not correct. Enable full download\n");
+				full = true;
+			}
+		}
 
 		/* set ilm & dlm reg bank */
 		nvt_set_bld_hw_crc();
@@ -716,7 +787,7 @@ static int32_t nvt_download_firmware_hw_crc(void)
 			/* for cascade */
 			nvt_tx_auto_copy_mode();
 
-			ret = nvt_write_firmware(fw_entry->data, fw_entry->size);
+			ret = nvt_write_firmware(fw_entry->data, fw_entry->size, full);
 			if (ret) {
 				NVT_ERR("Write_Firmware failed. (%d)\n", ret);
 				goto fail;
@@ -728,7 +799,7 @@ static int32_t nvt_download_firmware_hw_crc(void)
 				goto fail;
 			}
 		} else {
-			ret = nvt_write_firmware(fw_entry->data, fw_entry->size);
+			ret = nvt_write_firmware(fw_entry->data, fw_entry->size, full);
 			if (ret) {
 				NVT_ERR("Write_Firmware failed. (%d)\n", ret);
 				goto fail;
@@ -753,6 +824,7 @@ static int32_t nvt_download_firmware_hw_crc(void)
 		}
 
 fail:
+		full = true;
 		retry++;
 		if (unlikely(retry > 2)) {
 			NVT_ERR("error, retry=%d\n", retry);
@@ -774,7 +846,7 @@ complete download firmware flow.
 return:
 	n.a.
 *******************************************************/
-static int32_t nvt_download_firmware(void)
+static int32_t nvt_download_firmware(uint8_t full)
 {
 	uint8_t retry = 0;
 	int32_t ret = 0;
@@ -801,7 +873,7 @@ static int32_t nvt_download_firmware(void)
 		nvt_write_addr(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_RESET_COMPLETE, 0x00);
 
 		/* Start to write firmware process */
-		ret = nvt_write_firmware(fw_entry->data, fw_entry->size);
+		ret = nvt_write_firmware(fw_entry->data, fw_entry->size, full);
 		if (ret) {
 			NVT_ERR("Write_Firmware failed. (%d)\n", ret);
 			goto fail;
@@ -845,7 +917,7 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_update_firmware(char *firmware_name)
+int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 {
 	int32_t ret = 0;
 
@@ -865,9 +937,9 @@ int32_t nvt_update_firmware(char *firmware_name)
 
 	/* download firmware process */
 	if (ts->hw_crc)
-		ret = nvt_download_firmware_hw_crc();
+		ret = nvt_download_firmware_hw_crc(full);
 	else
-		ret = nvt_download_firmware();
+		ret = nvt_download_firmware(full);
 	if (ret) {
 		NVT_ERR("Download Firmware failed. (%d)\n", ret);
 		goto download_fail;
@@ -905,7 +977,7 @@ return:
 void Boot_Update_Firmware(struct work_struct *work)
 {
 	mutex_lock(&ts->lock);
-	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
+	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
 	mutex_unlock(&ts->lock);
 }
 #endif /* BOOT_UPDATE_FIRMWARE */

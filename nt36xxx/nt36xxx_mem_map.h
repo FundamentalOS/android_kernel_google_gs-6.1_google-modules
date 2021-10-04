@@ -2,8 +2,8 @@
 /*
  * Copyright (C) 2010 - 2021 Novatek, Inc.
  *
- * $Revision: 83893 $
- * $Date: 2021-06-21 10:52:25 +0800 (週一, 21 六月 2021) $
+ * $Revision: 88000 $
+ * $Date: 2021-09-08 14:26:46 +0800 (週三, 08 九月 2021) $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,6 +54,9 @@ struct nvt_ts_mem_map {
 	uint32_t POR_CD_ADDR;
 	uint32_t TX_AUTO_COPY_EN;
 	uint32_t SPI_DMA_TX_INFO;
+	/* FW History */
+	uint32_t MMAP_HISTORY_EVENT0;
+	uint32_t MMAP_HISTORY_EVENT1;
 	/* BLD CRC */
 	uint32_t BLD_LENGTH_ADDR;
 	uint32_t ILM_LENGTH_ADDR;
@@ -109,6 +112,9 @@ static const struct nvt_ts_mem_map NT36523_memory_map = {
 	.BOOT_RDY_ADDR            = 0x3F10D,
 	.TX_AUTO_COPY_EN          = 0x3F7E8,
 	.SPI_DMA_TX_INFO          = 0x3F7F1,
+	/* FW History */
+	.MMAP_HISTORY_EVENT0      = 0x38D54,
+	.MMAP_HISTORY_EVENT1      = 0x38D94,
 	/* BLD CRC */
 	.BLD_LENGTH_ADDR          = 0x3F138,	//0x3F138 ~ 0x3F13A	(3 bytes)
 	.ILM_LENGTH_ADDR          = 0x3F118,	//0x3F118 ~ 0x3F11A	(3 bytes)
@@ -142,6 +148,9 @@ static const struct nvt_ts_mem_map NT36526_memory_map = {
 	.RW_FLASH_DATA_ADDR       = 0x24002,
 	/* Phase 2 Host Download */
 	.BOOT_RDY_ADDR            = 0x3F10D,
+	/* FW History */
+	.MMAP_HISTORY_EVENT0      = 0x23C38,
+	.MMAP_HISTORY_EVENT1      = 0x23C78,
 	/* BLD CRC */
 	.BLD_LENGTH_ADDR          = 0x3F138,	//0x3F138 ~ 0x3F13A	(3 bytes)
 	.ILM_LENGTH_ADDR          = 0x3F118,	//0x3F118 ~ 0x3F11A	(3 bytes)
@@ -176,6 +185,9 @@ static const struct nvt_ts_mem_map NT36675_memory_map = {
 	.RW_FLASH_DATA_ADDR       = 0x24002,
 	/* Phase 2 Host Download */
 	.BOOT_RDY_ADDR            = 0x3F10D,
+	/* FW History */
+	.MMAP_HISTORY_EVENT0      = 0x23D10,
+	.MMAP_HISTORY_EVENT1      = 0x23D50,
 	/* BLD CRC */
 	.BLD_LENGTH_ADDR          = 0x3F138,	//0x3F138 ~ 0x3F13A	(3 bytes)
 	.ILM_LENGTH_ADDR          = 0x3F118,	//0x3F118 ~ 0x3F11A	(3 bytes)
@@ -209,6 +221,9 @@ static const struct nvt_ts_mem_map NT36672A_memory_map = {
 	.RW_FLASH_DATA_ADDR       = 0x24002,
 	/* Phase 2 Host Download */
 	.BOOT_RDY_ADDR            = 0x3F10D,
+	/* FW History */
+	.MMAP_HISTORY_EVENT0      = 0x218D6,
+	.MMAP_HISTORY_EVENT1      = 0x24B2D,
 	/* BLD CRC */
 	.BLD_LENGTH_ADDR          = 0x3F10E,	//0x3F10E ~ 0x3F10F	(2 bytes)
 	.ILM_LENGTH_ADDR          = 0x3F118,	//0x3F118 ~ 0x3F119	(2 bytes)
@@ -243,6 +258,9 @@ static const struct nvt_ts_mem_map NT36772_memory_map = {
 	/* Phase 2 Host Download */
 	.BOOT_RDY_ADDR            = 0x1F141,
 	.POR_CD_ADDR              = 0x1F61C,
+	/* FW History */
+	.MMAP_HISTORY_EVENT0      = 0,
+	.MMAP_HISTORY_EVENT1      = 0,
 	/* BLD CRC */
 	.R_ILM_CHECKSUM_ADDR      = 0x1BF00,
 };
@@ -264,6 +282,9 @@ static const struct nvt_ts_mem_map NT36525_memory_map = {
 	/* Phase 2 Host Download */
 	.BOOT_RDY_ADDR            = 0x1F141,
 	.POR_CD_ADDR              = 0x1F61C,
+	/* FW History */
+	.MMAP_HISTORY_EVENT0      = 0,
+	.MMAP_HISTORY_EVENT1      = 0,
 	/* BLD CRC */
 	.R_ILM_CHECKSUM_ADDR      = 0x1BF00,
 };
@@ -331,8 +352,6 @@ static const struct nvt_ts_trim_id_table trim_id_table[] = {
 		.mmap = &NT36672A_memory_map, .hwinfo = &NT36672A_hw_info},
 	{.id = {0x0E, 0xFF, 0xFF, 0x72, 0x66, 0x03}, .mask = {1, 0, 0, 1, 1, 1},
 		.mmap = &NT36675_memory_map,  .hwinfo = &NT36675_hw_info},
-	{.id = {0x00, 0x03, 0x65, 0x23, 0x20, 0x00}, .mask = {1, 0, 0, 1, 1, 1},
-		.mmap = &NT36523_memory_map,  .hwinfo = &NT36523_hw_info},
 	{.id = {0x20, 0xFF, 0xFF, 0x23, 0x65, 0x03}, .mask = {1, 0, 0, 1, 1, 1},
 		.mmap = &NT36523_memory_map,  .hwinfo = &NT36523_hw_info},
 	{.id = {0x0C, 0xFF, 0xFF, 0x23, 0x65, 0x03}, .mask = {1, 0, 0, 1, 1, 1},

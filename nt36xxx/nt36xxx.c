@@ -1215,7 +1215,7 @@ static void nvt_esd_check_func(struct work_struct *work)
 		mutex_lock(&ts->lock);
 		NVT_ERR("do ESD recovery, timer = %d, retry = %d\n", timer, esd_retry);
 		/* do esd recovery, reload fw */
-		nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
+		nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
 		mutex_unlock(&ts->lock);
 		/* update interrupt timer */
 		irq_timer = jiffies;
@@ -1283,6 +1283,42 @@ static uint8_t nvt_wdt_fw_recovery(uint8_t *point_data)
 	}
 
 	return recovery_enable;
+}
+
+static void nvt_read_fw_history(uint32_t fw_history_addr)
+{
+	uint8_t i, j;
+	uint8_t buf[65];
+	char str[128];
+	int idx;
+	int str_len = sizeof(str);
+
+	if (fw_history_addr == 0)
+		return;
+
+	nvt_set_page(fw_history_addr);
+
+	buf[0] = (uint8_t) (fw_history_addr & 0x7F);
+	/* read 64 bytes history */
+	CTP_SPI_READ(ts->client, buf, 64 + 1);
+
+	/* print all data */
+	NVT_LOG("fw history 0x%x:\n", fw_history_addr);
+	for (j = 0; j < 4; j++) {
+		memset(str, 0, sizeof(str));
+		idx = 0;
+		idx += scnprintf(str + idx, str_len - idx, "\t");
+		for (i = 1; i <= 16; i++) {
+			idx += scnprintf(str + idx, str_len - idx,
+				"%02x", (uint8_t)buf[i + j * 16]);
+			if (i % 8 == 0)
+				idx += scnprintf(str + idx, str_len - idx, "    ");
+			else
+				idx += scnprintf(str + idx, str_len - idx, " ");
+		}
+		idx += scnprintf(str + idx, str_len - idx, "\n");
+		NVT_LOG("%s", str);
+	}
 }
 #endif	/* #if NVT_TOUCH_WDT_RECOVERY */
 
@@ -1380,7 +1416,11 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	/* ESD protect by WDT */
 	if (nvt_wdt_fw_recovery(point_data)) {
 		NVT_ERR("Recover for fw reset, %02X\n", point_data[1]);
-		nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME);
+		if (point_data[1] == 0xFE)
+			nvt_sw_reset_idle();
+		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
+		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
+		nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
 		goto XFER_ERROR;
 	}
 #endif /* #if NVT_TOUCH_WDT_RECOVERY */
@@ -2538,7 +2578,7 @@ static int32_t nvt_ts_resume(struct device *dev)
 #if NVT_TOUCH_SUPPORT_HW_RST
 	gpio_set_value(ts->reset_gpio, 1);
 #endif
-	if (nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME)) {
+	if (nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 0)) {
 		NVT_ERR("download firmware failed, ignore check fw state\n");
 	} else {
 		nvt_check_fw_reset_state(RESET_STATE_REK);
