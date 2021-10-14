@@ -24,6 +24,7 @@
 #include <linux/btpower.h>
 #include <linux/of_device.h>
 #include <soc/qcom/cmd-db.h>
+#include <soc/google/exynos-cpupm.h>
 
 #if IS_ENABLED(CONFIG_BT_SLIM_QCA6390) || \
 	IS_ENABLED(CONFIG_BT_SLIM_QCA6490) || \
@@ -239,6 +240,14 @@ static const struct of_device_id bt_power_match_table[] = {
 static int bt_power_vreg_set(struct btpower_platform_data *drvdata,
 			     enum bt_power_modes mode);
 static int btpower_enable_ipa_vreg(struct btpower_platform_data *drvdata);
+
+static void btpower_uart_transport_locked(struct btpower_platform_data *drvdata,
+					  bool locked)
+{
+	pr_debug("%s: %s\n", __func__, (locked ? "busy" : "idle"));
+	/* idle status: true - idle, false otherwise */
+	exynos_update_ip_idle_status(drvdata->uart_idle_index, !locked);
+}
 
 static int bt_vreg_enable(struct bt_power_vreg_data *vreg)
 {
@@ -559,6 +568,7 @@ static int bluetooth_power(struct btpower_platform_data *drvdata,
 	switch (mode) {
 	case BT_POWER_DISABLE:
 		bt_configure_gpios(drvdata, false);
+		btpower_uart_transport_locked(drvdata, false);
 		drvdata->pwr_state = BT_POWER_DISABLE;
 		goto clk_disable;
 	case BT_POWER_ENABLE:
@@ -586,6 +596,7 @@ static int bluetooth_power(struct btpower_platform_data *drvdata,
 			pr_err("%s: bt_power gpio config failed\n", __func__);
 			goto clk_disable;
 		}
+		btpower_uart_transport_locked(drvdata, true);
 		drvdata->pwr_state = BT_POWER_ENABLE;
 		return rc;
 	case BT_POWER_RETENTION:
@@ -1087,6 +1098,8 @@ static int bt_power_probe(struct platform_device *pdev)
 	}
 
 	btpower_aop_mbox_init(drvdata);
+
+	drvdata->uart_idle_index = exynos_get_idle_ip_index("bluetooth");
 
 	platform_set_drvdata(pdev, drvdata);
 

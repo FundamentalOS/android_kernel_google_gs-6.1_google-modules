@@ -86,6 +86,8 @@ struct btpower_platform_data {
 	struct mbox_chan *mbox_chan;
 	const char *vreg_ipa;
 	bool vreg_ipa_configured;
+
+	int uart_idle_index;
 };
 
 extern int btpower_register_slimdev(struct device *dev);
