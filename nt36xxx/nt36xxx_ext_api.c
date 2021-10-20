@@ -1851,6 +1851,25 @@ static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
 	return count;
 }
 
+static ssize_t nvt_fw_history_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int idx = 0;
+
+	NVT_LOG("++\n");
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
+	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s\n", ts->history_buf);
+	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
+	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s\n", ts->history_buf);
+
+	mutex_unlock(&ts->lock);
+	NVT_LOG("--\n");
+	return idx;
+}
+
 static DEVICE_ATTR_RO(nvt_get_mode_history);
 static DEVICE_ATTR_RO(nvt_sync_freq);
 static DEVICE_ATTR_RW(nvt_palm_mode);
@@ -1879,6 +1898,7 @@ static DEVICE_ATTR_RW(nvt_dttw_tap_gap_duration_max);
 static DEVICE_ATTR_RW(nvt_dttw_tap_gap_duration_min);
 static DEVICE_ATTR_RW(nvt_dttw_motion_tolerance);
 static DEVICE_ATTR_RW(nvt_dttw_detection_window_edge);
+static DEVICE_ATTR_RO(nvt_fw_history);
 
 static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_get_mode_history.attr,
@@ -1909,6 +1929,7 @@ static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_dttw_tap_gap_duration_min.attr,
 	&dev_attr_nvt_dttw_motion_tolerance.attr,
 	&dev_attr_nvt_dttw_detection_window_edge.attr,
+	&dev_attr_nvt_fw_history.attr,
 	NULL
 };
 

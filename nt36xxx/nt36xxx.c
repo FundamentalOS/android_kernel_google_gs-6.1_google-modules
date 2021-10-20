@@ -1285,13 +1285,14 @@ static uint8_t nvt_wdt_fw_recovery(uint8_t *point_data)
 	return recovery_enable;
 }
 
-static void nvt_read_fw_history(uint32_t fw_history_addr)
+void nvt_read_fw_history(uint32_t fw_history_addr)
 {
 	uint8_t i, j;
 	uint8_t buf[65];
-	char str[128];
+	char *str = ts->history_buf;
+	char *log_str_tmp = str;
 	int idx;
-	int str_len = sizeof(str);
+	int str_len = sizeof(ts->history_buf);
 
 	if (fw_history_addr == 0)
 		return;
@@ -1304,9 +1305,10 @@ static void nvt_read_fw_history(uint32_t fw_history_addr)
 
 	/* print all data */
 	NVT_LOG("fw history 0x%x:\n", fw_history_addr);
+	memset(str, 0, str_len);
+	idx = 0;
 	for (j = 0; j < 4; j++) {
-		memset(str, 0, sizeof(str));
-		idx = 0;
+		log_str_tmp = str + idx;
 		idx += scnprintf(str + idx, str_len - idx, "\t");
 		for (i = 1; i <= 16; i++) {
 			idx += scnprintf(str + idx, str_len - idx,
@@ -1317,7 +1319,7 @@ static void nvt_read_fw_history(uint32_t fw_history_addr)
 				idx += scnprintf(str + idx, str_len - idx, " ");
 		}
 		idx += scnprintf(str + idx, str_len - idx, "\n");
-		NVT_LOG("%s", str);
+		NVT_LOG("%s", log_str_tmp);
 	}
 }
 #endif	/* #if NVT_TOUCH_WDT_RECOVERY */

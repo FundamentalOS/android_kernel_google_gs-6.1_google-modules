@@ -156,6 +156,9 @@ extern uint8_t *heatmap_spi_buf;
 extern uint32_t heatmap_addr;
 #endif
 
+/* FW History */
+#define NVT_HISTORY_BUF_LEN		(65 * 4)
+
 struct nvt_ts_data {
 	struct spi_device *client;
 	struct input_dev *input_dev;
@@ -194,6 +197,7 @@ struct nvt_ts_data {
 	uint16_t nvt_pid;
 	uint8_t *rbuf;
 	uint8_t *xbuf;
+	char history_buf[NVT_HISTORY_BUF_LEN];
 	struct mutex xbuf_lock;
 	bool irq_enabled;
 	bool pen_support;
@@ -308,6 +312,7 @@ extern int32_t nvt_update_firmware(char *firmware_name, uint8_t full);
 extern void nvt_change_mode(uint8_t mode);
 extern int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis);
 extern uint8_t nvt_get_fw_pipe(void);
+extern void nvt_read_fw_history(uint32_t addr);
 #if NVT_TOUCH_EXT_API
 extern int32_t nvt_extra_api_init(void);
 extern void nvt_extra_api_deinit(void);
