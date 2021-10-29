@@ -13,6 +13,9 @@
 #include <linux/msm_pcie.h>
 #endif
 #include <linux/pci.h>
+#ifdef CONFIG_WCN_GOOGLE
+#include <linux/exynos-pci-noti.h>
+#endif
 
 #include "main.h"
 

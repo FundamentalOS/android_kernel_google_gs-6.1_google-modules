@@ -83,13 +83,11 @@ struct cnss_driver_event {
 static void cnss_set_plat_priv(struct platform_device *plat_dev,
 			       struct cnss_plat_data *plat_priv)
 {
-	cnss_pr_err("%s: Victor Enter\n", __func__);
 	plat_env = plat_priv;
 }
 
 struct cnss_plat_data *cnss_get_plat_priv(struct platform_device *plat_dev)
 {
-	cnss_pr_err("%s: Victor Enter\n", __func__);
 	return plat_env;
 }
 
@@ -3229,8 +3227,6 @@ static int cnss_probe(struct platform_device *plat_dev)
 	const struct platform_device_id *device_id;
 	int retry = 0;
 
-	cnss_pr_err("%s: Victor Enter\n", __func__);
-
 	if (cnss_get_plat_priv(plat_dev)) {
 		cnss_pr_err("Driver is already initialized!\n");
 		ret = -EEXIST;
@@ -3245,8 +3241,6 @@ static int cnss_probe(struct platform_device *plat_dev)
 	}
 
 	device_id = of_id->data;
-
-	cnss_pr_err("%s: Victor device_id = %d\n", __func__, device_id);
 
 	plat_priv = devm_kzalloc(&plat_dev->dev, sizeof(*plat_priv),
 				 GFP_KERNEL);
@@ -3445,14 +3439,10 @@ static int __init cnss_initialize(void)
 	if (!cnss_is_valid_dt_node_found())
 		return -ENODEV;
 
-	cnss_pr_err("%s: Victor Enter\n", __func__);
-
 	cnss_debug_init();
 	ret = platform_driver_register(&cnss_platform_driver);
 	if (ret)
 		cnss_debug_deinit();
-
-	cnss_pr_err("%s: Victor Exit\n", __func__);
 
 	return ret;
 }
