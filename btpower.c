@@ -413,33 +413,33 @@ static void btpower_set_xo_clk_gpio_state(struct btpower_platform_data *drvdata,
 	if (!gpio_is_valid(xo_clk_gpio))
 		return;
 
-retry_gpio_req:
-	rc = gpio_request(xo_clk_gpio, "bt_xo_clk_gpio");
-	if (rc) {
-		if (retry++ < XO_CLK_RETRY_COUNT_MAX) {
-			/* wait for ~(10 - 20) ms */
-			usleep_range(10000, 20000);
-			goto retry_gpio_req;
+	do {
+		rc = gpio_request(xo_clk_gpio, "bt_xo_clk_gpio");
+		if (rc == 0)
+			break;
+		if (retry++ >= XO_CLK_RETRY_COUNT_MAX) {
+			pr_err("%s: unable to request XO clk gpio %d (%d)\n",
+				__func__, xo_clk_gpio, rc);
+			return;
 		}
-	}
+		/* wait for ~(10 - 20) ms and try again */
+		usleep_range(10000, 20000);
+	} while (1);
 
-	if (rc) {
-		pr_err("%s: unable to request XO clk gpio %d (%d)\n",
-			__func__, xo_clk_gpio, rc);
-		return;
-	}
-
+	rc = gpio_get_value(xo_clk_gpio);
 	if (enable) {
 		gpio_direction_output(xo_clk_gpio, 1);
-		/*XO CLK must be asserted for some time before BT_EN */
-		usleep_range(100, 200);
+		/* XO CLK must be asserted for some time before BT_EN */
+		usleep_range(5000, 7000);
 	} else {
 		/* Assert XO CLK ~(2-5)ms before off for valid latch in HW */
 		usleep_range(4000, 6000);
 		gpio_direction_output(xo_clk_gpio, 0);
 	}
 
-	pr_debug("%s: gpio(%d) success\n", __func__, xo_clk_gpio);
+	if (rc != enable)
+		pr_info("%s: gpio(%d) %d to %d\n", __func__, xo_clk_gpio, rc,
+			enable);
 
 	gpio_free(xo_clk_gpio);
 }
@@ -519,7 +519,6 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 		btpower_set_xo_clk_gpio_state(drvdata, true);
 		pr_info("%s: BT-ON asserting BT_EN (with WLAN)\n", __func__);
 		SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 1);
-		btpower_set_xo_clk_gpio_state(drvdata, false);
 	}
 	if (gpio_is_valid(wl_reset_gpio) && !gpio_get_value(wl_reset_gpio)) {
 		if (gpio_get_value(bt_reset_gpio)) {
@@ -534,7 +533,6 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 		btpower_set_xo_clk_gpio_state(drvdata, true);
 		pr_info("%s: BT-ON asserting BT_EN without WLAN\n", __func__);
 		SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 1);
-		btpower_set_xo_clk_gpio_state(drvdata, false);
 	}
 
 	msleep(50);
