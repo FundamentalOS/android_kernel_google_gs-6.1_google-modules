@@ -135,6 +135,8 @@ extern const uint16_t gesture_key_array[];
 #define NORMAL_MODE 0x00
 #define TEST_MODE_2 0x22
 #define MP_MODE_CC 0x41
+#define ENTER_ENG_MODE 0x61
+#define LEAVE_ENG_MODE 0x62
 #define FREQ_HOP_DISABLE 0x66
 #define FREQ_HOP_ENABLE 0x65
 

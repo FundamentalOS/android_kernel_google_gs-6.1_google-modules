@@ -29,7 +29,10 @@
 #define NVT_BASELINE "nvt_baseline"
 #define NVT_RAW "nvt_raw"
 #define NVT_DIFF "nvt_diff"
-#define NVT_PEN_DIFF "nvt_pen_diff"
+#define NVT_PEN_2D_RAW "nvt_pen_2d_raw"
+#define NVT_PEN_2D_BASELINE "nvt_pen_2d_baseline"
+#define NVT_PEN_2D_DIFF "nvt_pen_2d_diff"
+#define NVT_PEN_1D_DIFF "nvt_pen_1d_diff"
 
 #define BUS_TRANSFER_LENGTH  256
 
@@ -51,7 +54,10 @@ static struct proc_dir_entry *NVT_proc_fw_update_entry;
 static struct proc_dir_entry *NVT_proc_baseline_entry;
 static struct proc_dir_entry *NVT_proc_raw_entry;
 static struct proc_dir_entry *NVT_proc_diff_entry;
-static struct proc_dir_entry *NVT_proc_pen_diff_entry;
+static struct proc_dir_entry *NVT_proc_pen_2d_raw_entry;
+static struct proc_dir_entry *NVT_proc_pen_2d_baseline_entry;
+static struct proc_dir_entry *NVT_proc_pen_2d_diff_entry;
+static struct proc_dir_entry *NVT_proc_pen_1d_diff_entry;
 
 /*******************************************************
 Description:
@@ -417,38 +423,91 @@ static int32_t c_show(struct seq_file *m, void *v)
 
 /*******************************************************
 Description:
-	Novatek pen 1D diff xdata sequence print show
+	Novatek pen 1D xdata sequence print show
 	function.
 
 return:
 	Executive outcomes. 0---succeed.
 *******************************************************/
-static int32_t c_pen_1d_diff_show(struct seq_file *m, void *v)
+static int32_t c_pen_1d_show(struct seq_file *m, void *v)
 {
 	int32_t i = 0;
 
 	seq_printf(m, "Tip X:\n");
 	for (i = 0; i < ts->x_num; i++) {
-		seq_printf(m, "%5d, ", xdata_pen_tip_x[i]);
+		seq_printf(m, "%5d ", xdata_pen_tip_x[i]);
 	}
 	seq_puts(m, "\n");
 	seq_printf(m, "Tip Y:\n");
 	for (i = 0; i < ts->y_num; i++) {
-		seq_printf(m, "%5d, ", xdata_pen_tip_y[i]);
+		seq_printf(m, "%5d ", xdata_pen_tip_y[i]);
 	}
 	seq_puts(m, "\n");
 	seq_printf(m, "Ring X:\n");
 	for (i = 0; i < ts->x_num; i++) {
-		seq_printf(m, "%5d, ", xdata_pen_ring_x[i]);
+		seq_printf(m, "%5d ", xdata_pen_ring_x[i]);
 	}
 	seq_puts(m, "\n");
 	seq_printf(m, "Ring Y:\n");
 	for (i = 0; i < ts->y_num; i++) {
-		seq_printf(m, "%5d, ", xdata_pen_ring_y[i]);
+		seq_printf(m, "%5d ", xdata_pen_ring_y[i]);
 	}
 	seq_puts(m, "\n");
 
 	seq_printf(m, "\n\n");
+	return 0;
+}
+
+/*******************************************************
+Description:
+	Novatek pen 2D xdata sequence print show
+	function.
+
+return:
+	Executive outcomes. 0---succeed.
+*******************************************************/
+static int32_t c_pen_2d_show(struct seq_file *m, void *v)
+{
+	int32_t i = 0;
+
+	seq_puts(m, "Tip X:\n");
+	for (i = 0; i < ts->x_num * ts->y_gang_num; i++) {
+		seq_printf(m, "%5d", xdata_pen_tip_x[i]);
+		if ((i + 1) % ts->x_num == 0)
+			seq_puts(m, "\n");
+		else
+			seq_puts(m, " ");
+	}
+	seq_puts(m, "\n");
+	seq_puts(m, "Tip Y:\n");
+	for (i = 0; i < ts->y_num * ts->x_gang_num; i++) {
+		seq_printf(m, "%5d", xdata_pen_tip_y[i]);
+		if ((i + 1) % ts->x_gang_num == 0)
+			seq_puts(m, "\n");
+		else
+			seq_puts(m, " ");
+	}
+	seq_puts(m, "\n");
+	seq_puts(m, "Ring X:\n");
+	for (i = 0; i < ts->x_num * ts->y_gang_num; i++) {
+		seq_printf(m, "%5d", xdata_pen_ring_x[i]);
+		if ((i + 1) % ts->x_num == 0)
+			seq_puts(m, "\n");
+		else
+			seq_puts(m, " ");
+	}
+	seq_puts(m, "\n");
+	seq_puts(m, "Ring Y:\n");
+	for (i = 0; i < ts->y_num * ts->x_gang_num; i++) {
+		seq_printf(m, "%5d", xdata_pen_ring_y[i]);
+		if ((i + 1) % ts->x_gang_num == 0)
+			seq_puts(m, "\n");
+		else
+			seq_puts(m, " ");
+	}
+	seq_puts(m, "\n");
+
+	seq_puts(m, "\n\n");
 	return 0;
 }
 
@@ -509,11 +568,18 @@ const struct seq_operations nvt_seq_ops = {
 	.show   = c_show
 };
 
-const struct seq_operations nvt_pen_diff_seq_ops = {
+const struct seq_operations nvt_pen_1d_seq_ops = {
 	.start  = c_start,
 	.next   = c_next,
 	.stop   = c_stop,
-	.show   = c_pen_1d_diff_show
+	.show   = c_pen_1d_show
+};
+
+const struct seq_operations nvt_pen_2d_seq_ops = {
+	.start  = c_start,
+	.next   = c_next,
+	.stop   = c_stop,
+	.show   = c_pen_2d_show
 };
 
 /*******************************************************
@@ -526,9 +592,8 @@ return:
 *******************************************************/
 static int32_t nvt_fw_version_open(struct inode *inode, struct file *file)
 {
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-	}
 
 	NVT_LOG("++\n");
 
@@ -619,9 +684,8 @@ return:
 *******************************************************/
 static int32_t nvt_baseline_open(struct inode *inode, struct file *file)
 {
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-	}
 
 	NVT_LOG("++\n");
 
@@ -683,9 +747,8 @@ return:
 *******************************************************/
 static int32_t nvt_raw_open(struct inode *inode, struct file *file)
 {
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-	}
 
 	NVT_LOG("++\n");
 
@@ -750,9 +813,8 @@ return:
 *******************************************************/
 static int32_t nvt_diff_open(struct inode *inode, struct file *file)
 {
-	if (mutex_lock_interruptible(&ts->lock)) {
+	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-	}
 
 	NVT_LOG("++\n");
 
@@ -810,16 +872,75 @@ static const struct file_operations nvt_diff_fops = {
 
 /*******************************************************
 Description:
-	Novatek touchscreen /proc/nvt_pen_diff open function.
+	Novatek touchscreen get pen data function.
 
 return:
 	Executive outcomes. 0---succeed. negative---failed.
 *******************************************************/
-static int32_t nvt_pen_diff_open(struct inode *inode, struct file *file)
+static int32_t get_pen_data(uint32_t tip_x_addr, uint32_t tip_y_addr,
+		uint32_t ring_x_addr, uint32_t ring_y_addr)
 {
-	if (mutex_lock_interruptible(&ts->lock)) {
-		return -ERESTARTSYS;
+	int32_t ret = 0;
+
+	nvt_change_mode(ENTER_ENG_MODE);
+	msleep(20);
+
+	if (nvt_set_pen_inband_mode_1(0xFF, 0x00)) {
+		ret = -EAGAIN;
+		goto err_eng_mode;
 	}
+
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+		ret = -EAGAIN;
+		goto err_eng_mode;
+	}
+
+	if (nvt_clear_fw_status()) {
+		ret = -EAGAIN;
+		goto err_eng_mode;
+	}
+
+	nvt_change_mode(TEST_MODE_2);
+
+	if (nvt_check_fw_status()) {
+		ret = -EAGAIN;
+		goto err_test_mode;
+	}
+
+	if (nvt_get_fw_info()) {
+		ret = -EAGAIN;
+		goto err_test_mode;
+	}
+
+	nvt_read_get_num_mdata(tip_x_addr, xdata_pen_tip_x, ts->x_num * ts->y_gang_num);
+	nvt_read_get_num_mdata(tip_y_addr, xdata_pen_tip_y, ts->y_num * ts->x_gang_num);
+	nvt_read_get_num_mdata(ring_x_addr, xdata_pen_ring_x, ts->x_num * ts->y_gang_num);
+	nvt_read_get_num_mdata(ring_y_addr, xdata_pen_ring_y, ts->y_num * ts->x_gang_num);
+
+err_test_mode:
+	nvt_change_mode(NORMAL_MODE);
+	nvt_set_pen_normal_mode();
+
+err_eng_mode:
+	nvt_change_mode(LEAVE_ENG_MODE);
+	nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN);
+
+	return ret;
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen /proc/nvt_pen_2d_raw open function.
+
+return:
+	Executive outcomes. 0---succeed. negative---failed.
+*******************************************************/
+static int32_t nvt_pen_2d_raw_open(struct inode *inode, struct file *file)
+{
+	int32_t ret;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
 
 	NVT_LOG("++\n");
 
@@ -827,66 +948,188 @@ static int32_t nvt_pen_diff_open(struct inode *inode, struct file *file)
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-	if (nvt_set_pen_inband_mode_1(0xFF, 0x00)) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-
-	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-
-	if (nvt_clear_fw_status()) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-
-	nvt_change_mode(TEST_MODE_2);
-
-	if (nvt_check_fw_status()) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-
-	if (nvt_get_fw_info()) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_TIP_X_ADDR, xdata_pen_tip_x,
-			       ts->x_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_TIP_Y_ADDR, xdata_pen_tip_y,
-			       ts->y_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_RING_X_ADDR, xdata_pen_ring_x,
-			       ts->x_num);
-	nvt_read_get_num_mdata(ts->mmap->PEN_1D_DIFF_RING_Y_ADDR, xdata_pen_ring_y,
-			       ts->y_num);
-
-	nvt_change_mode(NORMAL_MODE);
-
-	nvt_set_pen_normal_mode();
-
-	nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN);
+	ret = get_pen_data(ts->mmap->PEN_2D_RAW_TIP_X_ADDR, ts->mmap->PEN_2D_RAW_TIP_Y_ADDR,
+			ts->mmap->PEN_2D_RAW_RING_X_ADDR, ts->mmap->PEN_2D_RAW_RING_Y_ADDR);
 
 	mutex_unlock(&ts->lock);
 
+	if (ret) {
+		NVT_ERR("%s failed", __func__);
+		return ret;
+	}
+
 	NVT_LOG("--\n");
 
-	return seq_open(file, &nvt_pen_diff_seq_ops);
+	return seq_open(file, &nvt_pen_2d_seq_ops);
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
-static const struct proc_ops nvt_pen_diff_fops = {
-	.proc_open = nvt_pen_diff_open,
+static const struct proc_ops nvt_pen_2d_raw_fops = {
+	.proc_open = nvt_pen_2d_raw_open,
 	.proc_read = seq_read,
 	.proc_lseek = seq_lseek,
 	.proc_release = seq_release,
 };
 #else
-static const struct file_operations nvt_pen_diff_fops = {
+static const struct file_operations nvt_pen_2d_raw_fops = {
 	.owner = THIS_MODULE,
-	.open = nvt_pen_diff_open,
+	.open = nvt_pen_2d_raw_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+#endif
+
+/*******************************************************
+Description:
+	Novatek touchscreen /proc/nvt_pen_2d_baseline open function.
+
+return:
+	Executive outcomes. 0---succeed. negative---failed.
+*******************************************************/
+static int32_t nvt_pen_2d_baseline_open(struct inode *inode, struct file *file)
+{
+	int32_t ret;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	NVT_LOG("++\n");
+
+#if NVT_TOUCH_ESD_PROTECT
+	nvt_esd_check_enable(false);
+#endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+	ret = get_pen_data(ts->mmap->PEN_2D_BL_TIP_X_ADDR, ts->mmap->PEN_2D_BL_TIP_Y_ADDR,
+			ts->mmap->PEN_2D_BL_RING_X_ADDR, ts->mmap->PEN_2D_BL_RING_Y_ADDR);
+
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("%s failed", __func__);
+		return ret;
+	}
+
+	NVT_LOG("--\n");
+
+	return seq_open(file, &nvt_pen_2d_seq_ops);
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static const struct proc_ops nvt_pen_2d_baseline_fops = {
+	.proc_open = nvt_pen_2d_baseline_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = seq_release,
+};
+#else
+static const struct file_operations nvt_pen_2d_baseline_fops = {
+	.owner = THIS_MODULE,
+	.open = nvt_pen_2d_baseline_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+#endif
+
+/*******************************************************
+Description:
+	Novatek touchscreen /proc/nvt_pen_2d_diff open function.
+
+return:
+	Executive outcomes. 0---succeed. negative---failed.
+*******************************************************/
+static int32_t nvt_pen_2d_diff_open(struct inode *inode, struct file *file)
+{
+	int32_t ret;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	NVT_LOG("++\n");
+
+#if NVT_TOUCH_ESD_PROTECT
+	nvt_esd_check_enable(false);
+#endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+	ret = get_pen_data(ts->mmap->PEN_2D_DIFF_TIP_X_ADDR, ts->mmap->PEN_2D_DIFF_TIP_Y_ADDR,
+			ts->mmap->PEN_2D_DIFF_RING_X_ADDR, ts->mmap->PEN_2D_DIFF_RING_Y_ADDR);
+
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("%s failed", __func__);
+		return ret;
+	}
+
+	NVT_LOG("--\n");
+
+	return seq_open(file, &nvt_pen_2d_seq_ops);
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static const struct proc_ops nvt_pen_2d_diff_fops = {
+	.proc_open = nvt_pen_2d_diff_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = seq_release,
+};
+#else
+static const struct file_operations nvt_pen_2d_diff_fops = {
+	.owner = THIS_MODULE,
+	.open = nvt_pen_2d_diff_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+#endif
+
+/*******************************************************
+Description:
+	Novatek touchscreen /proc/nvt_pen_1d_diff open function.
+
+return:
+	Executive outcomes. 0---succeed. negative---failed.
+*******************************************************/
+static int32_t nvt_pen_1d_diff_open(struct inode *inode, struct file *file)
+{
+	int32_t ret;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	NVT_LOG("++\n");
+
+#if NVT_TOUCH_ESD_PROTECT
+	nvt_esd_check_enable(false);
+#endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+	ret = get_pen_data(ts->mmap->PEN_1D_DIFF_TIP_X_ADDR, ts->mmap->PEN_1D_DIFF_TIP_Y_ADDR,
+			ts->mmap->PEN_1D_DIFF_RING_X_ADDR, ts->mmap->PEN_1D_DIFF_RING_Y_ADDR);
+
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("%s failed", __func__);
+		return ret;
+	}
+
+	NVT_LOG("--\n");
+
+	return seq_open(file, &nvt_pen_1d_seq_ops);
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static const struct proc_ops nvt_pen_1d_diff_fops = {
+	.proc_open = nvt_pen_1d_diff_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = seq_release,
+};
+#else
+static const struct file_operations nvt_pen_1d_diff_fops = {
+	.owner = THIS_MODULE,
+	.open = nvt_pen_1d_diff_open,
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
@@ -947,13 +1190,37 @@ int32_t nvt_extra_proc_init(void)
 	}
 
 	if (ts->pen_support) {
-		NVT_proc_pen_diff_entry = proc_create(NVT_PEN_DIFF, 0444, NULL,
-						      &nvt_pen_diff_fops);
-		if (NVT_proc_pen_diff_entry == NULL) {
-			NVT_ERR("create proc/%s Failed!\n", NVT_PEN_DIFF);
+		NVT_proc_pen_2d_raw_entry = proc_create(NVT_PEN_2D_RAW, 0444, NULL,
+				&nvt_pen_2d_raw_fops);
+		if (NVT_proc_pen_2d_raw_entry == NULL) {
+			NVT_ERR("create proc/%s Failed!\n", NVT_PEN_2D_RAW);
 			return -ENOMEM;
 		} else {
-			NVT_LOG("create proc/%s Succeeded!\n", NVT_PEN_DIFF);
+			NVT_LOG("create proc/%s Succeeded!\n", NVT_PEN_2D_RAW);
+		}
+		NVT_proc_pen_2d_baseline_entry = proc_create(NVT_PEN_2D_BASELINE, 0444,
+				NULL, &nvt_pen_2d_baseline_fops);
+		if (NVT_proc_pen_2d_baseline_entry == NULL) {
+			NVT_ERR("create proc/%s Failed!\n", NVT_PEN_2D_BASELINE);
+			return -ENOMEM;
+		} else {
+			NVT_LOG("create proc/%s Succeeded!\n", NVT_PEN_2D_BASELINE);
+		}
+		NVT_proc_pen_2d_diff_entry = proc_create(NVT_PEN_2D_DIFF, 0444, NULL,
+				&nvt_pen_2d_diff_fops);
+		if (NVT_proc_pen_2d_diff_entry == NULL) {
+			NVT_ERR("create proc/%s Failed!\n", NVT_PEN_2D_DIFF);
+			return -ENOMEM;
+		} else {
+			NVT_LOG("create proc/%s Succeeded!\n", NVT_PEN_2D_DIFF);
+		}
+		NVT_proc_pen_1d_diff_entry = proc_create(NVT_PEN_1D_DIFF, 0444, NULL,
+				&nvt_pen_1d_diff_fops);
+		if (NVT_proc_pen_1d_diff_entry == NULL) {
+			NVT_ERR("create proc/%s Failed!\n", NVT_PEN_1D_DIFF);
+			return -ENOMEM;
+		} else {
+			NVT_LOG("create proc/%s Succeeded!\n", NVT_PEN_1D_DIFF);
 		}
 	}
 
@@ -1001,10 +1268,25 @@ void nvt_extra_proc_deinit(void)
 	}
 
 	if (ts->pen_support) {
-		if (NVT_proc_pen_diff_entry != NULL) {
-			remove_proc_entry(NVT_PEN_DIFF, NULL);
-			NVT_proc_pen_diff_entry = NULL;
-			NVT_LOG("Removed /proc/%s\n", NVT_PEN_DIFF);
+		if (NVT_proc_pen_2d_raw_entry != NULL) {
+			remove_proc_entry(NVT_PEN_2D_RAW, NULL);
+			NVT_proc_pen_2d_raw_entry = NULL;
+			NVT_LOG("Removed /proc/%s\n", NVT_PEN_2D_RAW);
+		}
+		if (NVT_proc_pen_2d_baseline_entry != NULL) {
+			remove_proc_entry(NVT_PEN_2D_BASELINE, NULL);
+			NVT_proc_pen_2d_baseline_entry = NULL;
+			NVT_LOG("Removed /proc/%s\n", NVT_PEN_2D_BASELINE);
+		}
+		if (NVT_proc_pen_2d_diff_entry != NULL) {
+			remove_proc_entry(NVT_PEN_2D_DIFF, NULL);
+			NVT_proc_pen_2d_diff_entry = NULL;
+			NVT_LOG("Removed /proc/%s\n", NVT_PEN_2D_DIFF);
+		}
+		if (NVT_proc_pen_1d_diff_entry != NULL) {
+			remove_proc_entry(NVT_PEN_1D_DIFF, NULL);
+			NVT_proc_pen_1d_diff_entry = NULL;
+			NVT_LOG("Removed /proc/%s\n", NVT_PEN_1D_DIFF);
 		}
 	}
 }
