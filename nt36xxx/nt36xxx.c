@@ -1109,6 +1109,28 @@ static int32_t nvt_parse_dt(struct device *dev)
 
 	return ret;
 }
+
+static void nvt_get_resolutions(struct device *dev, uint32_t *pos_x_res,
+				uint32_t *pos_y_res, uint32_t *touch_major_res)
+{
+	struct device_node *np = dev->of_node;
+
+	/*
+	 * Retrieve any available screen surface resolutions of
+	 * ABS_MT_TOUCH_MAJOR and ABS_MT_POSITION_X/Y from DT.
+	 */
+	of_property_read_u32(np, "touchscreen-abs-mt-position-x-res",
+			     pos_x_res);
+
+	of_property_read_u32(np, "touchscreen-abs-mt-position-y-res",
+			     pos_y_res);
+
+	of_property_read_u32(np, "touchscreen-abs-mt-touch-major-res",
+			     touch_major_res);
+
+	NVT_LOG("pos-x-res=%d, pos-y-res=%d, touch-major-res=%d\n",
+		*pos_x_res, *pos_y_res, *touch_major_res);
+}
 #else
 static int32_t nvt_parse_dt(struct device *dev)
 {
@@ -1797,6 +1819,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #if (TOUCH_KEY_NUM || WAKEUP_GESTURE)
 	int32_t retry = 0;
 #endif
+#ifdef CONFIG_OF
+	uint32_t mt_touch_major_res = 0, mt_pos_x_res = 0, mt_pos_y_res = 0;
+#endif
 
 	NVT_LOG("start\n");
 
@@ -1979,6 +2004,17 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);    //area = 255
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, 0, ts->abs_x_max, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, 0, ts->abs_y_max, 0, 0);
+
+#ifdef CONFIG_OF
+	/* Get any available resolution from DT and apply them */
+	nvt_get_resolutions(&client->dev, &mt_pos_x_res, &mt_pos_y_res,
+			    &mt_touch_major_res);
+
+	input_abs_set_res(ts->input_dev, ABS_MT_TOUCH_MAJOR, mt_touch_major_res);
+	input_abs_set_res(ts->input_dev, ABS_MT_POSITION_X, mt_pos_x_res);
+	input_abs_set_res(ts->input_dev, ABS_MT_POSITION_Y, mt_pos_y_res);
+#endif
+
 	if (ts->report_protocol == REPORT_PROTOCOL_A)
 		input_set_abs_params(ts->input_dev, ABS_MT_TRACKING_ID, 0, ts->max_touch_num, 0, 0);
 #endif //TOUCH_MAX_FINGER_NUM > 1
