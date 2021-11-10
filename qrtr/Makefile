@@ -1,12 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
+#ccflags-y += -I$(WLAN_PLATFORM_ROOT)/inc
 obj-$(CONFIG_QRTR) := qrtr.o ns.o
-
-obj-$(CONFIG_QRTR_SMD) += qrtr-smd.o
-qrtr-smd-y	:= smd.o
-obj-$(CONFIG_QRTR_TUN) += qrtr-tun.o
-qrtr-tun-y	:= tun.o
 obj-$(CONFIG_QRTR_MHI) += qrtr-mhi.o
 qrtr-mhi-y	:= mhi.o
-obj-$(CONFIG_QRTR_GUNYAH) += qrtr-gunyah.o
-qrtr-gunyah-y	:= gunyah.o
-ccflags-y += -DDEBUG

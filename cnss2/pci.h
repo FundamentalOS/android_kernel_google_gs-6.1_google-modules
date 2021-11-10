@@ -5,9 +5,17 @@
 #define _CNSS_PCI_H
 
 #include <linux/iommu.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi.h"
+#else
 #include <linux/mhi.h>
+#endif
 #if IS_ENABLED(CONFIG_MHI_BUS_MISC)
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi_misc.h"
+#else
 #include <linux/mhi_misc.h>
+#endif
 #endif
 #if IS_ENABLED(CONFIG_PCI_MSM)
 #include <linux/msm_pcie.h>

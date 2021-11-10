@@ -7,7 +7,11 @@
 #ifndef _MHI_INT_H
 #define _MHI_INT_H
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi.h"
+#else
 #include <linux/mhi.h>
+#endif
 #include "misc.h"
 
 extern struct bus_type mhi_bus_type;

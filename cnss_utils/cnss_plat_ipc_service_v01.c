@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2021, The Linux Foundation. All rights reserved. */
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "qmi/qmi.h"
+#else
 #include <linux/soc/qcom/qmi.h>
+#endif
 
 #include "cnss_plat_ipc_service_v01.h"
 

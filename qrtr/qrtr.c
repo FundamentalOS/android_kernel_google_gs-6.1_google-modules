@@ -6,7 +6,11 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/netlink.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "uapi/qrtr.h"
+#else
 #include <linux/qrtr.h>
+#endif
 #include <linux/termios.h>	/* For TIOCINQ/OUTQ */
 #include <linux/numa.h>
 #include <linux/spinlock.h>
@@ -14,7 +18,11 @@
 #include <linux/rwsem.h>
 #include <linux/uidgid.h>
 #include <linux/pm_wakeup.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "ipc_logging.h"
+#else
 #include <linux/ipc_logging.h>
+#endif
 
 #include <net/sock.h>
 #include <uapi/linux/sched/types.h>

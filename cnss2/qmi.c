@@ -2,7 +2,11 @@
 /* Copyright (c) 2015-2021, The Linux Foundation. All rights reserved. */
 
 #include <linux/module.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "qmi/qmi.h"
+#else
 #include <linux/soc/qcom/qmi.h>
+#endif
 
 #include "bus.h"
 #include "debug.h"

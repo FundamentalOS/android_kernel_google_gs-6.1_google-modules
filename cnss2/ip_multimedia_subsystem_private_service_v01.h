@@ -4,7 +4,11 @@
 #ifndef IP_MULTIMEDIA_SUBSYSTEM_PRIVATE_SERVICE_V01_H
 #define IP_MULTIMEDIA_SUBSYSTEM_PRIVATE_SERVICE_V01_H
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "qmi/qmi.h"
+#else
 #include <linux/soc/qcom/qmi.h>
+#endif
 
 #define IMSPRIVATE_SERVICE_ID_V01 0x4D
 #define IMSPRIVATE_SERVICE_VERS_V01 0x01

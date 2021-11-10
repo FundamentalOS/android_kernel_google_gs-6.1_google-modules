@@ -11,7 +11,11 @@
 #include <linux/rwsem.h>
 #include <linux/suspend.h>
 #include <linux/timer.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "cnss_plat_ipc_qmi.h"
+#else
 #include <linux/cnss_plat_ipc_qmi.h>
+#endif
 #if IS_ENABLED(CONFIG_QCOM_MINIDUMP)
 #include <soc/qcom/minidump.h>
 #endif

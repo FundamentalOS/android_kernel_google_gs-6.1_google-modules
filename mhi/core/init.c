@@ -11,7 +11,11 @@
 #include <linux/idr.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi.h"
+#else
 #include <linux/mhi.h>
+#endif
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/slab.h>

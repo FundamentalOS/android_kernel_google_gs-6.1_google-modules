@@ -4,7 +4,11 @@
 #ifndef WLAN_FIRMWARE_SERVICE_V01_H
 #define WLAN_FIRMWARE_SERVICE_V01_H
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "qmi/qmi.h"
+#else
 #include <linux/soc/qcom/qmi.h>
+#endif
 
 #define WLFW_SERVICE_ID_V01 0x45
 #define WLFW_SERVICE_VERS_V01 0x01

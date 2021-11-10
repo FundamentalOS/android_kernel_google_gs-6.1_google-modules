@@ -3,7 +3,11 @@
  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi.h"
+#else
 #include <linux/mhi.h>
+#endif
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/pci.h>

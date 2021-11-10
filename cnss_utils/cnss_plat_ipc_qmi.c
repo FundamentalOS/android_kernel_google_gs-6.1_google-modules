@@ -3,12 +3,19 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "uapi/qrtr.h"
+#include "ipc_logging.h"
+#include "qmi/qmi.h"
+#include "cnss_plat_ipc_qmi.h"
+#else
 #include <linux/qrtr.h>
-#include <linux/soc/qcom/qmi.h>
 #include <linux/ipc_logging.h>
+#include <linux/soc/qcom/qmi.h>
+#include <linux/cnss_plat_ipc_qmi.h>
+#endif
 #include <linux/limits.h>
 #include <linux/slab.h>
-#include <linux/cnss_plat_ipc_qmi.h>
 #include <linux/delay.h>
 #include <linux/workqueue.h>
 #include <linux/of.h>

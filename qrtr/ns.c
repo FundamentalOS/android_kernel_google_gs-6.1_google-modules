@@ -7,9 +7,14 @@
 
 #define pr_fmt(fmt) "qrtr: %s(): " fmt, __func__
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "ipc_logging.h"
+#include "uapi/qrtr.h"
+#else
 #include <linux/ipc_logging.h>
-#include <linux/module.h>
 #include <linux/qrtr.h>
+#endif
+#include <linux/module.h>
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
 #include <net/sock.h>

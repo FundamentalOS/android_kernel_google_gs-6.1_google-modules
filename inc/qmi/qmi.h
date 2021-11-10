@@ -9,7 +9,11 @@
 #include <linux/completion.h>
 #include <linux/idr.h>
 #include <linux/list.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "uapi/qrtr.h"
+#else
 #include <linux/qrtr.h>
+#endif
 #include <linux/types.h>
 #include <linux/workqueue.h>
 

@@ -5,14 +5,22 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/device.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "uapi/qrtr.h"
+#else
 #include <linux/qrtr.h>
+#endif
 #include <linux/net.h>
 #include <linux/completion.h>
 #include <linux/idr.h>
 #include <linux/string.h>
 #include <net/sock.h>
 #include <linux/workqueue.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "qmi/qmi.h"
+#else
 #include <linux/soc/qcom/qmi.h>
+#endif
 
 static struct socket *qmi_sock_create(struct qmi_handle *qmi,
 				      struct sockaddr_qrtr *sq);

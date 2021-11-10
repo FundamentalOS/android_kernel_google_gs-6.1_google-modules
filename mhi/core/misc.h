@@ -7,7 +7,11 @@
 #ifndef _MHI_CORE_MISC_H_
 #define _MHI_CORE_MISC_H_
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi_misc.h"
+#else
 #include <linux/mhi_misc.h>
+#endif
 
 #define MHI_FORCE_WAKE_DELAY_US (100)
 #define MHI_IPC_LOG_PAGES (100)

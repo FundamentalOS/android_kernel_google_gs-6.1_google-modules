@@ -7,8 +7,13 @@
 #ifndef _MHI_MISC_H_
 #define _MHI_MISC_H_
 
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "mhi.h"
+#include "ipc_logging.h"
+#else
 #include <linux/mhi.h>
 #include <linux/ipc_logging.h>
+#endif
 
 /**
  * enum MHI_DEBUG_LEVEL - various debugging levels

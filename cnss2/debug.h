@@ -7,7 +7,11 @@
 #include <linux/printk.h>
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "ipc_logging.h"
+#else
 #include <linux/ipc_logging.h>
+#endif
 #include <asm/current.h>
 
 extern void *cnss_ipc_log_context;
