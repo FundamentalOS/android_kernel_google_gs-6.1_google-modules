@@ -20,3 +20,23 @@ obj-$(CONFIG_CNSS2) += cnss2/
 obj-$(CONFIG_CNSS_GENL) += cnss_genl/
 obj-$(CONFIG_WCNSS_MEM_PRE_ALLOC) += cnss_prealloc/
 obj-y += cnss_utils/
+
+
+# MHI
+ifeq ($(CONFIG_MHI_BUS_MISC),y)
+KBUILD_CPPFLAGS += -DCONFIG_MHI_BUS_MISC
+endif
+
+ifeq ($(CONFIG_MHI_DEBUG),y)
+KBUILD_CPPFLAGS += -DCONFIG_MHI_DEBUG
+endif
+
+obj-$(CONFIG_MHI_BUS)		+= mhi/
+
+# QMI
+obj-$(CONFIG_QCOM_QMI_HELPERS)		+= qmi/
+
+# QRTR
+KBUILD_CPPFLAGS += -DCONFIG_QRTR_NODE_ID=$(CONFIG_QRTR_NODE_ID)
+KBUILD_CPPFLAGS += -DCONFIG_QRTR_WAKEUP_MS=$(CONFIG_QRTR_WAKEUP_MS)
+obj-$(CONFIG_QRTR)		+= qrtr/
