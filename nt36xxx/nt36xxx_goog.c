@@ -274,6 +274,40 @@ ssize_t force_touch_active_store(struct device *dev,
 	return count;
 }
 
+ssize_t force_release_fw_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOG("++\n");
+
+	ret = scnprintf(buf, PAGE_SIZE, "force_release_fw %d\n", ts->force_release_fw);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+ssize_t force_release_fw_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	u8 mode;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou8(buf, 0, &mode)) {
+		NVT_ERR("invalid input!\n");
+		return -EINVAL;
+	}
+
+	ts->force_release_fw = (mode) ? 1 : 0;
+	if (ts->force_release_fw)
+		update_firmware_release();
+
+	NVT_LOG("--\n");
+	return count;
+}
+
 int nvt_ts_pm_suspend(struct device *dev)
 {
 	struct nvt_ts_data *ts = dev_get_drvdata(dev);

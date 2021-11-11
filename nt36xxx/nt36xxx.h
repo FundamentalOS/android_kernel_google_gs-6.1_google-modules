@@ -253,6 +253,7 @@ struct nvt_ts_data {
 	struct mutex bus_mutex;
 
 	ktime_t bugreport_ktime_start;
+	u8 force_release_fw;
 };
 
 #if NVT_TOUCH_PROC
@@ -312,6 +313,7 @@ int32_t nvt_check_fw_status(void);
 int32_t nvt_check_spi_dma_tx_info(void);
 int32_t nvt_set_page(uint32_t addr);
 int32_t nvt_write_addr(uint32_t addr, uint8_t data);
+extern void update_firmware_release(void);
 extern int32_t nvt_update_firmware(char *firmware_name, uint8_t full);
 extern void nvt_change_mode(uint8_t mode);
 extern int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis);

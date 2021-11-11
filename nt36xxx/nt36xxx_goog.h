@@ -15,6 +15,11 @@ ssize_t force_touch_active_show(struct device *dev,
 ssize_t force_touch_active_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
+ssize_t force_release_fw_show(struct device *dev,
+				struct device_attribute *attr, char *buf);
+ssize_t force_release_fw_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count);
 int nvt_ts_pm_suspend(struct device *dev);
 int nvt_ts_pm_resume(struct device *dev);
 #ifdef NVT_TS_PANEL_BRIDGE

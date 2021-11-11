@@ -321,7 +321,7 @@ Description:
 return:
 	n.a.
 *******************************************************/
-static void update_firmware_release(void)
+void update_firmware_release(void)
 {
 	if (fw_entry) {
 		NVT_LOG("\n");
@@ -992,7 +992,7 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 	}
 
 download_fail:
-	if (release_fw)
+	if (release_fw || ts->force_release_fw)
 		update_firmware_release();
 request_firmware_fail:
 
