@@ -59,6 +59,9 @@ static struct cnss_clk_cfg cnss_clk_list[] = {
 #define XO_CLK_GPIO			"qcom,xo-clk-gpio"
 #define WLAN_EN_ACTIVE			"wlan_en_active"
 #define WLAN_EN_SLEEP			"wlan_en_sleep"
+#ifdef CONFIG_WCN_GOOGLE
+#define WLAN_BUCK_GPIO			"wlan-buck-gpio"
+#endif
 
 #define BOOTSTRAP_DELAY			1000
 #define WLAN_ENABLE_DELAY		1000
@@ -904,14 +907,68 @@ set_wlan_en:
 	return ret;
 }
 
+#ifdef CONFIG_WCN_GOOGLE
+static int wlan_buck_gpio=0;
+int wlan_buck_enable(struct cnss_plat_data *plat_priv)
+{
+	int ret = 0;
+	struct device *dev;
+	int wlan_buck_gpio_val;
+	dev = &plat_priv->plat_dev->dev;
+	cnss_pr_info("%s Enter\n",__func__);
+
+	if (!wlan_buck_gpio) {
+		if (of_find_property(dev->of_node, WLAN_BUCK_GPIO, NULL)) {
+			wlan_buck_gpio = of_get_named_gpio(dev->of_node,
+								     WLAN_BUCK_GPIO, 0);
+			if (!gpio_is_valid(wlan_buck_gpio)) {
+				cnss_pr_err("Invalid gpio pin : %d\n", wlan_buck_gpio);
+				return -ENODEV;
+			}
+			cnss_pr_info("BUCK GPIO: %d\n", wlan_buck_gpio);
+		} else {
+			cnss_pr_err("No BUCK GPIO\n");
+		}
+	}
+	ret=gpio_request(wlan_buck_gpio, "WLAN BUCK");
+	if (ret) {
+		cnss_pr_info("failed to request WLAN_BUCK_GPIO, ret:%d", ret);
+		return ret;
+	}
+
+	wlan_buck_gpio_val = gpio_get_value(wlan_buck_gpio);
+	cnss_pr_info("%s: BUCK GPIO: [%d]\n",
+	__func__, gpio_get_value(wlan_buck_gpio));
+
+	if (wlan_buck_gpio_val == 0) {
+		cnss_pr_info("%s: BUCK GPIO is LOW, drive it HIGH\n", __func__);
+		if (gpio_direction_output(wlan_buck_gpio, 1)) {
+			cnss_pr_err("%s: BUCK GPIO is failed to pull up\n", __func__);
+			gpio_free(wlan_buck_gpio);
+			return -EIO;
+		}
+		cnss_pr_dbg("Pull up BUCK GPIO successfully\n");
+	}
+	gpio_free(wlan_buck_gpio);
+	msleep(10);
+
+	return ret;
+}
+#endif
+
 int cnss_power_on_device(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
 
+	cnss_pr_info("%s Enter\n",__func__);
 	if (plat_priv->powered_on) {
 		cnss_pr_dbg("Already powered up");
 		return 0;
 	}
+
+#ifdef CONFIG_WCN_GOOGLE
+	wlan_buck_enable(plat_priv);
+#endif
 
 	ret = cnss_vreg_on_type(plat_priv, CNSS_VREG_PRIM);
 	if (ret) {
