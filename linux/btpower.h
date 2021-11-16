@@ -36,8 +36,9 @@ struct bt_power_vreg_data {
 	struct log_index indx;  /* Index for reg. w.r.t init & crash */
 };
 
+#define MAX_PROP_SIZE 32
 struct bt_power {
-	char compatible[32];
+	const char compatible[MAX_PROP_SIZE];
 	struct bt_power_vreg_data *vregs;
 	int num_vregs;
 };
@@ -48,30 +49,45 @@ struct bt_power_clk_data {
 	bool is_enabled;  /* is this clock enabled? */
 };
 
+/* total number of power src */
+#define BT_POWER_SRC_SIZE           28
+
 /*
  * Platform data for the bluetooth power driver.
  */
 struct btpower_platform_data {
 	struct platform_device *pdev;
+	struct rfkill *rfkill;
+	struct device *slim_dev;
+
+	int chipset_version;
+	char compatible[MAX_PROP_SIZE];        /*Bluetooth SoC name */
+
+	/* GPIOs */
 	int bt_gpio_sys_rst;                   /* Bluetooth reset gpio */
 	int wl_gpio_sys_rst;                   /* Wlan reset gpio */
 	int bt_gpio_sw_ctrl;                   /* Bluetooth sw_ctrl gpio */
 	int bt_gpio_debug;                     /* Bluetooth debug gpio */
 	int xo_gpio_clk;                       /* XO clock gpio*/
-	struct device *slim_dev;
+
+	int num_vregs;
 	struct bt_power_vreg_data *vreg_info;  /* VDDIO voltage regulator */
 	struct bt_power_clk_data *bt_chip_clk; /* bluetooth reference clock */
-	int (*bt_power_setup)(int id); /* Bluetooth power setup function */
-	char compatible[32]; /*Bluetooth SoC name */
-	int num_vregs;
+
+	int (*bt_power_setup)(struct btpower_platform_data *drvdata,
+		enum bt_power_modes mode);     /* Bluetooth power setup function */
+	enum bt_power_modes pwr_state;
+	int bt_power_src_status[BT_POWER_SRC_SIZE];
+
 	struct mbox_client mbox_client_data;
 	struct mbox_chan *mbox_chan;
 	const char *vreg_ipa;
+	bool vreg_ipa_configured;
 };
 
-int btpower_register_slimdev(struct device *dev);
-int btpower_get_chipset_version(void);
-int btpower_aop_mbox_init(struct btpower_platform_data *pdata);
+extern int btpower_register_slimdev(struct device *dev);
+extern int btpower_get_chipset_version(struct btpower_platform_data *drvdata);
+extern int btpower_aop_mbox_init(struct btpower_platform_data *drvdata);
 
 #define BT_CMD_SLIM_TEST		0xbfac
 #define BT_CMD_PWR_CTRL			0xbfad
@@ -80,8 +96,5 @@ int btpower_aop_mbox_init(struct btpower_platform_data *pdata);
 #define BT_CMD_CHECK_SW_CTRL	0xbfb0
 #define BT_CMD_GETVAL_POWER_SRCS	0xbfb1
 #define BT_CMD_SET_IPA_TCS_INFO  0xbfc0
-
-/* total number of power src */
-#define BT_POWER_SRC_SIZE           28
 
 #endif /* __LINUX_BLUETOOTH_POWER_H */
