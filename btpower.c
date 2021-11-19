@@ -207,11 +207,6 @@ static int bt_power_vreg_set(struct btpower_platform_data *drvdata,
 			     enum bt_power_modes mode);
 static int btpower_enable_ipa_vreg(struct btpower_platform_data *drvdata);
 
-static struct btpower_platform_data *bt_power_pdata;
-static struct class *bt_class;
-static int bt_major;
-static bool probe_finished;
-
 static int bt_vreg_enable(struct bt_power_vreg_data *vreg)
 {
 	int rc = 0;
@@ -689,6 +684,74 @@ static void btpower_rfkill_remove(struct platform_device *pdev)
 	rfkill_destroy(rfkill);
 }
 
+static int btpower_open(struct inode *inode, struct file *filp);
+static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+static const struct file_operations bt_dev_fops = {
+	.owner = THIS_MODULE,
+	.open = btpower_open,
+	.unlocked_ioctl = btpower_ioctl,
+	.compat_ioctl = btpower_ioctl,
+};
+
+static int btpower_chardev_create(struct btpower_platform_data *drvdata)
+{
+	dev_t bpdevt;
+	struct class *bpcls;
+	struct device *bpdev;
+	int ret = 0;
+
+	ret = alloc_chrdev_region(&bpdevt, 0, 1, "bt");
+	if (ret || MAJOR(bpdevt) < 0) {
+		pr_err("%s: failed to register chardev number (%d)\n",
+			__func__, ret);
+		return ret;
+	}
+	cdev_init(&drvdata->cdev, &bt_dev_fops);
+	drvdata->cdev.owner = THIS_MODULE;
+	ret = cdev_add(&drvdata->cdev, bpdevt, 1);
+	if (ret) {
+		pr_err("%s: failed to add chardev (%d)\n", __func__, ret);
+                goto class_err;
+	}
+	pr_debug("%s: registered chardev number %d:%d\n", __func__,
+		MAJOR(drvdata->cdev.dev), MINOR(drvdata->cdev.dev));
+
+	bpcls = class_create(THIS_MODULE, "bt-dev");
+	if (IS_ERR_OR_NULL(bpcls)) {
+		ret = PTR_ERR(bpcls);
+		pr_err("%s: can't create class (%d)\n", __func__, ret);
+		goto class_err;
+	}
+
+	bpdev = device_create(bpcls, NULL, drvdata->cdev.dev,
+			drvdata, "btpower");
+	if (IS_ERR_OR_NULL(bpdev)) {
+		ret = PTR_ERR(bpdev);
+		pr_err("%s: failed to create device with sysfs (%d)\n",
+			__func__, ret);
+		goto device_err;
+	}
+	drvdata->cls = bpcls;
+	return 0;
+
+device_err:
+	class_destroy(bpcls);
+class_err:
+	unregister_chrdev(MAJOR(drvdata->cdev.dev), "bt");
+	return ret;
+}
+
+static void btpower_chardev_remove(struct btpower_platform_data *drvdata)
+{
+	if (!drvdata || !drvdata->cls)
+		return;
+
+	device_destroy(drvdata->cls, drvdata->cdev.dev);
+	class_destroy(drvdata->cls);
+	drvdata->cls = NULL;
+	unregister_chrdev(MAJOR(drvdata->cdev.dev), "bt");
+}
+
 static int bt_dt_parse_vreg_info(struct device *dev,
 				 struct bt_power_vreg_data *vreg)
 {
@@ -931,7 +994,6 @@ static int bt_power_probe(struct platform_device *pdev)
 	drvdata = kzalloc(sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
 		return -ENOMEM;
-	bt_power_pdata = drvdata;
 
 	drvdata->pdev = pdev;
 	/* Fill whole array with -2 i.e NOT_AVAILABLE state by default
@@ -965,10 +1027,16 @@ static int bt_power_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto free_pdata;
 
+	ret = btpower_chardev_create(drvdata);
+	if (ret) {
+		btpower_rfkill_remove(pdev);
+		goto free_pdata;
+	}
+
 	btpower_aop_mbox_init(drvdata);
 
 	platform_set_drvdata(pdev, drvdata);
-	probe_finished = true;
+
 	return 0;
 
 free_pdata:
@@ -985,7 +1053,7 @@ static int bt_power_remove(struct platform_device *pdev)
 	if (!drvdata)
 		return 0;
 
-	probe_finished = false;
+	btpower_chardev_remove(drvdata);
 	btpower_rfkill_remove(pdev);
 	bt_power_vreg_put(drvdata);
 
@@ -1051,15 +1119,22 @@ static void set_gpios_srcs_status(struct btpower_platform_data *drvdata,
 		drvdata->bt_power_src_status[gpio_index]);
 }
 
-static long bt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static int btpower_open(struct inode *inode, struct file *filp)
 {
-	struct btpower_platform_data *drvdata = bt_power_pdata;
+	filp->private_data =
+		container_of(inode->i_cdev, struct btpower_platform_data, cdev);
+	return 0;
+}
+
+static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct btpower_platform_data *drvdata = file->private_data;
 	int ret = 0, pwr_cntrl = 0;
 	int chipset_version = 0;
 	int itr, num_vregs;
 	const struct bt_power_vreg_data *vreg_info = NULL;
 
-	if (!drvdata || !probe_finished) {
+	if (!drvdata) {
 		pr_err("%s: device not ready\n", __func__);
 		return -ENODEV;
 	}
@@ -1164,51 +1239,14 @@ static struct platform_driver bt_power_driver = {
 	},
 };
 
-static const struct file_operations bt_dev_fops = {
-	.unlocked_ioctl = bt_ioctl,
-	.compat_ioctl = bt_ioctl,
-};
-
 static int __init btpower_init(void)
 {
 	int ret = 0;
 
-	probe_finished = false;
 	ret = platform_driver_register(&bt_power_driver);
-	if (ret) {
+	if (ret)
 		pr_err("%s: platform_driver_register error: %d\n",
 			__func__, ret);
-		goto driver_err;
-	}
-
-	bt_major = register_chrdev(0, "bt", &bt_dev_fops);
-	if (bt_major < 0) {
-		pr_err("%s: failed to allocate char dev\n", __func__);
-		ret = -1;
-		goto chrdev_err;
-	}
-
-	bt_class = class_create(THIS_MODULE, "bt-dev");
-	if (IS_ERR(bt_class)) {
-		pr_err("%s: coudn't create class\n", __func__);
-		ret = -1;
-		goto class_err;
-	}
-
-	if (device_create(bt_class, NULL, MKDEV(bt_major, 0),
-		NULL, "btpower") == NULL) {
-		pr_err("%s: failed to allocate char dev\n", __func__);
-		goto device_err;
-	}
-	return 0;
-
-device_err:
-	class_destroy(bt_class);
-class_err:
-	unregister_chrdev(bt_major, "bt");
-chrdev_err:
-	platform_driver_unregister(&bt_power_driver);
-driver_err:
 	return ret;
 }
 

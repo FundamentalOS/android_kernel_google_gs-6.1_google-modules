@@ -6,6 +6,7 @@
 #ifndef __LINUX_BLUETOOTH_POWER_H
 #define __LINUX_BLUETOOTH_POWER_H
 
+#include <linux/cdev.h>
 #include <linux/types.h>
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
@@ -58,6 +59,8 @@ struct bt_power_clk_data {
 struct btpower_platform_data {
 	struct platform_device *pdev;
 	struct rfkill *rfkill;
+	struct cdev cdev;
+	struct class *cls;
 	struct device *slim_dev;
 
 	int chipset_version;
