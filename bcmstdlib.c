@@ -46,7 +46,7 @@
 /* for size_t definition */
 #include <stddef.h>
 #endif
-#include <stdarg.h>
+#include <linux/stdarg.h>
 #ifndef BCMSTDLIB_WIN32_APP
 #include <bcmutils.h>
 #endif

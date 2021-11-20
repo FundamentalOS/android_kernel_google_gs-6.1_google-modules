@@ -36,7 +36,7 @@
 #include <typedefs.h>
 #include <bcmdefs.h>
 #include <osl.h>
-#include <stdarg.h>
+#include <linux/stdarg.h>
 #include <bcmutils.h>
 #include <hndsoc.h>
 #include <sbchipc.h>
