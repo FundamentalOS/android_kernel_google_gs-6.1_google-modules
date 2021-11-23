@@ -5,6 +5,7 @@
 #include <linux/of_gpio.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/exynos-pci-ctrl.h>
+#include <linux/platform_data/sscoredump.h>
 #include "pci_platform.h"
 #include "debug.h"
 #include "bus.h"
@@ -303,3 +304,132 @@ int cnss_pci_set_link_bandwidth(struct cnss_pci_data *pci_priv,
 // {
 // 	return 0;
 // }
+
+/*
+ * The following functions are for ssrdump.
+ */
+
+#define DEVICE_NAME "wlan"
+
+static struct sscd_platform_data sscd_pdata;
+
+static struct platform_device sscd_dev = {
+	.name            = DEVICE_NAME,
+	.driver_override = SSCD_NAME,
+	.id              = -1,
+	.dev             = {
+		.platform_data = &sscd_pdata,
+		.release       = sscd_release,
+    },
+};
+
+void cnss_register_sscd(void)
+{
+	platform_device_register(&sscd_dev);
+}
+
+void cnss_unregister_sscd(void)
+{
+	platform_device_unregister(&sscd_dev);
+}
+
+void sscd_release(struct device *dev)
+{
+	cnss_pr_info("%s: enter\n", __FUNCTION__);
+}
+
+static void sscd_set_coredump(void *buf, int buf_len, const char *info)
+{
+	struct sscd_platform_data *pdata = dev_get_platdata(&sscd_dev.dev);
+	struct sscd_segment seg;
+
+	if (pdata->sscd_report) {
+		memset(&seg, 0, sizeof(seg));
+		seg.addr = buf;
+		seg.size = buf_len;
+		pdata->sscd_report(&sscd_dev, &seg, 1, 0, info);
+	}
+}
+
+int qcom_elf_dump(struct list_head *segs, struct device *dev)
+{
+	struct qcom_dump_segment *segment;
+	struct elf32_phdr *phdr;
+	struct elf32_hdr *ehdr;
+	size_t data_size;
+	size_t offset;
+	int phnum = 0;
+	void *data;
+	void __iomem *ptr;
+
+	if (!segs || list_empty(segs))
+		return -EINVAL;
+
+	data_size = sizeof(*ehdr);
+	list_for_each_entry(segment, segs, node) {
+		data_size += sizeof(*phdr) + segment->size;
+
+		phnum++;
+	}
+
+	data = vmalloc(data_size);
+	if (!data)
+		return -ENOMEM;
+
+	cnss_pr_info("Creating elf with size %d\n", data_size);
+	ehdr = data;
+
+	memset(ehdr, 0, sizeof(*ehdr));
+	memcpy(ehdr->e_ident, ELFMAG, SELFMAG);
+	ehdr->e_ident[EI_CLASS] = ELFCLASS32;
+	ehdr->e_ident[EI_DATA] = ELFDATA2LSB;
+	ehdr->e_ident[EI_VERSION] = EV_CURRENT;
+	ehdr->e_ident[EI_OSABI] = ELFOSABI_NONE;
+	ehdr->e_type = ET_CORE;
+	ehdr->e_machine = EM_NONE;
+	ehdr->e_version = EV_CURRENT;
+	ehdr->e_entry = 0;
+	ehdr->e_phoff = sizeof(*ehdr);
+	ehdr->e_ehsize = sizeof(*ehdr);
+	ehdr->e_phentsize = sizeof(*phdr);
+	ehdr->e_phnum = phnum;
+
+	phdr = data + ehdr->e_phoff;
+	offset = ehdr->e_phoff + sizeof(*phdr) * ehdr->e_phnum;
+	list_for_each_entry(segment, segs, node) {
+		memset(phdr, 0, sizeof(*phdr));
+		phdr->p_type = PT_LOAD;
+		phdr->p_offset = offset;
+		phdr->p_vaddr = segment->da;
+		phdr->p_paddr = segment->da;
+		phdr->p_filesz = segment->size;
+		phdr->p_memsz = segment->size;
+		phdr->p_flags = PF_R | PF_W | PF_X;
+		phdr->p_align = 0;
+
+		if (segment->va) {
+			memcpy(data + offset, segment->va, segment->size);
+		} else {
+			ptr = devm_ioremap(dev, segment->da, segment->size);
+			if (!ptr) {
+				dev_err(dev,
+					"invalid coredump segment (%pad, %zu)\n",
+					&segment->da, segment->size);
+				memset(data + offset, 0xff, segment->size);
+			} else
+				memcpy_fromio(data + offset, ptr,
+					      segment->size);
+		}
+
+		offset += phdr->p_filesz;
+		phdr++;
+	}
+
+	/*
+	 * SSCD integration
+	 */
+	sscd_set_coredump(data, data_size, "Test Crash Info");
+
+	vfree(data);
+	return 0;
+}

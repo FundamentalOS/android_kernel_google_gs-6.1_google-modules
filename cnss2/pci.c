@@ -4401,22 +4401,24 @@ static void cnss_pci_add_dump_seg(struct cnss_pci_data *pci_priv,
 				  enum cnss_fw_dump_type type, int seg_no,
 				  void *va, dma_addr_t dma, size_t size)
 {
+#if !IS_ENABLED(CONFIG_WCN_GOOGLE)
 	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
 	struct device *dev = &pci_priv->pci_dev->dev;
 	phys_addr_t pa;
-
+#endif
 	dump_seg->address = dma;
 	dump_seg->v_address = va;
 	dump_seg->size = size;
 	dump_seg->type = type;
 
-	cnss_pr_dbg("Seg: %x, va: %pK, dma: %pa, size: 0x%zx\n",
+	cnss_pr_dbg("Seg: %x, va: %x, dma: %pa, size: 0x%zx\n",
 		    seg_no, va, &dma, size);
-
+#if !IS_ENABLED(CONFIG_WCN_GOOGLE)
 	if (cnss_va_to_pa(dev, size, va, dma, &pa, DMA_ATTR_FORCE_CONTIGUOUS))
 		return;
 
 	cnss_minidump_add_region(plat_priv, type, seg_no, va, pa, size);
+#endif
 }
 
 static void cnss_pci_remove_dump_seg(struct cnss_pci_data *pci_priv,
@@ -5187,6 +5189,9 @@ static int cnss_pci_probe(struct pci_dev *pci_dev,
 	ret = cnss_register_ramdump(plat_priv);
 	if (ret)
 		goto unregister_subsys;
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	cnss_register_sscd();
+#endif /* CONFIG_WCN_GOOGLE */
 
 	ret = cnss_pci_init_smmu(pci_priv);
 	if (ret)
@@ -5258,6 +5263,9 @@ dereg_pci_event:
 deinit_smmu:
 	cnss_pci_deinit_smmu(pci_priv);
 unregister_ramdump:
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	cnss_unregister_sscd();
+#endif /* CONFIG_WCN_GOOGLE */
 	cnss_unregister_ramdump(plat_priv);
 unregister_subsys:
 	cnss_unregister_subsys(plat_priv);
@@ -5295,6 +5303,9 @@ static void cnss_pci_remove(struct pci_dev *pci_dev)
 	cnss_pci_disable_bus(pci_priv);
 	cnss_dereg_pci_event(pci_priv);
 	cnss_pci_deinit_smmu(pci_priv);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	cnss_unregister_sscd();
+#endif /* CONFIG_WCN_GOOGLE */
 	if (plat_priv) {
 		cnss_unregister_ramdump(plat_priv);
 		cnss_unregister_subsys(plat_priv);

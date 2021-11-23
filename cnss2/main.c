@@ -2225,6 +2225,13 @@ static void cnss_destroy_ramdump_device(struct cnss_plat_data *plat_priv,
 #endif
 
 #if IS_ENABLED(CONFIG_QCOM_RAMDUMP)
+
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+int cnss_do_ramdump(struct cnss_plat_data *plat_priv)
+{
+	return 0;
+}
+#else
 int cnss_do_ramdump(struct cnss_plat_data *plat_priv)
 {
 	struct cnss_ramdump_info *ramdump_info = &plat_priv->ramdump_info;
@@ -2239,7 +2246,7 @@ int cnss_do_ramdump(struct cnss_plat_data *plat_priv)
 
 	return qcom_dump(&head, ramdump_info->ramdump_dev);
 }
-
+#endif
 int cnss_do_elf_ramdump(struct cnss_plat_data *plat_priv)
 {
 	struct cnss_ramdump_info_v2 *info_v2 = &plat_priv->ramdump_info_v2;
@@ -2314,7 +2321,9 @@ int cnss_do_elf_ramdump(struct cnss_plat_data *plat_priv)
 static int cnss_init_dump_entry(struct cnss_plat_data *plat_priv)
 {
 	struct cnss_ramdump_info *ramdump_info;
+#if !IS_ENABLED(CONFIG_WCN_GOOGLE)
 	struct msm_dump_entry dump_entry;
+#endif
 
 	ramdump_info = &plat_priv->ramdump_info;
 	ramdump_info->dump_data.addr = ramdump_info->ramdump_pa;
@@ -2323,11 +2332,15 @@ static int cnss_init_dump_entry(struct cnss_plat_data *plat_priv)
 	ramdump_info->dump_data.magic = CNSS_DUMP_MAGIC_VER_V2;
 	strlcpy(ramdump_info->dump_data.name, CNSS_DUMP_NAME,
 		sizeof(ramdump_info->dump_data.name));
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	return 0;
+#else
 	dump_entry.id = MSM_DUMP_DATA_CNSS_WLAN;
 	dump_entry.addr = virt_to_phys(&ramdump_info->dump_data);
 
 	return msm_dump_data_register_nominidump(MSM_DUMP_TABLE_APPS,
 						&dump_entry);
+#endif
 }
 
 static int cnss_register_ramdump_v1(struct cnss_plat_data *plat_priv)
@@ -2398,6 +2411,7 @@ static void cnss_unregister_ramdump_v1(struct cnss_plat_data *plat_priv)
 				  ramdump_info->ramdump_pa);
 }
 
+#if !IS_ENABLED(CONFIG_WCN_GOOGLE)
 /**
  * cnss_ignore_dump_data_reg_fail - Ignore Ramdump table register failure
  * @ret: Error returned by msm_dump_data_register_nominidump
@@ -2411,13 +2425,17 @@ static int cnss_ignore_dump_data_reg_fail(int ret)
 {
 	return ret;
 }
+#endif
 
 static int cnss_register_ramdump_v2(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
 	struct cnss_ramdump_info_v2 *info_v2;
 	struct cnss_dump_data *dump_data;
+
+#if !IS_ENABLED(CONFIG_WCN_GOOGLE)
 	struct msm_dump_entry dump_entry;
+#endif
 	struct device *dev = &plat_priv->plat_dev->dev;
 	u32 ramdump_size = 0;
 
@@ -2440,6 +2458,9 @@ static int cnss_register_ramdump_v2(struct cnss_plat_data *plat_priv)
 	dump_data->seg_version = CNSS_DUMP_SEG_VER;
 	strlcpy(dump_data->name, CNSS_DUMP_NAME,
 		sizeof(dump_data->name));
+
+#if !IS_ENABLED(CONFIG_WCN_GOOGLE)
+
 	dump_entry.id = MSM_DUMP_DATA_CNSS_WLAN;
 	dump_entry.addr = virt_to_phys(dump_data);
 
@@ -2451,7 +2472,7 @@ static int cnss_register_ramdump_v2(struct cnss_plat_data *plat_priv)
 			    ret ? "Error" : "Ignoring", ret);
 		goto free_ramdump;
 	}
-
+#endif
 	info_v2->ramdump_dev = cnss_create_ramdump_device(plat_priv);
 	if (!info_v2->ramdump_dev) {
 		cnss_pr_err("Failed to create ramdump device!\n");
@@ -3270,6 +3291,9 @@ static int cnss_probe(struct platform_device *plat_dev)
 	cnss_get_cpr_info(plat_priv);
 	cnss_aop_mbox_init(plat_priv);
 	cnss_init_control_params(plat_priv);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	plat_priv->recovery_enabled = true;
+#endif //CONFIG_WCN_GOOGLE
 
 	ret = cnss_get_resources(plat_priv);
 	if (ret)

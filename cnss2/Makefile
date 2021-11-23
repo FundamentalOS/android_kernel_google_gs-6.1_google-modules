@@ -6,6 +6,7 @@ ifeq ($(CONFIG_CNSS_OUT_OF_TREE),y)
 ccflags-y += -I$(WLAN_PLATFORM_ROOT)/inc
 ccflags-y += -I$(WLAN_PLATFORM_ROOT)/cnss_utils
 ccflags-y += -DCONFIG_WCN_GOOGLE
+ccflags-y += -DCONFIG_QCOM_RAMDUMP -DCONFIG_QCOM_MEMORY_DUMP_V2
 else
 ccflags-y += -I$(srctree)/drivers/net/wireless/cnss_utils/
 endif

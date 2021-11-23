@@ -21,9 +21,15 @@
 #include <linux/time64.h>
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "cnss2.h"
+#if IS_ENABLED(CONFIG_QCOM_MEMORY_DUMP_V2)
+#include "memory_dump.h"
+#endif
+#if IS_ENABLED(CONFIG_MSM_SUBSYSTEM_RESTART) || \
+	IS_ENABLED(CONFIG_QCOM_RAMDUMP)
+#include "qcom_ramdump.h"
+#endif
 #else
 #include <net/cnss2.h>
-#endif
 #if IS_ENABLED(CONFIG_QCOM_MEMORY_DUMP_V2)
 #include <soc/qcom/memory_dump.h>
 #endif
@@ -31,6 +37,7 @@
 	IS_ENABLED(CONFIG_QCOM_RAMDUMP)
 #include <soc/qcom/qcom_ramdump.h>
 #endif
+#endif /* CONFIG_CNSS_OUT_OF_TREE */
 #if IS_ENABLED(CONFIG_MSM_SUBSYSTEM_RESTART)
 #include <soc/qcom/subsystem_notif.h>
 #include <soc/qcom/subsystem_restart.h>
