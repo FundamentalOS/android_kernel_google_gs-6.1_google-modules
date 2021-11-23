@@ -547,6 +547,10 @@ static struct cnss_misc_reg syspm_reg_access_seq[] = {
 #define WLAON_REG_SIZE ARRAY_SIZE(wlaon_reg_access_seq)
 #define SYSPM_REG_SIZE ARRAY_SIZE(syspm_reg_access_seq)
 
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+extern void crash_info_handler(u8 *info);
+#endif //CONFIG_WCN_GOOGLE
+
 #if IS_ENABLED(CONFIG_MHI_BUS_MISC)
 static void cnss_mhi_debug_reg_dump(struct cnss_pci_data *pci_priv)
 {
@@ -555,7 +559,11 @@ static void cnss_mhi_debug_reg_dump(struct cnss_pci_data *pci_priv)
 
 static void cnss_mhi_dump_sfr(struct cnss_pci_data *pci_priv)
 {
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	mhi_dump_sfr(pci_priv->mhi_ctrl, crash_info_handler);
+#else
 	mhi_dump_sfr(pci_priv->mhi_ctrl);
+#endif //CONFIG_WCN_GOOGLE
 }
 
 static bool cnss_mhi_scan_rddm_cookie(struct cnss_pci_data *pci_priv,

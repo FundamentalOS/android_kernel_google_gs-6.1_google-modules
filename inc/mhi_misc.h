@@ -99,7 +99,11 @@ void mhi_debug_reg_dump(struct mhi_controller *mhi_cntrl);
  * mhi_dump_sfr - Print SFR string from RDDM table.
  * @mhi_cntrl: MHI controller
  */
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+void mhi_dump_sfr(struct mhi_controller *mhi_cntrl, void (*crash_info_handler)(u8*));
+#else
 void mhi_dump_sfr(struct mhi_controller *mhi_cntrl);
+#endif //CONFIG_WCN_GOOGLE
 
 /**
  * mhi_device_configure - Allow devices with offload channels to setup their own
@@ -357,9 +361,15 @@ void mhi_debug_reg_dump(struct mhi_controller *mhi_cntrl)
  * mhi_dump_sfr - Print SFR string from RDDM table.
  * @mhi_cntrl: MHI controller
  */
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+void mhi_dump_sfr(struct mhi_controller *mhi_cntrl, void (*crash_info_handler)(u8*))
+{
+}
+#else
 void mhi_dump_sfr(struct mhi_controller *mhi_cntrl)
 {
 }
+#endif //CONFIG_WCN_GOOGLE
 
 /**
  * mhi_device_configure - Allow devices with offload channels to setup their own

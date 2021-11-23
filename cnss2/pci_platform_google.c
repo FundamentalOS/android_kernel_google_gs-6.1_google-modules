@@ -347,8 +347,31 @@ static void sscd_set_coredump(void *buf, int buf_len, const char *info)
 		memset(&seg, 0, sizeof(seg));
 		seg.addr = buf;
 		seg.size = buf_len;
-		pdata->sscd_report(&sscd_dev, &seg, 1, 0, info);
+		if(info) {
+			pdata->sscd_report(&sscd_dev, &seg, 1, 0, info);
+		} else {
+			pdata->sscd_report(&sscd_dev, &seg, 1, 0, "Unknown");
+		}
+
 	}
+}
+
+u8 *crash_info = 0;
+void crash_info_handler(u8 *info)
+{
+	u32 string_len = 0;
+
+	if (crash_info) {
+		kfree(crash_info);
+		crash_info = 0;
+	}
+
+	string_len = strlen(info);
+	crash_info = kzalloc(string_len + 1, GFP_KERNEL);
+	if (!crash_info)
+		return;
+	strncpy(crash_info, info, string_len);
+	crash_info[string_len] = '\0';
 }
 
 int qcom_elf_dump(struct list_head *segs, struct device *dev)
@@ -428,7 +451,12 @@ int qcom_elf_dump(struct list_head *segs, struct device *dev)
 	/*
 	 * SSCD integration
 	 */
-	sscd_set_coredump(data, data_size, "Test Crash Info");
+	sscd_set_coredump(data, data_size, crash_info);
+	if (crash_info) {
+		kfree(crash_info);
+		crash_info = 0;
+	}
+
 
 	vfree(data);
 	return 0;

@@ -613,8 +613,13 @@ error_suspend:
 }
 EXPORT_SYMBOL(mhi_pm_fast_suspend);
 
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+static void mhi_process_sfr(struct mhi_controller *mhi_cntrl,
+			    struct file_info *info, void (*crash_info_handler)(u8*))
+#else
 static void mhi_process_sfr(struct mhi_controller *mhi_cntrl,
 			    struct file_info *info)
+#endif //CONFIG_WCN_GOOGLE
 {
 	struct mhi_buf *mhi_buf = mhi_cntrl->rddm_image->mhi_buf;
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
@@ -653,7 +658,11 @@ static void mhi_process_sfr(struct mhi_controller *mhi_cntrl,
 		}
 	}
 	sfr_buf[info->file_size] = '\0';
-
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	if (crash_info_handler) {
+		crash_info_handler(sfr_buf);
+	}
+#endif
 	/* force sfr string to log in kernel msg */
 	MHI_ERR("%s\n", sfr_buf);
 err:
@@ -697,7 +706,11 @@ static int mhi_find_next_file_offset(struct mhi_controller *mhi_cntrl,
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+void mhi_dump_sfr(struct mhi_controller *mhi_cntrl, void (*crash_info_handler)(u8*))
+#else
 void mhi_dump_sfr(struct mhi_controller *mhi_cntrl)
+#endif //CONFIG_WCN_GOOGLE
 {
 	struct mhi_buf *mhi_buf = mhi_cntrl->rddm_image->mhi_buf;
 	struct rddm_header *rddm_header =
@@ -729,7 +742,11 @@ void mhi_dump_sfr(struct mhi_controller *mhi_cntrl)
 
 		if (!strcmp(table_info->file_name, "Q6-SFR.bin")) {
 			info.file_size = table_info->size;
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+			mhi_process_sfr(mhi_cntrl, &info, crash_info_handler);
+#else
 			mhi_process_sfr(mhi_cntrl, &info);
+#endif //CONFIG_WCN_GOOGLE
 			return;
 		}
 
