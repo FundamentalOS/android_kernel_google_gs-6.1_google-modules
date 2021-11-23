@@ -107,7 +107,7 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define REPORT_PROTOCOL_A 1
 #define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
-#define WAKEUP_GESTURE 0
+#define WAKEUP_GESTURE 1
 extern const uint16_t gesture_key_array[];
 #define BOOT_UPDATE_FIRMWARE 1
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 100

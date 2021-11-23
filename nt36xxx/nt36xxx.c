@@ -107,7 +107,11 @@ const uint16_t gesture_key_array[] = {
 	KEY_POWER,  //GESTURE_WORD_C
 	KEY_POWER,  //GESTURE_WORD_W
 	KEY_POWER,  //GESTURE_WORD_V
+#if defined(CONFIG_SOC_GOOGLE)
+	KEY_WAKEUP,  //GESTURE_DOUBLE_CLICK
+#else
 	KEY_POWER,  //GESTURE_DOUBLE_CLICK
+#endif
 	KEY_POWER,  //GESTURE_WORD_Z
 	KEY_POWER,  //GESTURE_WORD_M
 	KEY_POWER,  //GESTURE_WORD_O
@@ -1310,6 +1314,7 @@ static uint8_t nvt_wdt_fw_recovery(uint8_t *point_data)
 
 	return recovery_enable;
 }
+#endif	/* #if NVT_TOUCH_WDT_RECOVERY */
 
 void nvt_read_fw_history(uint32_t fw_history_addr)
 {
@@ -1348,7 +1353,7 @@ void nvt_read_fw_history(uint32_t fw_history_addr)
 		NVT_LOG("%s", log_str_tmp);
 	}
 }
-#endif	/* #if NVT_TOUCH_WDT_RECOVERY */
+
 
 #if POINT_DATA_CHECKSUM
 static int32_t nvt_ts_point_data_checksum(uint8_t *buf, uint8_t length)
@@ -2033,9 +2038,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(
 					  EV_ABS);
 	ts->input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
-#if defined(CONFIG_SOC_GOOGLE)
-	__set_bit(KEY_WAKEUP & KEY_MAX, ts->input_dev->keybit);
-#endif
 	ts->input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
 	ts->report_protocol = REPORT_PROTOCOL_B;
 #if WAKEUP_GESTURE
@@ -2083,6 +2085,8 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	     retry++) {
 		input_set_capability(ts->input_dev, EV_KEY, gesture_key_array[retry]);
 	}
+#elif defined(CONFIG_SOC_GOOGLE)
+	input_set_capability(ts->input_dev, EV_KEY, KEY_WAKEUP);
 #endif
 
 	snprintf(ts->phys, sizeof(ts->phys), "input/ts");
@@ -2603,21 +2607,26 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	ts->bTouchIsAwake = false;
 
 #if WAKEUP_GESTURE
-	if (nvt_set_dttw(ts->wkg_flag) == 0)
-		NVT_LOG("Disable DTTW\n");
-	else if (nvt_set_dttw(ts->wkg_flag) == 1)
-		NVT_LOG("Enable DTTW with :\ndttw_touch_area_max = %d\n"
-				"dttw_touch_area_min = %d\ndttw_contact_duration_max = %d\n"
-				"dttw_contact_duration_min = %d\ndttw_tap_offset = %d\n"
-				"dttw_tap_gap_duration_max = %d\ndttw_tap_gap_duration_min = %d\n"
-				"dttw_motion_tolerance = %d\ndttw_detection_window_edge = %d\n",
+	if (ts->wkg_flag) {
+		switch (nvt_set_dttw(ts->wkg_flag)) {
+		case 1:
+			NVT_LOG("DTTW conf: area max/min %d %d, contact max/min %d %d.\n",
 				ts->dttw_touch_area_max, ts->dttw_touch_area_min,
-				ts->dttw_contact_duration_max, ts->dttw_contact_duration_min,
+				ts->dttw_contact_duration_max, ts->dttw_contact_duration_min);
+			NVT_LOG("DTTW conf: tap offset %d, gap max/min %d %d.\n",
 				ts->dttw_tap_offset,
-				ts->dttw_tap_gap_duration_max, ts->dttw_tap_gap_duration_min,
+				ts->dttw_tap_gap_duration_max, ts->dttw_tap_gap_duration_min);
+			NVT_LOG("DTTW conf: motion %d, edge %d.\n",
 				ts->dttw_motion_tolerance, ts->dttw_detection_window_edge);
-	else
-		NVT_ERR("Failed to setup DTTW\n");
+			break;
+		case 0:
+			NVT_LOG("DTTW conf: off.\n");
+			break;
+		default:
+			NVT_ERR("DTTW conf: failed to setup.\n");
+			break;
+		}
+	}
 #endif
 
 	if (ts->wkg_flag) {
@@ -2625,15 +2634,14 @@ static int32_t nvt_ts_suspend(struct device *dev)
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x13;
 		CTP_SPI_WRITE(ts->client, buf, 2);
-
 		enable_irq_wake(ts->client->irq);
-
-		NVT_LOG("Enabled touch wakeup gesture\n");
+		NVT_LOG("Gesture mode enabled.\n");
 	} else {
 		//---write command to enter "deep sleep mode"---
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x11;
 		CTP_SPI_WRITE(ts->client, buf, 2);
+		NVT_LOG("Deep sleep enabled.\n");
 	}
 
 	mutex_unlock(&ts->lock);
@@ -2674,9 +2682,11 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	}
 
 #if defined(CONFIG_SOC_GOOGLE)
-	nvt_pinctrl_configure(ts, false);
-#endif
+	if (!ts->wkg_flag)
+		nvt_pinctrl_configure(ts, false);
+#else
 	msleep(50);
+#endif
 
 	NVT_LOG("end\n");
 

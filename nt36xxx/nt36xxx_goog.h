@@ -209,6 +209,7 @@ static inline int nvt_ts_pm_resume(struct device *dev)
  */
 
 #define NVT_SUSPEND_WORK_MS_DELAY	0
+#define NVT_SUSPEND_POST_MS_DELAY	50
 #define NVT_RESUME_WORK_MS_DELAY	0
 #define NVT_FORCE_ACTIVE_MS_DELAY	500
 #define NVT_PINCTRL_US_DELAY		(10*1000)
