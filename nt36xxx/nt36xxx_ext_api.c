@@ -1861,10 +1861,15 @@ static ssize_t nvt_fw_history_show(struct device *dev,
 		return -ERESTARTSYS;
 
 	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
-	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s\n", ts->history_buf);
+	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "fw history 0x%x:\n",
+			ts->mmap->MMAP_HISTORY_EVENT0);
+	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s", ts->history_buf);
 	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
-	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s\n", ts->history_buf);
+	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "fw history 0x%x:\n",
+			ts->mmap->MMAP_HISTORY_EVENT1);
+	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s", ts->history_buf);
 
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	mutex_unlock(&ts->lock);
 	NVT_LOG("--\n");
 	return idx;
