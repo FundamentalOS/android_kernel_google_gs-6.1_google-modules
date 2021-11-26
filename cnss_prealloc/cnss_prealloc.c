@@ -115,7 +115,7 @@ static int cnss_pool_init(void)
 			continue;
 		}
 
-		pr_info("cnss_prealloc: created mempool %s of min size %d * %d\n",
+		pr_info("cnss_prealloc: created mempool %s of min size %d * %zu\n",
 			cnss_pools[i].name, cnss_pools[i].min,
 			cnss_pools[i].size);
 	}
@@ -212,7 +212,7 @@ void *wcnss_prealloc_get(size_t size)
 	}
 
 	if (!mem && size >= cnss_pool_alloc_threshold()) {
-		pr_debug("cnss_prealloc: not available for size %d, flag %x\n",
+		pr_debug("cnss_prealloc: not available for size %zu, flag %x\n",
 			 size, gfp_mask);
 	}
 

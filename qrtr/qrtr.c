@@ -1158,7 +1158,7 @@ int qrtr_endpoint_register(struct qrtr_endpoint *ep, unsigned int net_id,
 	struct sched_param param = {.sched_priority = 1};
 
 	if (!ep || !ep->xmit){
-		pr_err("%s: error qrtr ep=%x ex->xmit=%x\n",
+		pr_err("%s: error qrtr ep=%p ex->xmit=%p\n",
 				__func__, ep,ep->xmit);
 
 		return -EINVAL;
