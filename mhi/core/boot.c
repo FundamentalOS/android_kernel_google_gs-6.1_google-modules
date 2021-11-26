@@ -20,6 +20,9 @@
 #include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/wait.h>
+#ifdef CONFIG_WCN_GOOGLE
+#include <linux/dma-direct.h>
+#endif
 #include "internal.h"
 
 /* Setup RDDM vector table for RDDM transfer and program RXVEC */
@@ -315,8 +318,14 @@ void mhi_free_bhie_table(struct mhi_controller *mhi_cntrl,
 		return;
 
 	for (i = 0; i < (*image_info)->entries; i++, mhi_buf++)
+#ifdef CONFIG_WCN_GOOGLE
+		dma_direct_free(mhi_cntrl->cntrl_dev, mhi_buf->len, mhi_buf->buf,
+			       mhi_buf->dma_addr, DMA_ATTR_FORCE_CONTIGUOUS);
+
+#else
 		dma_free_attrs(mhi_cntrl->cntrl_dev, mhi_buf->len, mhi_buf->buf,
 			       mhi_buf->dma_addr, DMA_ATTR_FORCE_CONTIGUOUS);
+#endif
 
 	kfree((*image_info)->mhi_buf);
 	kfree(*image_info);
@@ -361,9 +370,16 @@ int mhi_alloc_bhie_table(struct mhi_controller *mhi_cntrl,
 			vec_size = sizeof(struct bhi_vec_entry) * i;
 
 		mhi_buf->len = vec_size;
+#ifdef CONFIG_WCN_GOOGLE
+		mhi_buf->buf = dma_direct_alloc(mhi_cntrl->cntrl_dev, vec_size,
+					       &mhi_buf->dma_addr, GFP_KERNEL,
+					       DMA_ATTR_FORCE_CONTIGUOUS);
+#else
+
 		mhi_buf->buf = dma_alloc_attrs(mhi_cntrl->cntrl_dev, vec_size,
 					       &mhi_buf->dma_addr, GFP_KERNEL,
 					       DMA_ATTR_FORCE_CONTIGUOUS);
+#endif
 		if (!mhi_buf->buf)
 			goto error_alloc_segment;
 
@@ -381,8 +397,14 @@ int mhi_alloc_bhie_table(struct mhi_controller *mhi_cntrl,
 
 error_alloc_segment:
 	for (--i, --mhi_buf; i >= 0; i--, mhi_buf--)
+#ifdef CONFIG_WCN_GOOGLE
+		dma_direct_free(mhi_cntrl->cntrl_dev, mhi_buf->len, mhi_buf->buf,
+			       mhi_buf->dma_addr, DMA_ATTR_FORCE_CONTIGUOUS);
+
+#else
 		dma_free_attrs(mhi_cntrl->cntrl_dev, mhi_buf->len, mhi_buf->buf,
 			       mhi_buf->dma_addr, DMA_ATTR_FORCE_CONTIGUOUS);
+#endif
 
 error_alloc_mhi_buf:
 	kfree(img_info);

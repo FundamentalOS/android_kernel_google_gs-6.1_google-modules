@@ -13,6 +13,9 @@
 #include <linux/suspend.h>
 #include <linux/memblock.h>
 #include <linux/completion.h>
+#ifdef CONFIG_WCN_GOOGLE
+#include <linux/dma-direct.h>
+#endif
 
 #include "main.h"
 #include "bus.h"
@@ -3590,10 +3593,15 @@ int cnss_pci_alloc_fw_mem(struct cnss_pci_data *pci_priv)
 	for (i = 0; i < plat_priv->fw_mem_seg_len; i++) {
 		if (!fw_mem[i].va && fw_mem[i].size) {
 			fw_mem[i].va =
+#ifdef CONFIG_WCN_GOOGLE
+				dma_direct_alloc(dev, fw_mem[i].size,
+						&fw_mem[i].pa, GFP_KERNEL,
+						fw_mem[i].attrs);
+#else
 				dma_alloc_attrs(dev, fw_mem[i].size,
 						&fw_mem[i].pa, GFP_KERNEL,
 						fw_mem[i].attrs);
-
+#endif
 			if (!fw_mem[i].va) {
 				cnss_pr_err("Failed to allocate memory for FW, size: 0x%zx, type: %u\n",
 					    fw_mem[i].size, fw_mem[i].type);
@@ -3618,9 +3626,15 @@ static void cnss_pci_free_fw_mem(struct cnss_pci_data *pci_priv)
 			cnss_pr_dbg("Freeing memory for FW, va: 0x%pK, pa: %pa, size: 0x%zx, type: %u\n",
 				    fw_mem[i].va, &fw_mem[i].pa,
 				    fw_mem[i].size, fw_mem[i].type);
+#ifdef CONFIG_WCN_GOOGLE
+			dma_direct_free(dev, fw_mem[i].size,
+				       fw_mem[i].va, fw_mem[i].pa,
+				       fw_mem[i].attrs);
+#else
 			dma_free_attrs(dev, fw_mem[i].size,
 				       fw_mem[i].va, fw_mem[i].pa,
 				       fw_mem[i].attrs);
+#endif
 			fw_mem[i].va = NULL;
 			fw_mem[i].pa = 0;
 			fw_mem[i].size = 0;
