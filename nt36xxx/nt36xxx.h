@@ -252,6 +252,9 @@ struct nvt_ts_data {
 	ktime_t bugreport_ktime_start;
 	u8 force_release_fw;
 
+	/*
+	 * Used for heatmap.
+	 */
 #if defined(GOOG_HEATMAP)
 	struct v4l2_heatmap v4l2;
 #endif
@@ -260,6 +263,21 @@ struct nvt_ts_data {
 	uint32_t heatmap_spi_buf_size;
 	uint8_t *heatmap_spi_buf;
 	uint32_t heatmap_addr;
+
+	/*
+	 * Used for offload.
+	 */
+#if defined(GOOG_OFFLOAD)
+	struct touch_offload_context offload;
+#endif
+	union {
+	u8 offload_id_byte[4];
+	u32 offload_id;
+	};
+	uint32_t offload_spi_buf_size;
+	uint8_t *offload_spi_buf;
+	struct mutex input_report_lock;
+	struct nvt_ts_coordinate coords[TOUCH_MAX_FINGER_NUM];
 };
 
 #if NVT_TOUCH_PROC
