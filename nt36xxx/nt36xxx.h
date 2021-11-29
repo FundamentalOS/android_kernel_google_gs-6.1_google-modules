@@ -44,20 +44,11 @@
 #include <drm/drm_panel.h> /* struct drm_panel */
 #include <drm/drm_bridge.h> /* struct drm_bridge */
 #include <drm/drm_connector.h> /* struct drm_connector */
-#if defined(CONFIG_SOC_GOOGLE)
+
 #include "nt36xxx_goog.h"
-#endif
 
 #define NVT_DEBUG 1
 
-/*
- * TODO:
- * 1. b/193467478: WHI panel bridge porting for suspend/resume.
- *    - No panel bridge disable after 1st booting
- * 2. add pinctrl on/off for touch bus handshaking.
- * 3. fine tune the resume timing for NVT_RESUME_WORK_MS_DELAY
- *
- */
 #if defined(CONFIG_SOC_GOOGLE)
 #undef CONFIG_FB
 #undef CONFIG_HAS_EARLYSUSPEND
@@ -153,9 +144,6 @@ extern const uint16_t gesture_key_array[];
 #define HM_RAWDATA_ADDR 0x26238
 #define HM_BASELINE_ADDR 0x36510
 #define HM_DIFF_ADDR 0x373E8
-extern uint32_t heatmap_spi_buf_size;
-extern uint8_t *heatmap_spi_buf;
-extern uint32_t heatmap_addr;
 #endif
 
 /* FW History */
@@ -233,6 +221,13 @@ struct nvt_ts_data {
 #endif
 
 	/*
+	 * Time that the event was first received from
+	 * the touch IC, acquired during hard interrupt,
+	 * in CLOCK_MONOTONIC
+	 */
+	ktime_t timestamp;
+
+	/*
 	 * Used for event handler, suspend and resume work.
 	 */
 	struct pinctrl *pinctrl;
@@ -256,6 +251,14 @@ struct nvt_ts_data {
 
 	ktime_t bugreport_ktime_start;
 	u8 force_release_fw;
+
+#if defined(GOOG_HEATMAP)
+	struct v4l2_heatmap v4l2;
+#endif
+	bool heatmap_updated;
+	uint32_t heatmap_spi_buf_size;
+	uint8_t *heatmap_spi_buf;
+	uint32_t heatmap_addr;
 };
 
 #if NVT_TOUCH_PROC

@@ -7,6 +7,85 @@
 #include "nt36xxx.h"
 #include <samsung/exynos_drm_connector.h> /* to_exynos_connector_state() */
 
+#if defined(GOOG_HEATMAP)
+static bool goog_v4l2_read_frame(struct v4l2_heatmap *v4l2)
+{
+	bool ret = false;
+
+	if (ts->heatmap_updated) {
+		if (ts->v4l2.width == ts->x_num &&
+			ts->v4l2.height == ts->y_num) {
+			memcpy(v4l2->frame, ts->heatmap_spi_buf + 1,
+			   ts->v4l2.width * ts->v4l2.height * 2);
+			ts->heatmap_updated = false;
+			ret = true;
+		} else {
+			NVT_ERR("size mismatched, (%lu, %lu) vs (%u, %u)!\n",
+			ts->v4l2.width, ts->v4l2.height,
+			ts->x_num, ts->y_num);
+		}
+	}
+	return ret;
+}
+
+void goog_heatmap_read(struct nvt_ts_data *ts)
+{
+	heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
+}
+
+void goog_heatmap_remove(struct nvt_ts_data *ts)
+{
+	heatmap_remove(&ts->v4l2);
+}
+
+int32_t goog_heatmap_probe(struct nvt_ts_data *ts)
+{
+	int32_t ret;
+	u32 width, height;
+	struct device_node *np = ts->client->dev.of_node;
+
+	/*
+	 * Heatmap_probe must be called before irq routine is registered,
+	 * because heatmap_read is called from the irq context.
+	 * If the ISR runs before heatmap_probe is finished, it will invoke
+	 * heatmap_read and cause NPE, since read_frame would not yet be set.
+	 */
+	ts->v4l2.parent_dev = &ts->client->dev;
+	ts->v4l2.input_dev = ts->input_dev;
+	ts->v4l2.read_frame = goog_v4l2_read_frame;
+	if (of_property_read_u32(np, "goog,v4l2-width", &width))
+		ts->v4l2.width = NVT_V4L2_DEFAULT_WIDTH;
+	else
+		ts->v4l2.width = width;
+	if (of_property_read_u32(np, "goog,v4l2-height", &height))
+		ts->v4l2.height = NVT_V4L2_DEFAULT_HEIGHT;
+	else
+		ts->v4l2.height = height;
+	/* 120 Hz operation */
+	ts->v4l2.timeperframe.numerator = 1;
+	ts->v4l2.timeperframe.denominator = 120;
+	ret = heatmap_probe(&ts->v4l2);
+	if (!ret && !ts->heatmap_spi_buf) {
+		/* Need one stuffing byte for heatmap I/O transfer. */
+		ts->heatmap_spi_buf_size = ts->v4l2.width * ts->v4l2.height * 2 + 1;
+		ts->heatmap_spi_buf = devm_kzalloc(&ts->client->dev,
+				ts->heatmap_spi_buf_size, GFP_KERNEL);
+		if (!ts->heatmap_spi_buf) {
+			NVT_ERR("failed to alloc heatmap buf!\n");
+			ret = -ENOMEM;
+		} else {
+			ts->heatmap_addr = HM_DIFF_ADDR;
+			ts->heatmap_en = 1;
+		}
+	}
+
+	NVT_LOG("v4l2 W/H=(%lu, %lu).\n", ts->v4l2.width, ts->v4l2.height);
+	return ret;
+}
+#endif
+
+#if defined(CONFIG_SOC_GOOGLE)
+
 static void panel_bridge_enable(struct drm_bridge *bridge)
 {
 	struct nvt_ts_data *ts =
@@ -342,3 +421,4 @@ int nvt_ts_pm_resume(struct device *dev)
 	return 0;
 }
 
+#endif /* defined(CONFIG_SOC_GOOGLE) */

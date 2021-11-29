@@ -1383,6 +1383,14 @@ static int32_t nvt_ts_point_data_checksum(uint8_t *buf, uint8_t length)
 }
 #endif /* POINT_DATA_CHECKSUM */
 
+static irqreturn_t nvt_ts_isr(int irq, void *handle)
+{
+	struct nvt_ts_data *ts = (struct nvt_ts_data *)handle;
+
+	ts->timestamp = ktime_get();
+	return IRQ_WAKE_THREAD;
+}
+
 #define POINT_DATA_LEN 65
 /*******************************************************
 Description:
@@ -1589,6 +1597,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	}
 #endif
 
+#if defined(CONFIG_SOC_GOOGLE)
+	input_set_timestamp(ts->input_dev, ts->timestamp);
+#endif
 	input_sync(ts->input_dev);
 
 	if (ts->pen_support) {
@@ -1660,11 +1671,13 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		input_sync(ts->pen_input_dev);
 	} /* if (ts->pen_support) */
 
-	if (ts->heatmap_en) {
-		nvt_set_page(heatmap_addr);
-		heatmap_spi_buf[0] = heatmap_addr & 0x7F;
-		CTP_SPI_READ(ts->client, heatmap_spi_buf, heatmap_spi_buf_size);
+	if (ts->heatmap_en && finger_cnt) {
+		nvt_set_page(ts->heatmap_addr);
+		ts->heatmap_spi_buf[0] = ts->heatmap_addr & 0x7F;
+		CTP_SPI_READ(ts->client, ts->heatmap_spi_buf, ts->heatmap_spi_buf_size);
 		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		ts->heatmap_updated = true;
+		goog_heatmap_read(ts);
 	}
 
 XFER_ERROR:
@@ -2104,12 +2117,19 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	} /* if (ts->pen_support) */
 
+	/* probe heatmap. */
+	ret = goog_heatmap_probe(ts);
+	if (ret) {
+		NVT_ERR("v4l2 probe failed. ret=%d!\n", ret);
+		goto err_heatmap_probe;
+	}
+
 	//---set int-pin & request irq---
 	client->irq = gpio_to_irq(ts->irq_gpio);
 	if (client->irq) {
 		NVT_LOG("int_trigger_type=%d\n", ts->int_trigger_type);
 		ts->irq_enabled = true;
-		ret = request_threaded_irq(client->irq, NULL, nvt_ts_work_func,
+		ret = request_threaded_irq(client->irq, nvt_ts_isr, nvt_ts_work_func,
 					   ts->int_trigger_type | IRQF_ONESHOT, NVT_SPI_NAME, ts);
 		if (ret != 0) {
 			NVT_ERR("request irq failed. ret=%d\n", ret);
@@ -2290,6 +2310,8 @@ err_create_nvt_fwu_wq_failed:
 #endif
 	free_irq(client->irq, ts);
 err_int_request_failed:
+	goog_heatmap_remove(ts);
+err_heatmap_probe:
 	if (ts->pen_support) {
 		input_unregister_device(ts->pen_input_dev);
 		ts->pen_input_dev = NULL;
@@ -2404,6 +2426,8 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 
 	nvt_irq_enable(false);
 	free_irq(client->irq, ts);
+
+	goog_heatmap_remove(ts);
 
 	mutex_destroy(&ts->bus_mutex);
 	mutex_destroy(&ts->xbuf_lock);

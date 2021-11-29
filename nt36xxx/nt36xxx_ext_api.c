@@ -91,9 +91,6 @@ enum {
 	MODE_15
 };
 
-uint32_t heatmap_spi_buf_size;
-uint8_t *heatmap_spi_buf;
-uint32_t heatmap_addr;
 uint32_t cc_uniformity_spi_buf_size;
 uint32_t rawdata_uniformity_spi_buf_size;
 uint32_t playback_spi_buf_size;
@@ -386,9 +383,12 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_3)
 		return -EINVAL;
 
-	if (!heatmap_spi_buf) {
-		heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
-		heatmap_spi_buf = kzalloc(heatmap_spi_buf_size, GFP_KERNEL);
+	if (!ts->heatmap_spi_buf) {
+		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
+		ts->heatmap_spi_buf = devm_kzalloc(&ts->client->dev,
+				ts->heatmap_spi_buf_size, GFP_KERNEL);
+		if (!ts->heatmap_spi_buf)
+			return count;
 	}
 
 	switch (mode) {
@@ -397,15 +397,15 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 		break;
 	case MODE_1: // Rawdata
 		NVT_LOG("Enter Heatmap Rawdata Mode\n");
-		heatmap_addr = HM_RAWDATA_ADDR;
+		ts->heatmap_addr = HM_RAWDATA_ADDR;
 		break;
 	case MODE_2: // Baseline
 		NVT_LOG("Enter Heatmap Baseline Mode\n");
-		heatmap_addr = HM_BASELINE_ADDR;
+		ts->heatmap_addr = HM_BASELINE_ADDR;
 		break;
 	case MODE_3: // Diff
 		NVT_LOG("Enter Heatmap Diff Mode\n");
-		heatmap_addr = HM_DIFF_ADDR;
+		ts->heatmap_addr = HM_DIFF_ADDR;
 		break;
 	}
 
@@ -2021,9 +2021,9 @@ static int32_t c_show_heatmap(struct seq_file *m, void *v)
 	uint32_t i;
 
 	// Set size = 8 to align page with 4096 and fit in the data range for raw data
-	for (i = 1; i < heatmap_spi_buf_size; i += 2) {
+	for (i = 1; i < ts->heatmap_spi_buf_size; i += 2) {
 		seq_printf(m, "%7d",
-			(int16_t)((heatmap_spi_buf[i + 1] << 8) + heatmap_spi_buf[i]));
+			(int16_t)((ts->heatmap_spi_buf[i + 1] << 8) + ts->heatmap_spi_buf[i]));
 		if ((i + 1) % (ts->x_num * 2) == 0)
 			seq_puts(m, "\n");
 		else
@@ -2175,8 +2175,8 @@ void nvt_extra_api_deinit(void)
 	NVT_LOG("++\n");
 	devm_device_remove_group(&ts->input_dev->dev, &nvt_api_attribute_group);
 	sysfs_remove_link(ts->input_dev->dev.kobj.parent, NVT_TOUCH_SYSFS_LINK);
-	kfree(heatmap_spi_buf);
-	heatmap_spi_buf = NULL;
+	devm_kfree(&ts->client->dev, ts->heatmap_spi_buf);
+	ts->heatmap_spi_buf = NULL;
 	kfree(cc_uniformity_spi_buf);
 	cc_uniformity_spi_buf = NULL;
 	kfree(rawdata_uniformity_spi_buf);
