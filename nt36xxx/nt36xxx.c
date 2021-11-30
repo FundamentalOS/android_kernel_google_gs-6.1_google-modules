@@ -711,8 +711,10 @@ info_retry:
 			goto info_retry;
 		} else {
 			ts->fw_ver = 0;
-			ts->abs_x_max = TOUCH_DEFAULT_MAX_WIDTH;
-			ts->abs_y_max = TOUCH_DEFAULT_MAX_HEIGHT;
+			ts->touch_width = TOUCH_DEFAULT_MAX_WIDTH;
+			ts->touch_height = TOUCH_DEFAULT_MAX_HEIGHT;
+			ts->abs_x_max = ts->touch_width - 1;
+			ts->abs_y_max = ts->touch_height - 1;
 			ts->max_button_num = TOUCH_KEY_NUM;
 			NVT_ERR("Set default fw_ver=%d, abs_x_max=%d, abs_y_max=%d, max_button_num=%d!\n",
 				ts->fw_ver, ts->abs_x_max, ts->abs_y_max, ts->max_button_num);
@@ -723,16 +725,18 @@ info_retry:
 	ts->fw_ver = buf[1];
 	ts->x_num = buf[3];
 	ts->y_num = buf[4];
-	ts->abs_x_max = (uint16_t)((buf[5] << 8) | buf[6]);
-	ts->abs_y_max = (uint16_t)((buf[7] << 8) | buf[8]);
+	ts->touch_width = (uint16_t)((buf[5] << 8) | buf[6]);
+	ts->touch_height = (uint16_t)((buf[7] << 8) | buf[8]);
+	ts->abs_x_max = ts->touch_width - 1;
+	ts->abs_y_max = ts->touch_height - 1;
 	ts->max_button_num = buf[11];
 	ts->nvt_pid = (uint16_t)((buf[36] << 8) | buf[35]);
 	if (ts->pen_support) {
 		ts->x_gang_num = buf[37];
 		ts->y_gang_num = buf[38];
 	}
-	NVT_LOG("fw_ver=0x%02X, fw_type=0x%02X, PID=0x%04X\n", ts->fw_ver, buf[14],
-		ts->nvt_pid);
+	NVT_LOG("fw_ver=0x%02X, fw_type=0x%02X, PID=0x%04X, W/H=(%d, %d)\n",
+		ts->fw_ver, buf[14], ts->nvt_pid, ts->touch_width, ts->touch_height);
 
 	ret = 0;
 out:
@@ -1957,8 +1961,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	}
 
-	ts->abs_x_max = TOUCH_DEFAULT_MAX_WIDTH;
-	ts->abs_y_max = TOUCH_DEFAULT_MAX_HEIGHT;
+	ts->touch_width = TOUCH_DEFAULT_MAX_WIDTH;
+	ts->touch_height = TOUCH_DEFAULT_MAX_HEIGHT;
+	ts->abs_x_max = ts->touch_width - 1;
+	ts->abs_y_max = ts->touch_height - 1;
 
 	//---allocate input device---
 	ts->input_dev = input_allocate_device();
@@ -2067,8 +2073,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		ts->pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
 
 		if (ts->wgp_stylus) {
-			input_set_abs_params(ts->pen_input_dev, ABS_X, 0, ts->abs_x_max * 2, 0, 0);
-			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0, ts->abs_y_max * 2, 0, 0);
+			input_set_abs_params(ts->pen_input_dev, ABS_X, 0,
+				ts->touch_width * 2 - 1, 0, 0);
+			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0,
+				ts->touch_height * 2 - 1, 0, 0);
 		} else {
 			input_set_abs_params(ts->pen_input_dev, ABS_X, 0, ts->abs_x_max, 0, 0);
 			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0, ts->abs_y_max, 0, 0);
