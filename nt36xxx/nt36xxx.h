@@ -270,6 +270,7 @@ struct nvt_ts_data {
 #if defined(GOOG_OFFLOAD)
 	struct touch_offload_context offload;
 #endif
+	bool offload_enable;
 	union {
 	u8 offload_id_byte[4];
 	u32 offload_id;

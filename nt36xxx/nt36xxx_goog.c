@@ -149,6 +149,9 @@ void goog_offload_push_frame(struct nvt_ts_data *ts)
 	int ret;
 	struct touch_offload_frame *frame = NULL;
 
+	if (!ts->offload_enable)
+		return;
+
 	ret = touch_offload_reserve_frame(&ts->offload, &frame);
 	if (ret != 0) {
 		NVT_ERR("could not reserve a frame, ret=%d.\n", ret);
@@ -210,7 +213,7 @@ static void goog_offload_report(void *handle,
 	 * 'report' is not only with coords, but also includes
 	 * corresponding 'frame' with heatmap.
 	 */
-	if (touch_down)
+	if (ts->v4l2_enable && touch_down)
 		heatmap_read(&ts->v4l2, ktime_to_ns(report->timestamp));
 
 	/*
@@ -241,9 +244,6 @@ int32_t goog_offload_probe(struct nvt_ts_data *ts)
 		ts->offload_id_byte[2] = '0';
 		ts->offload_id_byte[3] = '0';
 	}
-	NVT_LOG("offload ID: \"%c%c%c%c\" / 0x%08X\n",
-		ts->offload_id_byte[0], ts->offload_id_byte[1], ts->offload_id_byte[2],
-		ts->offload_id_byte[3], ts->offload_id);
 
 	ts->offload.caps.touch_offload_major_version = 1;
 	ts->offload.caps.touch_offload_minor_version = 0;
@@ -287,6 +287,11 @@ int32_t goog_offload_probe(struct nvt_ts_data *ts)
 			ret = -ENOMEM;
 		}
 	}
+
+	ts->offload_enable = of_property_read_bool(np, "goog,offload-enable");
+	NVT_LOG("offload ID: \"%c%c%c%c\" / 0x%08X, offload_enable=%d.\n",
+		ts->offload_id_byte[0], ts->offload_id_byte[1], ts->offload_id_byte[2],
+		ts->offload_id_byte[3], ts->offload_id, ts->offload_enable);
 	return ret;
 }
 #endif
@@ -589,6 +594,31 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 	}
 
 	return result;
+}
+
+ssize_t goog_offload_enable_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = scnprintf(buf, PAGE_SIZE, "offload_enable: %u\n", ts->offload_enable);
+	return ret;
+}
+ssize_t goog_offload_enable_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	if (kstrtobool(buf, &ts->offload_enable)) {
+		NVT_ERR("invalid input!\n");
+		return -EINVAL;
+	}
+#if defined(GOOG_OFFLOAD)
+	if (!ts->offload_enable && ts->offload.offload_running) {
+		NVT_LOG("terminate offload!\n");
+		ts->offload.offload_running = false;
+	}
+#endif
+	return count;
 }
 
 ssize_t goog_v4l2_enable_show(struct device *dev,
