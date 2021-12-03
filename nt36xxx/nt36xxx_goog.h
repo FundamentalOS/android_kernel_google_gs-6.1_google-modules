@@ -54,6 +54,11 @@ static inline void unregister_panel_bridge(struct drm_bridge *bridge)
 #if defined(CONFIG_SOC_GOOGLE)
 void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts);
 int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable);
+ssize_t goog_v4l2_enable_show(struct device *dev,
+				struct device_attribute *attr, char *buf);
+ssize_t goog_v4l2_enable_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count);
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
 ssize_t force_touch_active_store(struct device *dev,
@@ -71,6 +76,17 @@ static inline void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts)
 {
 }
 static inline int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
+{
+	return 0;
+}
+static inline ssize_t goog_v4l2_enable_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	return 0;
+}
+static inline ssize_t goog_v4l2_enable_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
 {
 	return 0;
 }

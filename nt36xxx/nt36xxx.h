@@ -255,6 +255,7 @@ struct nvt_ts_data {
 #if defined(GOOG_HEATMAP)
 	struct v4l2_heatmap v4l2;
 #endif
+	bool v4l2_enable;
 	bool heatmap_updated;
 	uint32_t heatmap_spi_buf_size;
 	uint8_t *heatmap_spi_buf;

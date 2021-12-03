@@ -30,12 +30,14 @@ static bool goog_v4l2_read_frame(struct v4l2_heatmap *v4l2)
 
 void goog_heatmap_read(struct nvt_ts_data *ts)
 {
-	heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
+	if (ts->v4l2_enable)
+		heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
 }
 
 void goog_heatmap_remove(struct nvt_ts_data *ts)
 {
 	heatmap_remove(&ts->v4l2);
+	ts->v4l2_enable = false;
 }
 
 int32_t goog_heatmap_probe(struct nvt_ts_data *ts)
@@ -76,10 +78,12 @@ int32_t goog_heatmap_probe(struct nvt_ts_data *ts)
 		} else {
 			ts->heatmap_addr = HM_DIFF_ADDR;
 			ts->heatmap_en = 1;
+			ts->v4l2_enable = of_property_read_bool(np, "goog,v4l2-enable");
 		}
 	}
 
-	NVT_LOG("v4l2 W/H=(%lu, %lu).\n", ts->v4l2.width, ts->v4l2.height);
+	NVT_LOG("v4l2 W/H=(%lu, %lu), v4l2_enable=%d.\n",
+		ts->v4l2.width, ts->v4l2.height, ts->v4l2_enable);
 	return ret;
 }
 #endif
@@ -268,6 +272,25 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 	}
 
 	return result;
+}
+
+ssize_t goog_v4l2_enable_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = scnprintf(buf, PAGE_SIZE, "v4l2_enable: %d\n", ts->v4l2_enable);
+	return ret;
+}
+ssize_t goog_v4l2_enable_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	if (kstrtobool(buf, &ts->v4l2_enable)) {
+		NVT_ERR("invalid input!\n");
+		return -EINVAL;
+	}
+	return count;
 }
 
 ssize_t force_touch_active_show(struct device *dev,
