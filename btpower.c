@@ -73,7 +73,6 @@ static const char *const tcs_seq_str[BTPOWER_TCS_SEQ_MAX] =
 
 enum power_src_pos {
 	BT_RESET_GPIO = PWR_SRC_INIT_STATE_IDX,
-	BT_SW_CTRL_GPIO,
 	BT_VDD_AON_LDO,
 	BT_VDD_DIG_LDO,
 	BT_VDD_RFA1_LDO,
@@ -102,6 +101,33 @@ enum power_src_pos {
 	BT_VDD_RFA_0p8_CURRENT,
 	BT_VDD_RFACMN_CURRENT
 };
+
+#define SYNC_GPIO_SOURCE_CURRENT(drvdata, gpio, label)                     \
+{                                                                          \
+	if (gpio_is_valid(gpio)) {                                         \
+		drvdata->bt_power_src_status[label ## _CURRENT] =          \
+			gpio_get_value(gpio);                              \
+		pr_debug("%s: %s(%d) value(%d)\n", __func__, #label, gpio, \
+			drvdata->bt_power_src_status[label ## _CURRENT]);  \
+	} else {                                                           \
+		drvdata->bt_power_src_status[label ## _CURRENT] =          \
+			DEFAULT_INVALID_VALUE;                             \
+		pr_debug("%s: %s not configured\n", __func__, #label);     \
+	}                                                                  \
+}
+
+#define SET_GPIO_SOURCE_STATE(drvdata, gpio, label, value)                    \
+{                                                                             \
+	if (gpio_is_valid(gpio)) {                                            \
+		gpio_set_value(gpio, value);                                  \
+		drvdata->bt_power_src_status[label] = value;                  \
+		pr_debug("%s: %s(%d) value(%d)\n", __func__, #label, gpio,    \
+			drvdata->bt_power_src_status[label]);                 \
+	} else {                                                              \
+		drvdata->bt_power_src_status[label] = DEFAULT_INVALID_VALUE;  \
+		pr_debug("%s: %s not configured\n", __func__, #label);        \
+	}                                                                     \
+}
 
 // Regulator structure for QCA6174/QCA9377/QCA9379 BT SoC series
 static struct bt_power_vreg_data bt_vregs_info_qca61x4_937x[] = {
@@ -368,7 +394,7 @@ static void btpower_set_xo_clk_gpio_state(struct btpower_platform_data *drvdata,
 	int retry = 0;
 	int rc = 0;
 
-	if (xo_clk_gpio < 0)
+	if (!gpio_is_valid(xo_clk_gpio))
 		return;
 
 retry_gpio_req:
@@ -402,6 +428,53 @@ retry_gpio_req:
 	gpio_free(xo_clk_gpio);
 }
 
+static int btpower_gpio_source_request(int gpio, const char *label)
+{
+	int rc = gpio_request(gpio, label);
+	if (rc) {
+		pr_err("%s: unable to request gpio %s(%d) (%d)\n", __func__,
+			label, gpio, rc);
+		return rc;
+	}
+	return rc;
+}
+
+static int btpower_gpio_acquire_output(int gpio, const char *label, bool value)
+{
+	int rc;
+
+	rc = btpower_gpio_source_request(gpio, label);
+	if (rc)
+		return rc;
+
+	rc = gpio_direction_output(gpio, value);
+	if (rc) {
+		pr_err("%s: unable to set output gpio %s(%d) (%d)\n",
+			__func__, label, gpio, rc);
+		gpio_free(gpio);
+		return rc;
+	}
+	return rc;
+}
+
+static int btpower_gpio_acquire_input(int gpio, const char *label)
+{
+	int rc;
+
+	rc = btpower_gpio_source_request(gpio, label);
+	if (rc)
+		return rc;
+
+	rc = gpio_direction_input(gpio);
+	if (rc) {
+		pr_err("%s: unable to set input gpio %s(%d) (%d)\n",
+			__func__, label, gpio, rc);
+		gpio_free(gpio);
+		return rc;
+	}
+	return rc;
+}
+
 static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 {
 	int rc = 0;
@@ -409,131 +482,57 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 	int wl_reset_gpio = drvdata->wl_gpio_sys_rst;
 	int bt_sw_ctrl_gpio = drvdata->bt_gpio_sw_ctrl;
 	int bt_debug_gpio = drvdata->bt_gpio_debug;
-	int assert_dbg_gpio = 0;
 
-	pr_info("%s: BT_EN GPIO(%d) value(%d) enabling: %s\n", __func__,
+	pr_info("%s: BT_RESET_GPIO(%d) value(%d) enabling: %s\n", __func__,
 		bt_reset_gpio, gpio_get_value(bt_reset_gpio),
 		(on ? "True" : "False"));
 
-	if (!on) {
-		gpio_set_value(bt_reset_gpio, 0);
-		pr_debug("%s: BT-OFF bt-reset-gpio(%d)\n", __func__,
-			bt_reset_gpio);
-		msleep(100);
-		if (bt_sw_ctrl_gpio >= 0) {
-			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO] =
-				gpio_get_value(bt_sw_ctrl_gpio);
-			pr_debug("%s: BT-OFF bt-sw-ctrl-gpio(%d) value(%d)\n",
-				__func__, bt_sw_ctrl_gpio,
-				drvdata->bt_power_src_status[BT_SW_CTRL_GPIO]);
-		}
+	/* always reset the controller no metter ON or OFF */
+	SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 0);
+	msleep(on ? 100 : 50);
+	SYNC_GPIO_SOURCE_CURRENT(drvdata, bt_sw_ctrl_gpio, BT_SW_CTRL_GPIO);
+
+	if (!on)
 		return 0;
-	}
 
-	rc = gpio_request(bt_reset_gpio, "bt_sys_rst_n");
-	if (rc) {
-		pr_err("%s: unable to request gpio(%d) (%d)\n", __func__,
-			bt_reset_gpio, rc);
-		return rc;
-	}
-
-	rc = gpio_direction_output(bt_reset_gpio, 0);
-	if (rc) {
-		pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-			__func__, bt_reset_gpio, rc);
-		return rc;
-	}
-	drvdata->bt_power_src_status[BT_RESET_GPIO] = 0;
-	pr_debug("%s: BT-ON turns off bt-reset-gpio(%d)\n", __func__,
-		bt_reset_gpio);
-	msleep(50);
-
-	if (bt_sw_ctrl_gpio >= 0) {
-		drvdata->bt_power_src_status[BT_SW_CTRL_GPIO] =
-			gpio_get_value(bt_sw_ctrl_gpio);
-		pr_debug("%s: BT-ON bt-sw-ctrl-gpio(%d) value(%d)\n",
-			__func__, bt_sw_ctrl_gpio,
-			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO]);
-	}
-	if (wl_reset_gpio >= 0)
+	if (gpio_is_valid(wl_reset_gpio))
 		pr_debug("%s: BT-ON wl-reset-gpio(%d) value(%d)\n",
 			__func__, wl_reset_gpio, gpio_get_value(wl_reset_gpio));
 
-	if ((wl_reset_gpio < 0) ||
-		((wl_reset_gpio >= 0) && gpio_get_value(wl_reset_gpio))) {
+	if (!gpio_is_valid(wl_reset_gpio) || gpio_get_value(wl_reset_gpio)) {
 		btpower_set_xo_clk_gpio_state(drvdata, true);
 		pr_info("%s: BT-ON asserting BT_EN (with WLAN)\n", __func__);
-		rc = gpio_direction_output(bt_reset_gpio, 1);
-		if (rc) {
-			pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-				__func__, bt_reset_gpio, rc);
-			return rc;
-		}
-		drvdata->bt_power_src_status[BT_RESET_GPIO] = 1;
+		SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 1);
 		btpower_set_xo_clk_gpio_state(drvdata, false);
 	}
-	if ((wl_reset_gpio >= 0) && (gpio_get_value(wl_reset_gpio) == 0)) {
+	if (gpio_is_valid(wl_reset_gpio) && !gpio_get_value(wl_reset_gpio)) {
 		if (gpio_get_value(bt_reset_gpio)) {
 			pr_warn("%s: WLAN OFF / BT ON too close. Delay BT_EN\n",
 				__func__);
-			rc = gpio_direction_output(bt_reset_gpio, 0);
-			if (rc) {
-				pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-					__func__, bt_reset_gpio, rc);
-				return rc;
-			}
-			drvdata->bt_power_src_status[BT_RESET_GPIO] = 0;
+			SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio,
+				BT_RESET_GPIO, 0);
 			msleep(100);
 			pr_warn("%s: 100ms delay for AON output to fully discharge\n",
 				__func__);
 		}
 		btpower_set_xo_clk_gpio_state(drvdata, true);
 		pr_info("%s: BT-ON asserting BT_EN without WLAN\n", __func__);
-		rc = gpio_direction_output(bt_reset_gpio, 1);
-		if (rc) {
-			pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-				__func__, bt_reset_gpio, rc);
-			return rc;
-		}
-		drvdata->bt_power_src_status[BT_RESET_GPIO] = 1;
+		SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 1);
 		btpower_set_xo_clk_gpio_state(drvdata, false);
 	}
 
 	msleep(50);
 
 	/* Check if SW_CTRL is asserted */
-	if (bt_sw_ctrl_gpio >= 0) {
-		rc = gpio_direction_input(bt_sw_ctrl_gpio);
-		if (rc) {
-			pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-				__func__, bt_sw_ctrl_gpio, rc);
-		} else if (!gpio_get_value(bt_sw_ctrl_gpio)) {
-			/* SW_CTRL not asserted, assert debug GPIO */
-			if (bt_debug_gpio >= 0)
-				assert_dbg_gpio = 1;
-		}
-	}
-	if (assert_dbg_gpio) {
-		rc = gpio_request(bt_debug_gpio, "bt_debug_n");
-		if (rc) {
-			pr_err("%s: unable to request gpio(%d) (%d)\n",
-				__func__, bt_debug_gpio, rc);
-		} else {
-			rc = gpio_direction_output(bt_debug_gpio, 1);
-			if (rc)
-				pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-					__func__, bt_debug_gpio, rc);
-		}
-	}
-
-	if (bt_sw_ctrl_gpio >= 0) {
-		drvdata->bt_power_src_status[BT_SW_CTRL_GPIO] =
-			gpio_get_value(bt_sw_ctrl_gpio);
-		pr_debug("%s: BT-ON bt-sw-ctrl-gpio(%d) value(%d)\n",
+	SYNC_GPIO_SOURCE_CURRENT(drvdata, bt_sw_ctrl_gpio, BT_SW_CTRL_GPIO);
+	if (drvdata->bt_power_src_status[BT_SW_CTRL_GPIO_CURRENT] == 0) {
+		/* SW_CTRL not asserted, assert debug GPIO */
+		if (gpio_is_valid(bt_debug_gpio))
+			gpio_set_value(bt_debug_gpio, 1);
+		pr_warn("%s: BT_SW_CTRL_GPIO(%d) value(%d) not asserted\n",
 			__func__, bt_sw_ctrl_gpio,
-			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO]);
+			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO_CURRENT]);
 	}
-	pr_debug("%s: BT-ON bt-reset-gpio(%d)\n", __func__, bt_reset_gpio);
 
 	return rc;
 }
@@ -552,10 +551,9 @@ static int bluetooth_power(struct btpower_platform_data *drvdata,
 
 	switch (mode) {
 	case BT_POWER_DISABLE:
-		if (drvdata->bt_gpio_sys_rst > 0)
-			bt_configure_gpios(drvdata, false);
+		bt_configure_gpios(drvdata, false);
 		drvdata->pwr_state = BT_POWER_DISABLE;
-		goto gpio_free;
+		goto clk_disable;
 	case BT_POWER_ENABLE:
 		rc = bt_power_vreg_set(drvdata, BT_POWER_ENABLE);
 		if (rc < 0) {
@@ -574,17 +572,12 @@ static int bluetooth_power(struct btpower_platform_data *drvdata,
 				goto vreg_disable;
 			}
 		}
-		if (drvdata->bt_gpio_sys_rst > 0) {
-			drvdata->bt_power_src_status[BT_RESET_GPIO] =
-				DEFAULT_INVALID_VALUE;
-			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO] =
-				DEFAULT_INVALID_VALUE;
-			rc = bt_configure_gpios(drvdata, true);
-			if (rc < 0) {
-				pr_err("%s: bt_power gpio config failed\n",
-					__func__);
-				goto gpio_free;
-			}
+		drvdata->bt_power_src_status[BT_RESET_GPIO] =
+			DEFAULT_INVALID_VALUE;
+		rc = bt_configure_gpios(drvdata, true);
+		if (rc < 0) {
+			pr_err("%s: bt_power gpio config failed\n", __func__);
+			goto clk_disable;
 		}
 		drvdata->pwr_state = BT_POWER_ENABLE;
 		return rc;
@@ -597,11 +590,7 @@ static int bluetooth_power(struct btpower_platform_data *drvdata,
 		return -1;
 	}
 
-gpio_free:
-	if (drvdata->bt_gpio_sys_rst > 0)
-		gpio_free(drvdata->bt_gpio_sys_rst);
-	if (drvdata->bt_gpio_debug > 0)
-		gpio_free(drvdata->bt_gpio_debug);
+clk_disable:
 	if (drvdata->bt_chip_clk)
 		bt_clk_disable(drvdata->bt_chip_clk);
 vreg_disable:
@@ -927,6 +916,57 @@ static void bt_power_vreg_put(struct btpower_platform_data *drvdata)
 	}
 }
 
+static void btpower_gpios_source_release(struct btpower_platform_data *drvdata);
+static int btpower_gpios_source_initialize(struct btpower_platform_data *drvdata)
+{
+	int rc = 0;
+
+	rc = btpower_gpio_acquire_output(drvdata->bt_gpio_sys_rst,
+					"bt_sys_rst_n", 0);
+	if (rc) {
+		drvdata->bt_gpio_sys_rst = -1;
+		return rc;
+	}
+
+	if (gpio_is_valid(drvdata->bt_gpio_sw_ctrl)) {
+		rc = btpower_gpio_acquire_input(drvdata->bt_gpio_sw_ctrl,
+						"bt_sw_ctrl_n");
+		if (rc) {
+			drvdata->bt_gpio_sw_ctrl = -1;
+			goto gpio_failure;
+		}
+	}
+
+	if (gpio_is_valid(drvdata->bt_gpio_debug)) {
+		rc = btpower_gpio_acquire_output(drvdata->bt_gpio_debug,
+						"bt_debug_n", 0);
+		if (rc) {
+			drvdata->bt_gpio_debug = -1;
+			goto gpio_failure;
+		}
+	}
+
+	return 0;
+
+gpio_failure:
+	btpower_gpios_source_release(drvdata);
+	return rc;
+}
+
+static void btpower_gpios_source_release(struct btpower_platform_data *drvdata)
+{
+	if (gpio_is_valid(drvdata->bt_gpio_debug)) {
+		gpio_free(drvdata->bt_gpio_debug);
+		drvdata->bt_gpio_debug = -1;
+	}
+	if (gpio_is_valid(drvdata->bt_gpio_sw_ctrl)) {
+		gpio_free(drvdata->bt_gpio_sw_ctrl);
+		drvdata->bt_gpio_sw_ctrl = -1;
+	}
+	gpio_free(drvdata->bt_gpio_sys_rst);
+	drvdata->bt_gpio_sys_rst = -1;
+}
+
 static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 				      struct btpower_platform_data *drvdata)
 {
@@ -946,37 +986,39 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 
 	drvdata->bt_gpio_sys_rst =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-reset-gpio", 0);
-	if (drvdata->bt_gpio_sys_rst < 0)
-		pr_warn("%s: bt-reset-gpio not provided in device tree\n",
+	if (!gpio_is_valid(drvdata->bt_gpio_sys_rst)) {
+		pr_err("%s: bt-reset-gpio not provided in device tree\n",
 			__func__);
+		return -EIO;
+	}
 
 	drvdata->wl_gpio_sys_rst =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,wl-reset-gpio", 0);
-	if (drvdata->wl_gpio_sys_rst < 0)
-		pr_warn("%s: wl-reset-gpio not provided in device tree\n",
+	if (!gpio_is_valid(drvdata->wl_gpio_sys_rst))
+		pr_info("%s: wl-reset-gpio not provided in device tree\n",
 			__func__);
 
 	drvdata->bt_gpio_sw_ctrl =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-sw-ctrl-gpio",  0);
-	if (drvdata->bt_gpio_sw_ctrl < 0)
-		pr_warn("%s: bt-sw-ctrl-gpio not provided in device tree\n",
+	if (!gpio_is_valid(drvdata->bt_gpio_sw_ctrl))
+		pr_info("%s: bt-sw-ctrl-gpio not provided in device tree\n",
 			__func__);
 
 	drvdata->bt_gpio_debug =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-debug-gpio",  0);
-	if (drvdata->bt_gpio_debug < 0)
-		pr_warn("%s: bt-debug-gpio not provided in device tree\n",
+	if (!gpio_is_valid(drvdata->bt_gpio_debug))
+		pr_info("%s: bt-debug-gpio not provided in device tree\n",
 			__func__);
 
 	drvdata->xo_gpio_clk =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,xo-clk-gpio", 0);
-	if (drvdata->xo_gpio_clk < 0)
-		pr_warn("%s: xo-clk-gpio not provided in device tree\n",
+	if (!gpio_is_valid(drvdata->xo_gpio_clk))
+		pr_info("%s: xo-clk-gpio not provided in device tree\n",
 			__func__);
 
 	rc = bt_dt_parse_clk_info(&pdev->dev, &drvdata->bt_chip_clk);
 	if (rc < 0)
-		pr_warn("%s: clock not provided in device tree\n", __func__);
+		pr_info("%s: clock not provided in device tree\n", __func__);
 
 	drvdata->bt_power_setup = bluetooth_power;
 
@@ -1023,14 +1065,18 @@ static int bt_power_probe(struct platform_device *pdev)
 	}
 	drvdata->pwr_state = BT_POWER_DISABLE;
 
-	ret = btpower_rfkill_probe(pdev, drvdata);
+	ret = btpower_gpios_source_initialize(drvdata);
 	if (ret < 0)
 		goto free_pdata;
+
+	ret = btpower_rfkill_probe(pdev, drvdata);
+	if (ret < 0)
+		goto free_gpio;
 
 	ret = btpower_chardev_create(drvdata);
 	if (ret) {
 		btpower_rfkill_remove(pdev);
-		goto free_pdata;
+		goto free_gpio;
 	}
 
 	btpower_aop_mbox_init(drvdata);
@@ -1039,6 +1085,8 @@ static int bt_power_probe(struct platform_device *pdev)
 
 	return 0;
 
+free_gpio:
+	btpower_gpios_source_release(drvdata);
 free_pdata:
 	kfree(drvdata);
 	return ret;
@@ -1057,6 +1105,7 @@ static int bt_power_remove(struct platform_device *pdev)
 	btpower_rfkill_remove(pdev);
 	bt_power_vreg_put(drvdata);
 
+	btpower_gpios_source_release(drvdata);
 	kfree(drvdata);
 
 	return 0;
@@ -1103,20 +1152,6 @@ static void set_pwr_srcs_status(struct btpower_platform_data *drvdata,
 		pr_err("%s:%s is_enabled: %d\n", __func__, handle->name,
 			handle->is_enabled);
 	}
-}
-
-static void set_gpios_srcs_status(struct btpower_platform_data *drvdata,
-				  char *gpio_name, int gpio_index, int handle)
-{
-	if (handle < 0) {
-		drvdata->bt_power_src_status[gpio_index] = DEFAULT_INVALID_VALUE;
-		pr_err("%s: %s not configured\n", __func__, gpio_name);
-		return;
-	}
-
-	drvdata->bt_power_src_status[gpio_index] = gpio_get_value(handle);
-	pr_debug("%s(%d) value(%d)\n", gpio_name, handle,
-		drvdata->bt_power_src_status[gpio_index]);
 }
 
 static int btpower_open(struct inode *inode, struct file *filp)
@@ -1185,30 +1220,17 @@ static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	case BT_CMD_CHECK_SW_CTRL:
 		/* Check if SW_CTRL is asserted */
 		pr_debug("%s: BT_CMD_CHECK_SW_CTRL\n", __func__);
-		if (drvdata->bt_gpio_sw_ctrl <= 0) {
-			pr_err("%s: bt_gpio_sw_ctrl not configured\n", __func__);
+		if (gpio_is_valid(drvdata->bt_gpio_sw_ctrl))
 			return -EINVAL;
-		}
-		ret = gpio_direction_input(drvdata->bt_gpio_sw_ctrl);
-		if (ret) {
-			pr_err("%s: unable to set direction gpio(%d) (%d)\n",
-				__func__, drvdata->bt_gpio_sw_ctrl, ret);
-			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO] =
-				DEFAULT_INVALID_VALUE;
-			break;
-		}
-		drvdata->bt_power_src_status[BT_SW_CTRL_GPIO] =
-			gpio_get_value(drvdata->bt_gpio_sw_ctrl);
-		pr_debug("%s: bt-sw-ctrl-gpio(%d) value(%d)\n", __func__,
-			drvdata->bt_gpio_sw_ctrl,
-			drvdata->bt_power_src_status[BT_SW_CTRL_GPIO]);
+		SYNC_GPIO_SOURCE_CURRENT(drvdata, drvdata->bt_gpio_sw_ctrl,
+			BT_SW_CTRL_GPIO);
 		break;
 	case BT_CMD_GETVAL_POWER_SRCS:
 		pr_debug("%s: BT_CMD_GETVAL_POWER_SRCS\n", __func__);
-		set_gpios_srcs_status(drvdata, "BT_RESET_GPIO",
-			BT_RESET_GPIO_CURRENT, drvdata->bt_gpio_sys_rst);
-		set_gpios_srcs_status(drvdata, "SW_CTRL_GPIO",
-			BT_SW_CTRL_GPIO_CURRENT, drvdata->bt_gpio_sw_ctrl);
+		SYNC_GPIO_SOURCE_CURRENT(drvdata, drvdata->bt_gpio_sys_rst,
+			BT_RESET_GPIO);
+		SYNC_GPIO_SOURCE_CURRENT(drvdata, drvdata->bt_gpio_sw_ctrl,
+			BT_SW_CTRL_GPIO);
 		num_vregs = drvdata->num_vregs;
 		for (itr = 0; itr < num_vregs; itr++) {
 			vreg_info = &drvdata->vreg_info[itr];
