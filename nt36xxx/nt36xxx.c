@@ -1424,8 +1424,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_btn2 = 0;
 	uint32_t pen_battery = 0;
 
+	cpu_latency_qos_update_request(&ts->pm_qos_req, 100 /* usec */);
+
 	if (ts->wkg_flag && ts->bTouchIsAwake == false)
-		pm_wakeup_event(&ts->input_dev->dev, 5000);
+		pm_wakeup_event(&ts->input_dev->dev, 5 * MSEC_PER_SEC);
+	else
+		pm_wakeup_event(&ts->client->dev, MSEC_PER_SEC);
 
 	mutex_lock(&ts->lock);
 
@@ -1482,6 +1486,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
 		mutex_unlock(&ts->lock);
+		cpu_latency_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 		return IRQ_HANDLED;
 	}
 
@@ -1710,7 +1715,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 XFER_ERROR:
 
 	mutex_unlock(&ts->lock);
-
+	cpu_latency_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	return IRQ_HANDLED;
 }
 
@@ -2288,6 +2293,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	/* Assume screen is on throughout probe */
 	ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
 #endif
+	cpu_latency_qos_add_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	ts->bTouchIsAwake = true;
 
 	register_panel_bridge(ts);
@@ -2466,6 +2472,7 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 
 	goog_offload_remove(ts);
 	goog_heatmap_remove(ts);
+	cpu_latency_qos_remove_request(&ts->pm_qos_req);
 
 	mutex_destroy(&ts->bus_mutex);
 	mutex_destroy(&ts->xbuf_lock);
