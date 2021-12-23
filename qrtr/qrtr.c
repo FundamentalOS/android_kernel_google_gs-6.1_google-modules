@@ -48,11 +48,6 @@
 
 #define AID_VENDOR_QRTR	KGIDT_INIT(2906)
 
-#if defined(CONFIG_RPMSG_QCOM_GLINK_NATIVE)
-extern bool glink_resume_pkt;
-#endif
-extern unsigned int qrtr_get_service_id(unsigned int node_id,
-					unsigned int port_id);
 /**
  * struct qrtr_hdr_v1 - (I|R)PCrouter packet header version 1
  * @version: protocol version
@@ -277,23 +272,6 @@ static void qrtr_log_tx_msg(struct qrtr_node *node, struct qrtr_hdr_v1 *hdr,
 	}
 }
 
-#if defined(CONFIG_RPMSG_QCOM_GLINK_NATIVE)
-static void qrtr_log_resume_pkt(struct qrtr_cb *cb, u64 pl_buf)
-{
-	unsigned int service_id;
-
-	if (glink_resume_pkt) {
-		glink_resume_pkt = false;
-		service_id = qrtr_get_service_id(cb->src_node, cb->src_port);
-		pr_info("[QRTR RESUME PKT]:src[0x%x:0x%x] dst[0x%x:0x%x] [%08x %08x]: service[0x%x]\n",
-			cb->src_node, cb->src_port,
-			cb->dst_node, cb->dst_port,
-			(unsigned int)pl_buf, (unsigned int)(pl_buf >> 32),
-			service_id);
-	}
-}
-#endif
-
 static void qrtr_log_rx_msg(struct qrtr_node *node, struct sk_buff *skb)
 {
 	struct qrtr_ctrl_pkt pkt = {0,};
@@ -312,9 +290,6 @@ static void qrtr_log_rx_msg(struct qrtr_node *node, struct sk_buff *skb)
 			  skb->len, cb->confirm_rx, cb->src_node, cb->src_port,
 			  cb->dst_node, cb->dst_port,
 			  (unsigned int)pl_buf, (unsigned int)(pl_buf >> 32));
-#if defined(CONFIG_RPMSG_QCOM_GLINK_NATIVE)
-		qrtr_log_resume_pkt(cb, pl_buf);
-#endif
 	} else {
 		skb_copy_bits(skb, 0, &pkt, sizeof(pkt));
 		if (cb->type == QRTR_TYPE_NEW_SERVER ||
@@ -338,6 +313,64 @@ static void qrtr_log_rx_msg(struct qrtr_node *node, struct sk_buff *skb)
 				  cb->type, cb->src_node);
 	}
 }
+
+void qrtr_print_wakeup_reason(const void *data)
+{
+	const struct qrtr_hdr_v1 *v1;
+	const struct qrtr_hdr_v2 *v2;
+	struct qrtr_cb cb;
+	unsigned int size;
+	unsigned int ver;
+	int service_id;
+	size_t hdrlen;
+	u64 preview = 0;
+
+	ver = *(u8 *)data;
+	switch (ver) {
+	case QRTR_PROTO_VER_1:
+		v1 = data;
+		hdrlen = sizeof(*v1);
+		cb.src_node = le32_to_cpu(v1->src_node_id);
+		cb.src_port = le32_to_cpu(v1->src_port_id);
+		cb.dst_node = le32_to_cpu(v1->dst_node_id);
+		cb.dst_port = le32_to_cpu(v1->dst_port_id);
+
+		size = le32_to_cpu(v1->size);
+		break;
+	case QRTR_PROTO_VER_2:
+		v2 = data;
+		hdrlen = sizeof(*v2) + v2->optlen;
+		cb.src_node = le16_to_cpu(v2->src_node_id);
+		cb.src_port = le16_to_cpu(v2->src_port_id);
+		cb.dst_node = le16_to_cpu(v2->dst_node_id);
+		cb.dst_port = le16_to_cpu(v2->dst_port_id);
+
+		if (cb.src_port == (u16)QRTR_PORT_CTRL)
+			cb.src_port = QRTR_PORT_CTRL;
+		if (cb.dst_port == (u16)QRTR_PORT_CTRL)
+			cb.dst_port = QRTR_PORT_CTRL;
+
+		size = le32_to_cpu(v2->size);
+		break;
+	default:
+		return;
+	}
+
+	service_id = qrtr_get_service_id(cb.src_node, cb.src_port);
+	if (service_id < 0)
+		service_id = qrtr_get_service_id(cb.dst_node, cb.dst_port);
+
+	size = (sizeof(preview) > size) ? size : sizeof(preview);
+	memcpy(&preview, data + hdrlen, size);
+
+	pr_info("%s: src[0x%x:0x%x] dst[0x%x:0x%x] [%08x %08x] service[0x%x]\n",
+		__func__,
+		cb.src_node, cb.src_port,
+		cb.dst_node, cb.dst_port,
+		(unsigned int)preview, (unsigned int)(preview >> 32),
+		service_id);
+}
+EXPORT_SYMBOL(qrtr_print_wakeup_reason);
 
 static bool refcount_dec_and_rwsem_lock(refcount_t *r,
 					struct rw_semaphore *sem)
@@ -836,7 +869,7 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 	struct qrtr_sock *ipc;
 	struct sk_buff *skb;
 	struct qrtr_cb *cb;
-	unsigned int size;
+	size_t size;
 	unsigned int ver;
 	size_t hdrlen;
 	int errcode;
@@ -903,7 +936,7 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 	if (cb->dst_port == QRTR_PORT_CTRL_LEGACY)
 		cb->dst_port = QRTR_PORT_CTRL;
 
-	if (len != ALIGN(size, 4) + hdrlen)
+	if (!size || len != ALIGN(size, 4) + hdrlen)
 		goto err;
 
 	if (cb->dst_port != QRTR_PORT_CTRL && cb->type != QRTR_TYPE_DATA &&
@@ -1157,17 +1190,13 @@ int qrtr_endpoint_register(struct qrtr_endpoint *ep, unsigned int net_id,
 	struct qrtr_node *node;
 	struct sched_param param = {.sched_priority = 1};
 
-	if (!ep || !ep->xmit){
-		pr_err("%s: error qrtr ep=%p ex->xmit=%p\n",
-				__func__, ep,ep->xmit);
-
+	if (!ep || !ep->xmit)
 		return -EINVAL;
-	}
 
 	node = kzalloc(sizeof(*node), GFP_KERNEL);
-	if (!node){
+	if (!node)
 		return -ENOMEM;
-	}
+
 	kref_init(&node->ref);
 	mutex_init(&node->ep_lock);
 	skb_queue_head_init(&node->rx_queue);
@@ -1570,6 +1599,8 @@ static int qrtr_local_enqueue(struct qrtr_node *node, struct sk_buff *skb,
 		return 0;
 	}
 	if (!ipc || &ipc->sk == skb->sk) { /* do not send to self */
+		if (ipc)
+			qrtr_port_put(ipc);
 		kfree_skb(skb);
 		return -ENODEV;
 	}
@@ -1765,8 +1796,10 @@ static int qrtr_send_resume_tx(struct qrtr_cb *cb)
 		return -EINVAL;
 
 	skb = qrtr_alloc_ctrl_packet(&pkt);
-	if (!skb)
+	if (!skb) {
+		qrtr_node_release(node);
 		return -ENOMEM;
+	}
 
 	pkt->cmd = cpu_to_le32(QRTR_TYPE_RESUME_TX);
 	pkt->client.node = cpu_to_le32(cb->dst_node);

@@ -9,12 +9,15 @@
 
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "ipc_logging.h"
-#include "uapi/qrtr.h"
 #else
 #include <linux/ipc_logging.h>
-#include <linux/qrtr.h>
 #endif
 #include <linux/module.h>
+#ifdef CONFIG_CNSS_OUT_OF_TREE
+#include "uapi/qrtr.h"
+#else
+#include <linux/qrtr.h>
+#endif
 #include <linux/workqueue.h>
 #include <linux/xarray.h>
 #include <net/sock.h>
@@ -103,7 +106,7 @@ static struct qrtr_node *node_get(unsigned int node_id)
 	return node;
 }
 
-unsigned int qrtr_get_service_id(unsigned int node_id, unsigned int port_id)
+int qrtr_get_service_id(unsigned int node_id, unsigned int port_id)
 {
 	struct qrtr_server *srv;
 	struct qrtr_node *node;
@@ -111,14 +114,14 @@ unsigned int qrtr_get_service_id(unsigned int node_id, unsigned int port_id)
 
 	node = node_get(node_id);
 	if (!node)
-		return 0;
+		return -EINVAL;
 
 	xa_for_each(&node->servers, index, srv) {
 		if (srv->node == node_id && srv->port == port_id)
 			return srv->service;
 	}
 
-	return 0;
+	return -EINVAL;
 }
 EXPORT_SYMBOL(qrtr_get_service_id);
 

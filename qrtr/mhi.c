@@ -122,10 +122,9 @@ static int qcom_mhi_qrtr_probe(struct mhi_device *mhi_dev,
 	int rc;
 
 	qdev = devm_kzalloc(&mhi_dev->dev, sizeof(*qdev), GFP_KERNEL);
-	if (!qdev){
-		dev_dbg(&mhi_dev->dev, "qdev alloc failure\n");
+	if (!qdev)
 		return -ENOMEM;
-	}
+
 	qdev->mhi_dev = mhi_dev;
 	qdev->dev = &mhi_dev->dev;
 	qdev->ep.xmit = qcom_mhi_qrtr_send;
@@ -134,17 +133,14 @@ static int qcom_mhi_qrtr_probe(struct mhi_device *mhi_dev,
 	dev_set_drvdata(&mhi_dev->dev, qdev);
 
 	qrtr_mhi_of_parse(mhi_dev, &net_id, &rt);
-         dev_dbg(&mhi_dev->dev, "start endpoint_register\n");
-	rc = qrtr_endpoint_register(&qdev->ep, net_id, rt);
-	if (rc){
-         dev_dbg(&mhi_dev->dev, "endpoint register failure (%d)\n",rc);
-		return rc;
-        }
-	/* start channels */
 
+	rc = qrtr_endpoint_register(&qdev->ep, net_id, rt);
+	if (rc)
+		return rc;
+
+	/* start channels */
 	rc = mhi_prepare_for_transfer(mhi_dev);
 	if (rc) {
-		 dev_dbg(&mhi_dev->dev, "mhi_prepare_for_transfer  failure (%d)\n",rc);
 		qrtr_endpoint_unregister(&qdev->ep);
 		dev_set_drvdata(&mhi_dev->dev, NULL);
 		return rc;

@@ -131,6 +131,9 @@ static int cnss_stats_show_state(struct seq_file *s,
 		case CNSS_DAEMON_CONNECTED:
 			seq_puts(s, "DAEMON_CONNECTED");
 			continue;
+		case CNSS_PCI_PROBE_DONE:
+			seq_puts(s, "PCI PROBE DONE");
+			continue;
 		}
 
 		seq_printf(s, "UNKNOWN-%d", i);
@@ -722,6 +725,7 @@ static int cnss_show_quirks_state(struct seq_file *s,
 			continue;
 		case IGNORE_PCI_LINK_FAILURE:
 			seq_puts(s, "IGNORE_PCI_LINK_FAILURE");
+			continue;
 		case DISABLE_TIME_SYNC:
 			seq_puts(s, "DISABLE_TIME_SYNC");
 			continue;

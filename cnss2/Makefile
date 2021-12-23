@@ -16,6 +16,6 @@ cnss2-y += debug.o
 cnss2-y += pci.o
 cnss2-y += power.o
 cnss2-y += genl.o
-cnss2-$(CONFIG_PCI_MSM) += pci_platform_msm.o
+cnss2-y += qcom_ramdump.o
 cnss2-$(CONFIG_SOC_GOOGLE) += pci_platform_google.o
 cnss2-$(CONFIG_CNSS2_QMI) += qmi.o coexistence_service_v01.o ip_multimedia_subsystem_private_service_v01.o

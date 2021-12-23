@@ -407,7 +407,19 @@ EXPORT_SYMBOL(mhi_device_configure);
 
 void mhi_set_m2_timeout_ms(struct mhi_controller *mhi_cntrl, u32 timeout)
 {
-	struct mhi_private *mhi_priv = dev_get_drvdata(&mhi_cntrl->mhi_dev->dev);
+	struct mhi_device *mhi_dev;
+	struct mhi_private *mhi_priv;
+
+	if (!mhi_cntrl)
+		return;
+
+	mhi_dev = mhi_cntrl->mhi_dev;
+	if (!mhi_dev)
+		return;
+
+	mhi_priv = dev_get_drvdata(&mhi_dev->dev);
+	if (!mhi_priv)
+		return;
 
 	mhi_priv->m2_timeout_ms = timeout;
 }
@@ -1689,3 +1701,18 @@ error_unlock:
 	return ret;
 }
 EXPORT_SYMBOL(mhi_get_remote_time);
+
+/* MHI host reset request*/
+int mhi_force_reset(struct mhi_controller *mhi_cntrl)
+{
+	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+
+	MHI_VERB("Entered with pm_state:%s dev_state:%s ee:%s\n",
+		 to_mhi_pm_state_str(mhi_cntrl->pm_state),
+		 TO_MHI_STATE_STR(mhi_cntrl->dev_state),
+		 TO_MHI_EXEC_STR(mhi_cntrl->ee));
+
+	mhi_soc_reset(mhi_cntrl);
+	return mhi_rddm_download_status(mhi_cntrl);
+}
+EXPORT_SYMBOL(mhi_force_reset);

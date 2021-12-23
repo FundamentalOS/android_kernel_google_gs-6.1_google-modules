@@ -88,7 +88,7 @@ void cnss_bus_deinit(struct cnss_plat_data *plat_priv)
 
 	switch (plat_priv->bus_type) {
 	case CNSS_BUS_PCI:
-		cnss_pci_deinit(plat_priv);
+		return cnss_pci_deinit(plat_priv);
 	default:
 		cnss_pr_err("Unsupported bus type: %d\n",
 			    plat_priv->bus_type);
@@ -556,6 +556,23 @@ int cnss_bus_get_iova_ipa(struct cnss_plat_data *plat_priv, u64 *addr,
 	switch (plat_priv->bus_type) {
 	case CNSS_BUS_PCI:
 		return cnss_pci_get_iova_ipa(plat_priv->bus_priv, addr, size);
+	default:
+		cnss_pr_err("Unsupported bus type: %d\n",
+			    plat_priv->bus_type);
+		return -EINVAL;
+	}
+}
+
+int cnss_bus_update_time_sync_period(struct cnss_plat_data *plat_priv,
+				     unsigned int time_sync_period)
+{
+	if (!plat_priv)
+		return -ENODEV;
+
+	switch (plat_priv->bus_type) {
+	case CNSS_BUS_PCI:
+		return cnss_pci_update_time_sync_period(plat_priv->bus_priv,
+							time_sync_period);
 	default:
 		cnss_pr_err("Unsupported bus type: %d\n",
 			    plat_priv->bus_type);

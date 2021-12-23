@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2016-2021, The Linux Foundation. All rights reserved. */
+/*
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
 
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -18,7 +21,7 @@
 #include "debug.h"
 #include "bus.h"
 
-#if IS_ENABLED(CONFIG_ARCH_QCOM)
+#if IS_ENABLED(CONFIG_ARCH_QCOM) && !IS_ENABLED(CONFIG_WCN_GOOGLE)
 static struct cnss_vreg_cfg cnss_vreg_list[] = {
 	{"vdd-wlan-core", 1300000, 1300000, 0, 0, 0},
 	{"vdd-wlan-io", 1800000, 1800000, 0, 0, 0},
@@ -57,6 +60,7 @@ static struct cnss_clk_cfg cnss_clk_list[] = {
 #define WLAN_EN_GPIO			"wlan-en-gpio"
 #define BT_EN_GPIO			"qcom,bt-en-gpio"
 #define XO_CLK_GPIO			"qcom,xo-clk-gpio"
+#define SW_CTRL_GPIO			"qcom,sw-ctrl-gpio"
 #define WLAN_EN_ACTIVE			"wlan_en_active"
 #define WLAN_EN_SLEEP			"wlan_en_sleep"
 #ifdef CONFIG_WCN_GOOGLE
@@ -744,6 +748,7 @@ int cnss_get_pinctrl(struct cnss_plat_data *plat_priv)
 				    ret);
 			goto out;
 		}
+		cnss_set_feature_list(plat_priv, CNSS_WLAN_EN_SUPPORT_V01);
 	}
 
 	/* Added for QCA6490 PMU delayed WLAN_EN_GPIO */
@@ -765,6 +770,17 @@ int cnss_get_pinctrl(struct cnss_plat_data *plat_priv)
 	} else {
 		pinctrl_info->xo_clk_gpio = -EINVAL;
 	}
+
+	if (of_find_property(dev->of_node, SW_CTRL_GPIO, NULL)) {
+		pinctrl_info->sw_ctrl_gpio = of_get_named_gpio(dev->of_node,
+							       SW_CTRL_GPIO,
+							       0);
+		cnss_pr_dbg("Switch control GPIO: %d\n",
+			    pinctrl_info->sw_ctrl_gpio);
+	} else {
+		pinctrl_info->sw_ctrl_gpio = -EINVAL;
+	}
+
 	return 0;
 out:
 	return ret;
@@ -907,6 +923,23 @@ set_wlan_en:
 	return ret;
 }
 
+int cnss_get_input_gpio_value(struct cnss_plat_data *plat_priv, int gpio_num)
+{
+	int ret;
+
+	if (gpio_num < 0)
+		return -EINVAL;
+
+	ret = gpio_direction_input(gpio_num);
+	if (ret) {
+		cnss_pr_err("Failed to set direction of GPIO(%d), err = %d",
+			    gpio_num, ret);
+		return -EINVAL;
+	}
+
+	return gpio_get_value(gpio_num);
+}
+
 #ifdef CONFIG_WCN_GOOGLE
 static int wlan_buck_gpio=0;
 int wlan_buck_enable(struct cnss_plat_data *plat_priv)
@@ -960,7 +993,6 @@ int cnss_power_on_device(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
 
-	cnss_pr_info("%s Enter\n",__func__);
 	if (plat_priv->powered_on) {
 		cnss_pr_dbg("Already powered up");
 		return 0;
@@ -1144,12 +1176,6 @@ int cnss_aop_mbox_init(struct cnss_plat_data *plat_priv)
 	mbox->knows_txdone = false;
 
 	plat_priv->mbox_chan = NULL;
-	chan = mbox_request_channel(mbox, 0);
-	if (IS_ERR(chan)) {
-		cnss_pr_err("Failed to get mbox channel\n");
-		return PTR_ERR(chan);
-	}
-	plat_priv->mbox_chan = chan;
 
 	ret = of_property_read_string(plat_priv->plat_dev->dev.of_node,
 				      "qcom,vreg_ol_cpr",
@@ -1163,7 +1189,18 @@ int cnss_aop_mbox_init(struct cnss_plat_data *plat_priv)
 	if (ret)
 		cnss_pr_dbg("Volt regulator for Int Power Amp not configured\n");
 
+	if (!plat_priv->vreg_ol_cpr && !plat_priv->vreg_ipa)
+		return 0;
+
+	chan = mbox_request_channel(mbox, 0);
+	if (IS_ERR(chan)) {
+		cnss_pr_err("Failed to get mbox channel\n");
+		return PTR_ERR(chan);
+	}
+
+	plat_priv->mbox_chan = chan;
 	cnss_pr_dbg("Mbox channel initialized\n");
+
 	return 0;
 }
 

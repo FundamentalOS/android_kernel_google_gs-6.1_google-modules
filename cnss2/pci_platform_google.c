@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2016-2021, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2021, The Linux Foundation. All rights reserved. */
 
 #include <linux/of.h>
 #include <linux/of_gpio.h>
@@ -32,16 +32,33 @@ static struct cnss_msi_config msi_config = {
 	},
 };
 
-int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
+int _cnss_pci_enumerate(struct cnss_plat_data *plat_priv, u32 rc_num)
 {
-	cnss_pr_vdbg("%s PCI link\n", link_up ? "Resuming" : "Suspending");
+	int ret = 0;
+	ret = exynos_pcie_pm_resume(rc_num);
+	return ret;
+}
 
-	if (link_up) {
-		return exynos_pcie_pm_resume(pci_priv->plat_priv->rc_num);
-	} else {
-		exynos_pcie_pm_suspend(pci_priv->plat_priv->rc_num);
-		return 0;
-	}
+int cnss_pci_assert_perst(struct cnss_pci_data *pci_priv)
+{
+	return -EOPNOTSUPP;
+}
+
+int cnss_pci_disable_pc(struct cnss_pci_data *pci_priv, bool vote)
+{
+	return 0;
+}
+
+int cnss_pci_set_link_bandwidth(struct cnss_pci_data *pci_priv,
+				       u16 link_speed, u16 link_width)
+{
+	return 0;
+}
+
+int cnss_pci_set_max_link_speed(struct cnss_pci_data *pci_priv,
+				       u32 rc_num, u16 link_speed)
+{
+	return 0;
 }
 
 static void cnss_pci_event_cb(struct exynos_pcie_notify *notify)
@@ -108,7 +125,6 @@ int cnss_reg_pci_event(struct cnss_pci_data *pci_priv)
 		cnss_pr_err("Failed to register exynos PCI event, err = %d\n",
 			    ret);
 	return ret;
-
 }
 
 void cnss_dereg_pci_event(struct cnss_pci_data *pci_priv)
@@ -116,10 +132,21 @@ void cnss_dereg_pci_event(struct cnss_pci_data *pci_priv)
 	exynos_pcie_deregister_event(&pci_priv->exynos_pci_event);
 }
 
-
-void cnss_set_perst_gpio(struct cnss_plat_data *plat_priv)
+int cnss_wlan_adsp_pc_enable(struct cnss_pci_data *pci_priv, bool control)
 {
-	exynos_pcie_set_perst_gpio(plat_priv->rc_num, false);
+	return 0;
+}
+
+int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
+{
+	cnss_pr_vdbg("%s PCI link\n", link_up ? "Resuming" : "Suspending");
+
+	if (link_up) {
+		return exynos_pcie_pm_resume(pci_priv->plat_priv->rc_num);
+	} else {
+		exynos_pcie_pm_suspend(pci_priv->plat_priv->rc_num);
+		return 0;
+	}
 }
 
 int cnss_pci_prevent_l1(struct device *dev)
@@ -134,109 +161,15 @@ void cnss_pci_allow_l1(struct device *dev)
 }
 EXPORT_SYMBOL(cnss_pci_allow_l1);
 
-struct cnss_msi_config *cnss_get_msi_config(void)
+int cnss_pci_get_msi_assignment(struct cnss_pci_data *pci_priv)
 {
-	return &msi_config;
+	pci_priv->msi_config = &msi_config;
+
+	return 0;
 }
 
 int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv) {
 	return 0;
-}
-
-
-static irqreturn_t cnss_pci_wake_handler(int irq, void *data)
-{
-	struct cnss_pci_data *pci_priv = data;
-	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
-
-	pci_priv->wake_counter++;
-	cnss_pr_dbg("WLAN PCI wake IRQ (%u) is asserted #%u\n",
-		    pci_priv->wake_irq, pci_priv->wake_counter);
-
-	/* Make sure abort current suspend */
-	cnss_pm_stay_awake(plat_priv);
-	cnss_pm_relax(plat_priv);
-	/* Above two pm* API calls will abort system suspend only when
-	 * plat_dev->dev->ws is initiated by device_init_wakeup() API, and
-	 * calling pm_system_wakeup() is just to guarantee system suspend
-	 * can be aborted if it is not initiated in any case.
-	 */
-	pm_system_wakeup();
-
-	if (cnss_pci_get_monitor_wake_intr(pci_priv) &&
-	    cnss_pci_get_auto_suspended(pci_priv)) {
-		cnss_pci_set_monitor_wake_intr(pci_priv, false);
-		cnss_pci_pm_request_resume(pci_priv);
-	}
-
-	return IRQ_HANDLED;
-}
-
-/**
- * cnss_pci_wake_gpio_init() - Setup PCI wake GPIO for WLAN
- * @pci_priv: driver PCI bus context pointer
- *
- * This function initializes WLAN PCI wake GPIO and corresponding
- * interrupt. It should be used in non-MSM platforms whose PCIe
- * root complex driver doesn't handle the GPIO.
- *
- * Return: 0 for success or skip, negative value for error
- */
-int cnss_pci_wake_gpio_init(struct cnss_pci_data *pci_priv)
-{
-	struct cnss_plat_data *plat_priv = pci_priv->plat_priv;
-	struct device *dev = &plat_priv->plat_dev->dev;
-	int ret = 0;
-
-	pci_priv->wake_gpio = of_get_named_gpio(dev->of_node,
-						"wlan-pci-wake-gpio", 0);
-	if (pci_priv->wake_gpio < 0)
-		goto out;
-
-	cnss_pr_dbg("Get PCI wake GPIO (%d) from device node\n",
-		    pci_priv->wake_gpio);
-
-	ret = gpio_request(pci_priv->wake_gpio, "wlan_pci_wake_gpio");
-	if (ret) {
-		cnss_pr_err("Failed to request PCI wake GPIO, err = %d\n",
-			    ret);
-		goto out;
-	}
-
-	gpio_direction_input(pci_priv->wake_gpio);
-	pci_priv->wake_irq = gpio_to_irq(pci_priv->wake_gpio);
-
-	ret = request_irq(pci_priv->wake_irq, cnss_pci_wake_handler,
-			  IRQF_TRIGGER_FALLING, "wlan_pci_wake_irq", pci_priv);
-	if (ret) {
-		cnss_pr_err("Failed to request PCI wake IRQ, err = %d\n", ret);
-		goto free_gpio;
-	}
-
-	ret = enable_irq_wake(pci_priv->wake_irq);
-	if (ret) {
-		cnss_pr_err("Failed to enable PCI wake IRQ, err = %d\n", ret);
-		goto free_irq;
-	}
-
-	return 0;
-
-free_irq:
-	free_irq(pci_priv->wake_irq, pci_priv);
-free_gpio:
-	gpio_free(pci_priv->wake_gpio);
-out:
-	return ret;
-}
-
-void cnss_pci_wake_gpio_deinit(struct cnss_pci_data *pci_priv)
-{
-	if (pci_priv->wake_gpio < 0)
-		return;
-
-	disable_irq_wake(pci_priv->wake_irq);
-	free_irq(pci_priv->wake_irq, pci_priv);
-	gpio_free(pci_priv->wake_gpio);
 }
 
 int cnss_pci_of_reserved_mem_device_init(struct cnss_pci_data *pci_priv)
@@ -252,58 +185,6 @@ int cnss_pci_of_reserved_mem_device_init(struct cnss_pci_data *pci_priv)
 
 	return ret;
 }
-
-int cnss_pci_disable_pc(struct cnss_pci_data *pci_priv, bool vote)
-{
-	return 0;
-}
-
-int check_id_table(struct cnss_wlan_driver *driver_ops)
-{
-	return 0;
-}
-
-int _cnss_pci_enumerate(struct cnss_plat_data *plat_priv, u32 rc_num)
-{
-	int ret = 0;
-	ret = exynos_pcie_pm_resume(rc_num);
-	cnss_pr_err("ret of exynos_pcie_pm_resume: %d\n", ret);
-	return ret;
-}
-
-int cnss_pci_assert_perst(struct cnss_pci_data *pci_priv)
-{
-	return -EOPNOTSUPP;
-}
-
-int cnss_pci_set_max_link_speed(struct cnss_pci_data *pci_priv,
-				       u32 rc_num, u16 link_speed)
-{
-	return 0;
-}
-
-int cnss_pci_set_link_bandwidth(struct cnss_pci_data *pci_priv,
-				       u16 link_speed, u16 link_width)
-{
-	return 0;
-}
-
-// static int _cnss_pci_prevent_l1(struct cnss_pci_data *pci_priv)
-// {
-// 	return 0;
-// }
-
-// static void _cnss_pci_allow_l1(struct cnss_pci_data *pci_priv) {}
-
-// static int cnss_pci_set_link_up(struct cnss_pci_data *pci_priv)
-// {
-// 	return 0;
-// }
-
-// static int cnss_pci_set_link_down(struct cnss_pci_data *pci_priv)
-// {
-// 	return 0;
-// }
 
 /*
  * The following functions are for ssrdump.
@@ -338,7 +219,8 @@ void sscd_release(struct device *dev)
 	cnss_pr_info("%s: enter\n", __FUNCTION__);
 }
 
-static void sscd_set_coredump(void *buf, int buf_len, const char *info)
+u8 *crash_info = 0;
+void sscd_set_coredump(void *buf, int buf_len)
 {
 	struct sscd_platform_data *pdata = dev_get_platdata(&sscd_dev.dev);
 	struct sscd_segment seg;
@@ -347,16 +229,16 @@ static void sscd_set_coredump(void *buf, int buf_len, const char *info)
 		memset(&seg, 0, sizeof(seg));
 		seg.addr = buf;
 		seg.size = buf_len;
-		if(info) {
-			pdata->sscd_report(&sscd_dev, &seg, 1, 0, info);
+		if(crash_info) {
+			pdata->sscd_report(&sscd_dev, &seg, 1, 0, crash_info);
+			kfree(crash_info);
+			crash_info = 0;
 		} else {
 			pdata->sscd_report(&sscd_dev, &seg, 1, 0, "Unknown");
 		}
-
 	}
 }
 
-u8 *crash_info = 0;
 void crash_info_handler(u8 *info)
 {
 	u32 string_len = 0;
@@ -372,92 +254,4 @@ void crash_info_handler(u8 *info)
 		return;
 	strncpy(crash_info, info, string_len);
 	crash_info[string_len] = '\0';
-}
-
-int qcom_elf_dump(struct list_head *segs, struct device *dev)
-{
-	struct qcom_dump_segment *segment;
-	struct elf32_phdr *phdr;
-	struct elf32_hdr *ehdr;
-	size_t data_size;
-	size_t offset;
-	int phnum = 0;
-	void *data;
-	void __iomem *ptr;
-
-	if (!segs || list_empty(segs))
-		return -EINVAL;
-
-	data_size = sizeof(*ehdr);
-	list_for_each_entry(segment, segs, node) {
-		data_size += sizeof(*phdr) + segment->size;
-
-		phnum++;
-	}
-
-	data = vmalloc(data_size);
-	if (!data)
-		return -ENOMEM;
-
-	cnss_pr_info("Creating elf with size %d\n", data_size);
-	ehdr = data;
-
-	memset(ehdr, 0, sizeof(*ehdr));
-	memcpy(ehdr->e_ident, ELFMAG, SELFMAG);
-	ehdr->e_ident[EI_CLASS] = ELFCLASS32;
-	ehdr->e_ident[EI_DATA] = ELFDATA2LSB;
-	ehdr->e_ident[EI_VERSION] = EV_CURRENT;
-	ehdr->e_ident[EI_OSABI] = ELFOSABI_NONE;
-	ehdr->e_type = ET_CORE;
-	ehdr->e_machine = EM_NONE;
-	ehdr->e_version = EV_CURRENT;
-	ehdr->e_entry = 0;
-	ehdr->e_phoff = sizeof(*ehdr);
-	ehdr->e_ehsize = sizeof(*ehdr);
-	ehdr->e_phentsize = sizeof(*phdr);
-	ehdr->e_phnum = phnum;
-
-	phdr = data + ehdr->e_phoff;
-	offset = ehdr->e_phoff + sizeof(*phdr) * ehdr->e_phnum;
-	list_for_each_entry(segment, segs, node) {
-		memset(phdr, 0, sizeof(*phdr));
-		phdr->p_type = PT_LOAD;
-		phdr->p_offset = offset;
-		phdr->p_vaddr = segment->da;
-		phdr->p_paddr = segment->da;
-		phdr->p_filesz = segment->size;
-		phdr->p_memsz = segment->size;
-		phdr->p_flags = PF_R | PF_W | PF_X;
-		phdr->p_align = 0;
-
-		if (segment->va) {
-			memcpy(data + offset, segment->va, segment->size);
-		} else {
-			ptr = devm_ioremap(dev, segment->da, segment->size);
-			if (!ptr) {
-				dev_err(dev,
-					"invalid coredump segment (%pad, %zu)\n",
-					&segment->da, segment->size);
-				memset(data + offset, 0xff, segment->size);
-			} else
-				memcpy_fromio(data + offset, ptr,
-					      segment->size);
-		}
-
-		offset += phdr->p_filesz;
-		phdr++;
-	}
-
-	/*
-	 * SSCD integration
-	 */
-	sscd_set_coredump(data, data_size, crash_info);
-	if (crash_info) {
-		kfree(crash_info);
-		crash_info = 0;
-	}
-
-
-	vfree(data);
-	return 0;
 }

@@ -18,7 +18,7 @@ struct qcom_dump_segment {
 };
 
 #if IS_ENABLED(CONFIG_QCOM_RAMDUMP)
-extern int qcom_elf_dump(struct list_head *segs, struct device *dev);
+extern int qcom_elf_dump(struct list_head *segs, struct device *dev, unsigned char class);
 extern int qcom_dump(struct list_head *head, struct device *dev);
 extern int qcom_fw_elf_dump(struct firmware *fw, struct device *dev);
 extern bool dump_enabled(void);
@@ -26,9 +26,10 @@ extern bool dump_enabled(void);
 extern void cnss_register_sscd(void);
 extern void cnss_unregister_sscd(void);
 extern void sscd_release(struct device *dev);
+extern void sscd_set_coredump(void *buf, int buf_len);
 #endif
 #else
-static inline int qcom_elf_dump(struct list_head *segs, struct device *dev)
+static inline int qcom_elf_dump(struct list_head *segs, struct device *dev, unsigned char class)
 {
 	return -ENODEV;
 }

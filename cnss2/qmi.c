@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2015-2021, The Linux Foundation. All rights reserved. */
+/*
+ * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
 
 #include <linux/module.h>
 #ifdef CONFIG_CNSS_OUT_OF_TREE
@@ -1051,7 +1054,7 @@ int cnss_wlfw_qdss_dnld_send_sync(struct cnss_plat_data *plat_priv)
 	ret = cnss_request_firmware_direct(plat_priv, &fw_entry,
 					   qdss_cfg_filename);
 	if (ret) {
-		cnss_pr_err("Failed to load QDSS: %s\n",
+		cnss_pr_dbg("Unable to load %s\n",
 			    qdss_cfg_filename);
 		goto err_req_fw;
 	}
@@ -1761,7 +1764,7 @@ int cnss_wlfw_antenna_switch_send_sync(struct cnss_plat_data *plat_priv)
 	}
 
 	if (resp->resp.result != QMI_RESULT_SUCCESS_V01) {
-		cnss_pr_err("Antenna switch request failed, result: %d, err: %d\n",
+		cnss_pr_dbg("Antenna switch request failed, result: %d, err: %d\n",
 			    resp->resp.result, resp->resp.error);
 		ret = -resp->resp.result;
 		goto out;
@@ -2180,7 +2183,8 @@ static void cnss_wlfw_request_mem_ind_cb(struct qmi_handle *qmi_wlfw,
 			    ind_msg->mem_seg[i].size, ind_msg->mem_seg[i].type);
 		plat_priv->fw_mem[i].type = ind_msg->mem_seg[i].type;
 		plat_priv->fw_mem[i].size = ind_msg->mem_seg[i].size;
-		if (plat_priv->fw_mem[i].type == CNSS_MEM_TYPE_DDR)
+		if (!plat_priv->fw_mem[i].va &&
+		    plat_priv->fw_mem[i].type == CNSS_MEM_TYPE_DDR)
 			plat_priv->fw_mem[i].attrs |=
 				DMA_ATTR_FORCE_CONTIGUOUS;
 		if (plat_priv->fw_mem[i].type == CNSS_MEM_CAL_V01)
