@@ -2164,6 +2164,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		goto err_offload_probe;
 	}
 
+	/* init pm_qos. */
+	cpu_latency_qos_add_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+
 	//---set int-pin & request irq---
 	client->irq = gpio_to_irq(ts->irq_gpio);
 	if (client->irq) {
@@ -2293,7 +2296,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	/* Assume screen is on throughout probe */
 	ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
 #endif
-	cpu_latency_qos_add_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+
 	ts->bTouchIsAwake = true;
 
 	register_panel_bridge(ts);
@@ -2351,6 +2354,7 @@ err_create_nvt_fwu_wq_failed:
 #endif
 	free_irq(client->irq, ts);
 err_int_request_failed:
+	cpu_latency_qos_remove_request(&ts->pm_qos_req);
 	goog_offload_remove(ts);
 err_offload_probe:
 	goog_heatmap_remove(ts);
