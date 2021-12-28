@@ -33,6 +33,9 @@
 #undef NVT_FW_UPDATE_PROFILING
 
 static ktime_t start, end;
+static bool is_mp_fw;
+const struct firmware *mp_fw_entry;
+const struct firmware *ts_fw_entry;
 const struct firmware *fw_entry;
 static size_t fw_need_write_size;
 static uint8_t *fwbuf;
@@ -96,8 +99,8 @@ static inline int32_t nvt_download_init(void)
 	//NVT_LOG("NVT_TRANSFER_LEN = 0x%06X\n", NVT_TRANSFER_LEN);
 
 	if (fwbuf == NULL) {
-		fwbuf = (uint8_t *)kzalloc((NVT_TRANSFER_LEN + 1 + DUMMY_BYTES),
-					   GFP_KERNEL);
+		fwbuf = (uint8_t *)devm_kzalloc(&ts->client->dev,
+			(NVT_TRANSFER_LEN + 1 + DUMMY_BYTES), GFP_KERNEL);
 		if (fwbuf == NULL) {
 			NVT_ERR("kzalloc for fwbuf failed!\n");
 			return -ENOMEM;
@@ -192,8 +195,8 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 		ovly_info, ilm_dlm_num, ovly_sec_num, info_sec_num, partition);
 
 	/* allocated memory for header info */
-	bin_map = (struct nvt_ts_bin_map *)kzalloc((partition+1) *
-		sizeof(struct nvt_ts_bin_map), GFP_KERNEL);
+	bin_map = (struct nvt_ts_bin_map *)devm_kzalloc(&ts->client->dev,
+		(partition + 1) * sizeof(struct nvt_ts_bin_map), GFP_KERNEL);
 	if (bin_map == NULL) {
 		NVT_ERR("kzalloc for bin_map failed!\n");
 		return -ENOMEM;
@@ -324,13 +327,18 @@ return:
 void update_firmware_release(void)
 {
 	if (fw_entry) {
-		NVT_LOG("\n");
+		NVT_LOG("Release %s FW.\n", (is_mp_fw) ? "MP" : "TS");
 		release_firmware(fw_entry);
 		fw_entry = NULL;
+		if (is_mp_fw)
+			mp_fw_entry = NULL;
+		else
+			ts_fw_entry = NULL;
 	}
 
 	if (!IS_ERR_OR_NULL(bin_map)) {
-		kfree(bin_map);
+		NVT_LOG("Free bin_map.\n");
+		devm_kfree(&ts->client->dev, bin_map);
 		bin_map = NULL;
 	}
 }
@@ -354,10 +362,25 @@ static int32_t update_firmware_request(char *filename)
 	while (1) {
 		NVT_LOG("filename is %s\n", filename);
 
-		ret = request_firmware(&fw_entry, filename, &ts->client->dev);
-		if (ret) {
-			NVT_ERR("firmware load failed, ret=%d\n", ret);
-			goto request_fail;
+		/* Reuse fw_entry if possible. */
+		if (is_mp_fw)
+			fw_entry = mp_fw_entry;
+		else
+			fw_entry = ts_fw_entry;
+
+		/* FW loading. */
+		if (!fw_entry) {
+			NVT_LOG("Request %s FW.\n", (is_mp_fw) ? "MP" : "TS");
+			ret = request_firmware(&fw_entry, filename, &ts->client->dev);
+			if (ret) {
+				NVT_ERR("firmware load failed, ret=%d\n", ret);
+				goto request_fail;
+			}
+			/* Store fw_entry to reuse later. */
+			if (is_mp_fw)
+				mp_fw_entry = fw_entry;
+			else
+				ts_fw_entry = fw_entry;
 		}
 
 		// check FW need to write size
@@ -376,6 +399,13 @@ static int32_t update_firmware_request(char *filename)
 				*(fw_entry->data+FW_BIN_VER_BAR_OFFSET));
 			ret = -ENOEXEC;
 			goto invalid;
+		}
+
+		/* Free bin_map to reallocate for new FW if exist. */
+		if (!IS_ERR_OR_NULL(bin_map)) {
+			NVT_LOG("Free bin_map for new FW.\n");
+			devm_kfree(&ts->client->dev, bin_map);
+			bin_map = NULL;
 		}
 
 		/* BIN Header Parser */
@@ -926,22 +956,19 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 	ktime_t profile_start = ktime_get();
 	ktime_t profile_end;
 #endif
-	bool release_fw = true;
 
 	if (strncmp(firmware_name, BOOT_UPDATE_FIRMWARE_NAME,
 		sizeof(BOOT_UPDATE_FIRMWARE_NAME)) == 0) {
-		release_fw = false;
+		is_mp_fw = false;
 	} else {
-		update_firmware_release();
+		is_mp_fw = true;
 	}
 
-	/* request bin file in "/etc/firmware" */
-	if (!fw_entry) {
-		ret = update_firmware_request(firmware_name);
-		if (ret) {
-			NVT_ERR("update_firmware_request failed. (%d)\n", ret);
-			goto request_firmware_fail;
-		}
+	/* request bin file in "/vendor/firmware" */
+	ret = update_firmware_request(firmware_name);
+	if (ret) {
+		NVT_ERR("update_firmware_request failed. (%d)\n", ret);
+		goto request_firmware_fail;
 	}
 
 #if defined(NVT_FW_UPDATE_PROFILING)
@@ -992,7 +1019,7 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 	}
 
 download_fail:
-	if (release_fw || ts->force_release_fw)
+	if (ts->force_release_fw)
 		update_firmware_release();
 request_firmware_fail:
 
