@@ -74,6 +74,11 @@ struct btpower_platform_data {
 	int bt_gpio_sys_rst;                   /* Bluetooth reset gpio */
 	int wl_gpio_sys_rst;                   /* Wlan reset gpio */
 	int bt_gpio_sw_ctrl;                   /* Bluetooth sw_ctrl gpio */
+#ifdef CONFIG_MSM_BT_OOBS
+	int bt_gpio_dev_wake;                  /* Bluetooth bt_wake */
+	int bt_gpio_host_wake;                 /* Bluetooth bt_host_wake */
+	int irq;                               /* Bluetooth host_wake IRQ */
+#endif
 	int bt_gpio_debug;                     /* Bluetooth debug gpio */
 	int xo_gpio_clk;                       /* XO clock gpio*/
 
@@ -90,6 +95,10 @@ struct btpower_platform_data {
 	struct mbox_chan *mbox_chan;
 	const char *vreg_ipa;
 	bool vreg_ipa_configured;
+#ifdef CONFIG_MSM_BT_OOBS
+	struct file *reffilp_obs;
+	struct task_struct *reftask_obs;
+#endif
 
 	int uart_idle_index;
 };
@@ -105,5 +114,10 @@ extern int btpower_aop_mbox_init(struct btpower_platform_data *drvdata);
 #define BT_CMD_CHECK_SW_CTRL	0xbfb0
 #define BT_CMD_GETVAL_POWER_SRCS	0xbfb1
 #define BT_CMD_SET_IPA_TCS_INFO  0xbfc0
+
+#ifdef CONFIG_MSM_BT_OOBS
+#define BT_CMD_OBS_SIGNAL_TASK		0xbfd0
+#define BT_CMD_OBS_VOTE_CLOCK		0xbfd1
+#endif
 
 #endif /* __LINUX_BLUETOOTH_POWER_H */

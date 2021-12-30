@@ -249,6 +249,36 @@ static void btpower_uart_transport_locked(struct btpower_platform_data *drvdata,
 	exynos_update_ip_idle_status(drvdata->uart_idle_index, !locked);
 }
 
+#ifdef CONFIG_MSM_BT_OOBS
+static irqreturn_t btpower_host_wake_isr(int irq, void *data)
+{
+	struct btpower_platform_data *drvdata = data;
+	int host_waking = gpio_get_value(drvdata->bt_gpio_host_wake);
+	struct kernel_siginfo siginfo;
+	int rc = 0;
+
+	pr_debug("%s: bt-hostwake-gpio(%d) IRQ(%d) value(%d)\n", __func__,
+		drvdata->bt_gpio_host_wake, drvdata->irq, host_waking);
+
+	if (drvdata->reftask_obs == NULL) {
+		pr_info("%s: ignore BT-HOSTWAKE IRQ\n", __func__);
+		return IRQ_HANDLED;
+	}
+
+	// Sending signal to HAL layer
+	memset(&siginfo, 0, sizeof(siginfo));
+	siginfo.si_signo = SIGIO;
+	siginfo.si_code = SI_QUEUE;
+	siginfo.si_int = host_waking;
+	rc = send_sig_info(siginfo.si_signo, &siginfo, drvdata->reftask_obs);
+	if (rc < 0) {
+		pr_err("%s: failed (%d) to send SIG to HAL(%d)\n", __func__,
+			rc, drvdata->reftask_obs->pid);
+	}
+	return IRQ_HANDLED;
+}
+#endif
+
 static int bt_vreg_enable(struct bt_power_vreg_data *vreg)
 {
 	int rc = 0;
@@ -491,6 +521,45 @@ static int btpower_gpio_acquire_input(int gpio, const char *label)
 	return rc;
 }
 
+#ifdef CONFIG_MSM_BT_OOBS
+void bt_configure_wakeup_gpios(struct btpower_platform_data *drvdata, int on)
+{
+	int bt_gpio_dev_wake = drvdata->bt_gpio_dev_wake;
+	int bt_host_wake_gpio = drvdata->bt_gpio_host_wake;
+	int rc;
+
+	if (on) {
+		if (gpio_is_valid(bt_gpio_dev_wake)) {
+			gpio_set_value(bt_gpio_dev_wake, 1);
+			pr_debug("%s: BT-ON asserting BT_WAKE(%d)\n", __func__,
+				 bt_gpio_dev_wake);
+		}
+
+		if (gpio_is_valid(bt_host_wake_gpio)) {
+			drvdata->irq = gpio_to_irq(bt_host_wake_gpio);
+			pr_debug("%s: BT-ON bt-host_wake-gpio(%d) IRQ(%d)\n",
+				__func__, bt_host_wake_gpio, drvdata->irq);
+			rc = request_irq(drvdata->irq, btpower_host_wake_isr,
+					 IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+					 "btpower_hostwake_isr", drvdata);
+			if (rc)
+				pr_err("%s: unable to request IRQ %d (%d)\n",
+				__func__, bt_host_wake_gpio, rc);
+		}
+	} else {
+		if (gpio_is_valid(bt_host_wake_gpio)) {
+			pr_debug("%s: BT-OFF bt-hostwake-gpio(%d) IRQ(%d) value(%d)\n",
+				 __func__, bt_host_wake_gpio, drvdata->irq,
+				 gpio_get_value(bt_host_wake_gpio));
+			free_irq(drvdata->irq, drvdata);
+		}
+
+		if (gpio_is_valid(bt_gpio_dev_wake))
+			gpio_set_value(bt_gpio_dev_wake, 0);
+	}
+}
+#endif
+
 static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 {
 	int rc = 0;
@@ -503,6 +572,10 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 		bt_reset_gpio, gpio_get_value(bt_reset_gpio),
 		(on ? "True" : "False"));
 
+#ifdef CONFIG_MSM_BT_OOBS
+	if (!on)
+		bt_configure_wakeup_gpios(drvdata, on);
+#endif
 	/* always reset the controller no metter ON or OFF */
 	SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 0);
 	msleep(on ? 100 : 50);
@@ -536,6 +609,9 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 	}
 
 	msleep(50);
+#ifdef CONFIG_MSM_BT_OOBS
+	bt_configure_wakeup_gpios(drvdata, on);
+#endif
 
 	/* Check if SW_CTRL is asserted */
 	SYNC_GPIO_SOURCE_CURRENT(drvdata, bt_sw_ctrl_gpio, BT_SW_CTRL_GPIO);
@@ -1045,6 +1121,17 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 		pr_info("%s: wl-reset-gpio not provided in device tree\n",
 			__func__);
 
+#ifdef CONFIG_MSM_BT_OOBS
+	drvdata->bt_gpio_dev_wake = of_get_named_gpio(pdev->dev.of_node,
+				  "qcom,btwake_gpio", 0);
+	if (drvdata->bt_gpio_dev_wake < 0)
+		pr_warn("%s: btwake-gpio not provided in device tree\n", __func__);
+
+	drvdata->bt_gpio_host_wake = of_get_named_gpio(pdev->dev.of_node,
+				  "qcom,bthostwake_gpio", 0);
+	if (drvdata->bt_gpio_host_wake < 0)
+		pr_warn("%s: bthostwake_gpio not provided in device tree\n", __func__);
+#endif
 	drvdata->bt_gpio_sw_ctrl =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-sw-ctrl-gpio",  0);
 	if (!gpio_is_valid(drvdata->bt_gpio_sw_ctrl))
@@ -1224,6 +1311,27 @@ static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	}
 
 	switch (cmd) {
+#ifdef CONFIG_MSM_BT_OOBS
+	case BT_CMD_OBS_SIGNAL_TASK:
+		drvdata->reffilp_obs = file;
+		drvdata->reftask_obs = get_current();
+		pr_info("%s: BT_CMD_OBS_SIGNAL_TASK tid %d filp %pK\n",
+			__func__, drvdata->reftask_obs->pid, file);
+		break;
+	case BT_CMD_OBS_VOTE_CLOCK:
+		if (!gpio_is_valid(drvdata->bt_gpio_dev_wake)) {
+			pr_warn("%s: BT_CMD_OBS_VOTE_CLOCK bt_dev_wake_n(%d) not configured\n",
+				__func__, drvdata->bt_gpio_dev_wake);
+			return -EIO;
+		}
+		pwr_cntrl = (int)arg;
+		btpower_uart_transport_locked(drvdata, (pwr_cntrl == 1 ? true : false));
+		gpio_set_value(drvdata->bt_gpio_dev_wake, pwr_cntrl);
+		pr_debug("%s: BT_CMD_OBS_VOTE_CLOCK cntrl(%d) %s\n", __func__,
+			 pwr_cntrl, gpio_get_value(drvdata->bt_gpio_dev_wake) ?
+			 "Assert" : "Deassert");
+		break;
+#endif
 	case BT_CMD_SLIM_TEST:
 #if IS_ENABLED(CONFIG_BT_SLIM_QCA6390) || \
 	IS_ENABLED(CONFIG_BT_SLIM_QCA6490) || \
