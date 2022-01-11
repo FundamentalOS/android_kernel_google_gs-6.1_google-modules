@@ -47,6 +47,7 @@ struct nvt_ts_mem_map {
 	uint32_t PEN_1D_DIFF_TIP_Y_ADDR;
 	uint32_t PEN_1D_DIFF_RING_X_ADDR;
 	uint32_t PEN_1D_DIFF_RING_Y_ADDR;
+	uint32_t PEN_RX_ADDR;
 	uint32_t READ_FLASH_CHECKSUM_ADDR;
 	uint32_t RW_FLASH_DATA_ADDR;
 	/* Phase 2 Host Download */
@@ -106,6 +107,7 @@ static const struct nvt_ts_mem_map NT36523_memory_map = {
 	.PEN_1D_DIFF_TIP_Y_ADDR   = 0x2ABAE,
 	.PEN_1D_DIFF_RING_X_ADDR  = 0x2AC12,
 	.PEN_1D_DIFF_RING_Y_ADDR  = 0x2AC76,
+	.PEN_RX_ADDR              = 0x397F6,
 	.READ_FLASH_CHECKSUM_ADDR = 0x24000,
 	.RW_FLASH_DATA_ADDR       = 0x24002,
 	/* Phase 2 Host Download */

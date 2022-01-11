@@ -34,6 +34,9 @@ static uint8_t AIN_KEY[8] = {0, 1, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 #define X_Y_DIMENSION_MAX (50 * 50)
 #define PEN_X_Y_DIMENSION_MAX (200)
+#define PEN_RX_MAX_X_LEN (1)
+#define PEN_RX_MAX_Y_LEN (1)
+#define PEN_RX_MAX_BUFSIZE (1)
 
 static int32_t PS_Config_Lmt_Short_Rawdata_P[X_Y_DIMENSION_MAX] = {
 	14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008, 14008,
@@ -1091,6 +1094,8 @@ static int32_t PS_Config_Lmt_PenRingY_FW_Diff_N[PEN_X_Y_DIMENSION_MAX] = {
 	-870, -870, -870, -870,
 };
 
+static int32_t PS_Config_Lmt_Pen_Rx_Max_P[1] = {300};
+static int32_t PS_Config_Lmt_Pen_Rx_Max_N[1] = {100};
 static int32_t PS_Config_Diff_Test_Frame = 50;
 
 #endif /* #if NVT_TOUCH_MP */
