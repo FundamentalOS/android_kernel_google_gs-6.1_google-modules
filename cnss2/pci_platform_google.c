@@ -206,6 +206,13 @@ static struct platform_device sscd_dev = {
 
 void cnss_register_sscd(void)
 {
+	memset(&sscd_pdata, 0, sizeof(struct sscd_platform_data));
+	memset(&sscd_dev, 0, sizeof(struct platform_device));
+	sscd_dev.name = DEVICE_NAME;
+	sscd_dev.driver_override = SSCD_NAME;
+	sscd_dev.id = -1;
+	sscd_dev.dev.platform_data = &sscd_pdata;
+	sscd_dev.dev.release = sscd_release;
 	platform_device_register(&sscd_dev);
 }
 
