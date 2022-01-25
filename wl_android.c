@@ -8103,6 +8103,7 @@ wl_android_set_miracast(struct net_device *dev, char *command)
 		 */
 		// add below to avoid explicitly fall through warning
 		/* fall through */
+		fallthrough;
 	case MIRACAST_MODE_SINK:
 		/* disable internal roaming */
 		config.iovar = "roam_off";

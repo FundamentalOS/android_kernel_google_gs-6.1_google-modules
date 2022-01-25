@@ -2689,6 +2689,7 @@ wl_cfg80211_add_if(struct bcm_cfg80211 *cfg,
 			 */
 			// add below to avoid explicitly fall through warning
 			/* fall through */
+			fallthrough;
 		default:
 			WL_ERR(("Unsupported interface type\n"));
 			err = -ENOTSUPP;
@@ -8246,6 +8247,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 			/* go through to get another information */
 			// add below to avoid explicitly fall through warning
 			/* fall through */
+			fallthrough;
 		case WL_IF_TYPE_P2P_GC:
 		case WL_IF_TYPE_P2P_DISC:
 			if ((err = wl_cfg80211_get_rssi(dev, cfg, &rssi)) != BCME_OK) {
@@ -8276,6 +8278,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 			/* go through to get another information */
 			// add below to avoid explicitly fall through warning
 			/* fall through */
+			fallthrough;
 		case WL_IF_TYPE_P2P_GO:
 #ifdef WL_RATE_INFO
 			/* Get the current tx/rx rate */
@@ -13457,6 +13460,7 @@ wl_handle_assoc_events(struct bcm_cfg80211 *cfg,
 			}
 
 			/* Intentional fall through */
+			fallthrough;
 		case WLC_E_ASSOC:
 			wl_get_auth_assoc_status(cfg, as.ndev, e, data);
 			break;
@@ -13472,7 +13476,7 @@ wl_handle_assoc_events(struct bcm_cfg80211 *cfg,
 		case WLC_E_DEAUTH_IND:
 		case WLC_E_DISASSOC_IND:
 			wl_cfg80211_handle_deauth_ind(cfg, &as);
-			/* intentional fall through */
+			fallthrough;
 		case WLC_E_DISASSOC:
 		case WLC_E_DEAUTH:
 			as.link_action = wl_set_link_action(assoc_state, false);
