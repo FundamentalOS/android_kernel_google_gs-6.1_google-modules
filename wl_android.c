@@ -433,8 +433,8 @@ typedef struct android_wifi_af_params {
 #define BUFSZ 8
 #define BUFSZN	BUFSZ + 1
 
-#define _S(x) #x
-#define S(x) _S(x)
+#define __S(x) #x
+#define S(x) __S(x)
 
 #define  MAXBANDS    2  /**< Maximum #of bands */
 #define BAND_2G_INDEX      1
