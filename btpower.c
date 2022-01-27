@@ -1301,6 +1301,9 @@ static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 {
 	struct btpower_platform_data *drvdata = file->private_data;
 	int ret = 0, pwr_cntrl = 0;
+#ifdef CONFIG_MSM_BT_OOBS
+	enum btpower_obs_param clk_cntrl;
+#endif
 	int chipset_version = 0;
 	int itr, num_vregs;
 	const struct bt_power_vreg_data *vreg_info = NULL;
@@ -1324,12 +1327,32 @@ static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 				__func__, drvdata->bt_gpio_dev_wake);
 			return -EIO;
 		}
-		pwr_cntrl = (int)arg;
-		btpower_uart_transport_locked(drvdata, (pwr_cntrl == 1 ? true : false));
-		gpio_set_value(drvdata->bt_gpio_dev_wake, pwr_cntrl);
-		pr_debug("%s: BT_CMD_OBS_VOTE_CLOCK cntrl(%d) %s\n", __func__,
-			 pwr_cntrl, gpio_get_value(drvdata->bt_gpio_dev_wake) ?
-			 "Assert" : "Deassert");
+		clk_cntrl = (enum btpower_obs_param)arg;
+		switch (clk_cntrl) {
+		case BTPOWER_OBS_CLK_OFF:
+			btpower_uart_transport_locked(drvdata, false);
+			ret = 0;
+			break;
+		case BTPOWER_OBS_CLK_ON:
+			btpower_uart_transport_locked(drvdata, true);
+			ret = 0;
+			break;
+		case BTPOWER_OBS_DEV_OFF:
+			gpio_set_value(drvdata->bt_gpio_dev_wake, 0);
+			ret = 0;
+			break;
+		case BTPOWER_OBS_DEV_ON:
+			gpio_set_value(drvdata->bt_gpio_dev_wake, 1);
+			ret = 0;
+			break;
+		default:
+			pr_debug("%s: BT_CMD_OBS_VOTE_CLOCK clk_cntrl(%d)\n",
+				__func__, clk_cntrl);
+			return -EINVAL;
+		}
+		pr_debug("%s: BT_CMD_OBS_VOTE_CLOCK clk_cntrl(%d) %s\n", __func__,
+			clk_cntrl, gpio_get_value(drvdata->bt_gpio_dev_wake) ?
+				"Assert" : "Deassert");
 		break;
 #endif
 	case BT_CMD_SLIM_TEST:
