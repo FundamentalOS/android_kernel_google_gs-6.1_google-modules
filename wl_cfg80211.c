@@ -3946,7 +3946,7 @@ wl_cfg80211_post_ifcreate(struct net_device *ndev,
 		new_ndev->ieee80211_ptr = wdev;
 		SET_NETDEV_DEV(new_ndev, wiphy_dev(wdev->wiphy));
 
-		memcpy(new_ndev->dev_addr, addr, ETH_ALEN);
+		__dev_addr_set(new_ndev, addr, ETH_ALEN);
 		if (wl_cfg80211_register_if(cfg, event->ifidx, new_ndev, rtnl_lock_reqd)
 			!= BCME_OK) {
 			WL_ERR(("IFACE register failed \n"));

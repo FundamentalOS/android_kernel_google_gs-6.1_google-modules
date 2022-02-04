@@ -3266,7 +3266,7 @@ _dhd_set_mac_address(dhd_info_t *dhd, int ifidx, uint8 *addr)
 	if (ret < 0) {
 		DHD_ERROR(("%s: set cur_etheraddr failed\n", dhd_ifname(&dhd->pub, ifidx)));
 	} else {
-		memcpy(dhd->iflist[ifidx]->net->dev_addr, addr, ETHER_ADDR_LEN);
+		__dev_addr_set(dhd->iflist[ifidx]->net, addr, ETHER_ADDR_LEN);
 		if (ifidx == 0)
 			memcpy(dhd->pub.mac.octet, addr, ETHER_ADDR_LEN);
 	}
@@ -3769,7 +3769,7 @@ dhd_set_mac_address(struct net_device *dev, void *addr)
 			 * available). Store the address and return. macaddr will be applied
 			 * from interface create context.
 			 */
-			(void)memcpy_s(dev->dev_addr, ETH_ALEN, dhdif->mac_addr, ETH_ALEN);
+			__dev_addr_set(dev, dhdif->mac_addr, ETH_ALEN);
 			return ret;
 		}
 #endif /* WL_STATIC_IF */
@@ -9773,7 +9773,7 @@ dhd_open(struct net_device *net)
 #endif
 
 		/* dhd_sync_with_dongle has been called in dhd_bus_start or wl_android_wifi_on */
-		memcpy(net->dev_addr, dhd->pub.mac.octet, ETHER_ADDR_LEN);
+		__dev_addr_set(net, dhd->pub.mac.octet, ETHER_ADDR_LEN);
 
 #ifdef TOE
 		/* Get current TOE mode from dongle */
@@ -16830,7 +16830,7 @@ dhd_register_if(dhd_pub_t *dhdp, int ifidx, bool need_rtnl_lock)
 	 * XXX Linux 2.6.25 does not like a blank MAC address, so use a
 	 * dummy address until the interface is brought up.
 	 */
-	memcpy(net->dev_addr, temp_addr, ETHER_ADDR_LEN);
+	__dev_addr_set(net, temp_addr, ETHER_ADDR_LEN);
 
 	if (ifidx == 0)
 		printf("%s\n", dhd_version);

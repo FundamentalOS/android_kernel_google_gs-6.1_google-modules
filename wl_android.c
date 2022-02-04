@@ -13448,7 +13448,7 @@ wl_cfg80211_post_static_ifcreate(struct bcm_cfg80211 *cfg,
 		wdev = new_ndev->ieee80211_ptr;
 		ASSERT(wdev);
 		wdev->iftype = iface_type;
-		(void)memcpy_s(new_ndev->dev_addr, ETH_ALEN, addr, ETH_ALEN);
+		__dev_addr_set(new_ndev, addr, ETH_ALEN);
 	}
 
 	cfg->static_ndev_state = NDEV_STATE_FW_IF_CREATED;
