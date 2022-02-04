@@ -860,7 +860,7 @@ wl_cfg80211_handle_if_role_conflict(struct bcm_cfg80211 *cfg,
 #endif /* WL_IFACE_MGMT */
 
 s32
-wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype)
+wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_iftype)
 {
 	struct net_device *ndev =  bcmcfg_to_prmry_ndev(cfg);
 	u16 org_toggle_bytes;

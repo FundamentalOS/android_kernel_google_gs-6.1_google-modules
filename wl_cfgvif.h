@@ -129,7 +129,7 @@ extern wl_iftype_t wl_cfg80211_get_sec_iface(struct bcm_cfg80211 *cfg);
 #endif /* WL_IFACE_MGMT */
 
 extern s32 wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr);
-extern s32 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, u8 *mac_addr, u16 wl_iftype);
+extern s32 wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_iftype);
 
 int wl_cfg80211_set_he_mode(struct net_device *dev, struct bcm_cfg80211 *cfg,
 		s32 bssidx, u32 interface_type, bool set);

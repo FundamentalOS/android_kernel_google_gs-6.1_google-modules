@@ -2574,7 +2574,7 @@ _wl_cfg80211_check_axi_error(struct bcm_cfg80211 *cfg)
 struct wireless_dev *
 wl_cfg80211_add_if(struct bcm_cfg80211 *cfg,
 	struct net_device *primary_ndev,
-	wl_iftype_t wl_iftype, const char *name, u8 *mac)
+	wl_iftype_t wl_iftype, const char *name, const u8 *mac)
 {
 	u8 mac_addr[ETH_ALEN];
 	s32 err = -ENODEV;
