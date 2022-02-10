@@ -45,18 +45,6 @@
 #define INPUT_TYPE_DIFFDATA               2
 #define SYNC_FREQ                         "120Hz"
 #define LAST_ROUND_POS                    12288
-#define DTTW_TOUCH_AREA_WIDTH_HEIGHT_MAX  540
-#define DTTW_TOUCH_AREA_WIDTH_HEIGHT_MIN  70
-#define DTTW_CONTACT_DURATION_MAX         26
-#define DTTW_CONTACT_DURATION_MIN         2
-#define DTTW_TAP_OFFSET_MAX               150
-#define DTTW_TAP_OFFSET_MIN               0
-#define DTTW_TAP_GAP_DURATION_MAX         10
-#define DTTW_TAP_GAP_DURATION_MIN         2
-#define DTTW_MOTION_TOLERANCE_MAX         150
-#define DTTW_MOTION_TOLERANCE_MIN         70
-#define DTTW_DETECTION_WINDOW_EDGE_MAX    136
-#define DTTW_DETECTION_WINDOW_EDGE_MIN    0
 
 #define PALM_MODE_CMD_TEST_BIT            BIT(0)
 #define HIGH_SENSI_MODE_CMD_TEST_BIT      BIT(1)
@@ -1397,8 +1385,11 @@ static ssize_t nvt_dttw_touch_area_max_store(struct device *dev, struct device_a
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value > DTTW_TOUCH_AREA_WIDTH_HEIGHT_MAX)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1450,8 +1441,11 @@ static ssize_t nvt_dttw_touch_area_min_store(struct device *dev, struct device_a
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value < DTTW_TOUCH_AREA_WIDTH_HEIGHT_MIN)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1503,8 +1497,11 @@ static ssize_t nvt_dttw_contact_duration_max_store(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value > DTTW_CONTACT_DURATION_MAX)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1556,8 +1553,11 @@ static ssize_t nvt_dttw_contact_duration_min_store(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value < DTTW_CONTACT_DURATION_MIN)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1609,9 +1609,11 @@ static ssize_t nvt_dttw_tap_offset_store(struct device *dev, struct device_attri
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value < DTTW_TAP_OFFSET_MIN ||
-			value > DTTW_TAP_OFFSET_MAX)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1663,8 +1665,11 @@ static ssize_t nvt_dttw_tap_gap_duration_max_store(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value > DTTW_TAP_GAP_DURATION_MAX)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1716,8 +1721,11 @@ static ssize_t nvt_dttw_tap_gap_duration_min_store(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value < DTTW_TAP_GAP_DURATION_MIN)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1769,9 +1777,11 @@ static ssize_t nvt_dttw_motion_tolerance_store(struct device *dev, struct device
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value > DTTW_MOTION_TOLERANCE_MAX
-			|| value < DTTW_MOTION_TOLERANCE_MIN)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -1824,9 +1834,11 @@ static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	if (kstrtou16(buf, 10, &value) || value > DTTW_DETECTION_WINDOW_EDGE_MAX
-			|| value < DTTW_DETECTION_WINDOW_EDGE_MIN)
-		return -EINVAL;
+	ret = kstrtou16(buf, 10, &value);
+	if (ret) {
+		NVT_ERR("invalid input, ret %d.\n", ret);
+		return ret;
+	}
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
