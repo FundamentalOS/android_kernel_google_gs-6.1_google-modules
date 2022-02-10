@@ -8,411 +8,63 @@
 #include <linux/input/mt.h>
 #include <samsung/exynos_drm_connector.h> /* to_exynos_connector_state() */
 
-#if defined(GOOG_OFFLOAD)
-bool goog_offload_is_off(struct nvt_ts_data *ts)
+
+#ifdef GOOG_TOUCH_INTERFACE
+int nvt_get_channel_data(void *private_data,
+			u32 type, u8 **ptr, u32 *size)
 {
-	return !(ts->offload.offload_running);
-}
-
-void goog_input_lock(struct nvt_ts_data *ts)
-{
-	mutex_lock(&ts->input_report_lock);
-}
-
-void goog_input_unlock(struct nvt_ts_data *ts)
-{
-	mutex_unlock(&ts->input_report_lock);
-}
-
-void goog_offload_update_coords(struct nvt_ts_data *ts)
-{
-	int i;
-
-	for (i = 0 ; i < TOUCH_MAX_FINGER_NUM ; i++) {
-		ts->offload.coords[i].x = ts->coords[i].x;
-		ts->offload.coords[i].y = ts->coords[i].y;
-		ts->offload.coords[i].major = ts->coords[i].major;
-		ts->offload.coords[i].minor = 0;
-		ts->offload.coords[i].pressure = ts->coords[i].pressure;
-		ts->offload.coords[i].status = ts->coords[i].status;
-	}
-}
-
-static void goog_offload_populate_coordinate_channel(struct nvt_ts_data *ts,
-		struct touch_offload_frame *frame, int channel)
-{
-	int i;
-
-	struct TouchOffloadDataCoord *dc =
-		(struct TouchOffloadDataCoord *)frame->channel_data[channel];
-	memset(dc, 0, frame->channel_data_size[channel]);
-	dc->header.channel_type = TOUCH_DATA_TYPE_COORD;
-	dc->header.channel_size = TOUCH_OFFLOAD_FRAME_SIZE_COORD;
-
-	for (i = 0; i < MAX_COORDS; i++) {
-		dc->coords[i].x = ts->offload.coords[i].x;
-		dc->coords[i].y = ts->offload.coords[i].y;
-		dc->coords[i].major = ts->offload.coords[i].major;
-		dc->coords[i].minor = ts->offload.coords[i].minor;
-		dc->coords[i].pressure = ts->offload.coords[i].pressure;
-		dc->coords[i].status = ts->offload.coords[i].status;
-	}
-}
-
-static void goog_offload_populate_mutual_channel(struct nvt_ts_data *ts,
-		struct touch_offload_frame *frame, int channel)
-{
+	int ret = 0;
+	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
 	uint32_t page_addr = HM_DIFF_ADDR;
-	uint8_t *ms_data = ts->heatmap_spi_buf + 1;	/* skip 1st stuffing byte */
-	uint32_t ms_data_sz = ts->x_num * ts->y_num * 2;
+	uint8_t *spi_buf = ts->heatmap_spi_buf;
+	uint16_t spi_buf_size = ts->heatmap_spi_buf_size;
 
-	struct TouchOffloadData2d *mutual_strength =
-		(struct TouchOffloadData2d *)frame->channel_data[channel];
+	/* Only support mutual data currently. */
+	if (!(type & TOUCH_SCAN_TYPE_MUTUAL))
+		return -ENODATA;
 
-	switch (frame->channel_type[channel] & ~TOUCH_SCAN_TYPE_MUTUAL) {
+	/* Only support strength currently. */
+	switch (type & ~TOUCH_SCAN_TYPE_MUTUAL) {
 	case TOUCH_DATA_TYPE_RAW:
+		ret = -ENODATA;
 		page_addr = HM_RAWDATA_ADDR;
+		spi_buf = ts->extra_spi_buf;
+		spi_buf_size = ts->extra_spi_buf_size;
 		break;
 	case TOUCH_DATA_TYPE_BASELINE:
+		ret = -ENODATA;
 		page_addr = HM_BASELINE_ADDR;
+		spi_buf = ts->extra_spi_buf;
+		spi_buf_size = ts->extra_spi_buf_size;
 		break;
 	case TOUCH_DATA_TYPE_STRENGTH:
-		page_addr = HM_DIFF_ADDR;
+		if (ts->heatmap_en && ts->heatmap_addr)
+			page_addr = ts->heatmap_addr;
+		else
+			page_addr = HM_DIFF_ADDR;
+		spi_buf = ts->heatmap_spi_buf;
+		spi_buf_size = ts->heatmap_spi_buf_size;
+		break;
+	default:
+		ret = -ENODATA;
 		break;
 	}
 
-	mutual_strength->tx_size = ts->x_num;
-	mutual_strength->rx_size = ts->y_num;
-	mutual_strength->header.channel_type = frame->channel_type[channel];
-	mutual_strength->header.channel_size =
-		TOUCH_OFFLOAD_FRAME_SIZE_2D(mutual_strength->rx_size,
-			mutual_strength->tx_size);
+	if (ret)
+		return ret;
 
-	/* Read strength data for offload and v4l2. */
-	nvt_set_page(ts->heatmap_addr);
-	ts->heatmap_spi_buf[0] = ts->heatmap_addr & 0x7F;
-	CTP_SPI_READ(ts->client, ts->heatmap_spi_buf, ts->heatmap_spi_buf_size);
+	nvt_set_page(page_addr);
+	spi_buf[0] = page_addr & 0x7F;
+	CTP_SPI_READ(ts->client, spi_buf, spi_buf_size);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	*ptr = spi_buf + 1;
+	*size = ts->x_num * ts->y_num * 2;
 
-	/* Read non-strength data by request for offload. */
-	if (page_addr != ts->heatmap_addr) {
-		nvt_set_page(page_addr);
-		ts->heatmap_spi_buf[0] = page_addr & 0x7F;
-		CTP_SPI_READ(ts->client, ts->offload_spi_buf, ts->offload_spi_buf_size);
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-		ms_data = ts->offload_spi_buf + 1;
-	}
-
-	/* Copy data into offload frame. */
-	memcpy(mutual_strength->data, ms_data, ms_data_sz);
-}
-
-static void goog_offload_populate_frame(struct nvt_ts_data *ts,
-		struct touch_offload_frame *frame)
-{
-	static u64 index;
-	u8 channel_type;
-	int i;
-
-	frame->header.index = index++;
-	frame->header.timestamp = ts->timestamp;
-
-	/* Populate all channels */
-	for (i = 0; i < frame->num_channels; i++) {
-		channel_type = frame->channel_type[i];
-		if (channel_type == TOUCH_DATA_TYPE_COORD)
-			goog_offload_populate_coordinate_channel(ts, frame, i);
-		else if ((channel_type&TOUCH_SCAN_TYPE_MUTUAL) != 0)
-			goog_offload_populate_mutual_channel(ts, frame, i);
-	}
-}
-
-static void goog_offload_set_running(struct nvt_ts_data *ts, bool running)
-{
-	if (ts->offload.offload_running != running) {
-		ts->offload.offload_running = running;
-	/*
-	 * TODO(b/193467748):
-	 * Enable/disable FW grip/palm for offload.
-	 */
-/*
-		if (running)
-			nvt_ts_enable_fw_grip(ts, false);
-		else
-			nvt_ts_enable_fw_grip(ts, true);
-*/
-	}
-}
-
-void goog_offload_push_frame(struct nvt_ts_data *ts)
-{
-	int ret;
-	struct touch_offload_frame *frame = NULL;
-
-	if (!ts->offload_enable || !ts->coord_changed)
-		return;
-
-	ret = touch_offload_reserve_frame(&ts->offload, &frame);
-	if (ret != 0) {
-		NVT_ERR("could not reserve a frame, ret=%d.\n", ret);
-		/* Stop offload when there are no buffers available. */
-		goog_offload_set_running(ts, false);
-		/*
-		 * TODO(b/193467748):
-		 * How to handle current coord if offload running
-		 * terminating in the halfway(not beginning case)?
-		 */
-	} else {
-		goog_offload_set_running(ts, true);
-		goog_offload_populate_frame(ts, frame);
-		ret = touch_offload_queue_frame(&ts->offload, frame);
-		if (ret != 0)
-			NVT_ERR("failed to queue reserved frame, ret=%d.\n", ret);
-	}
-
-	ts->coord_changed = false;
-}
-
-static void goog_offload_report(void *handle,
-			struct TouchOffloadIocReport *report)
-{
-	struct nvt_ts_data *ts = (struct nvt_ts_data *)handle;
-	bool touch_down = 0;
-	int i;
-
-	goog_input_lock(ts);
-	input_set_timestamp(ts->input_dev, report->timestamp);
-	for (i = 0; i < TOUCH_MAX_FINGER_NUM; i++) {
-		if (report->coords[i].status == COORD_STATUS_FINGER) {
-			input_mt_slot(ts->input_dev, i);
-			touch_down = 1;
-			input_report_key(ts->input_dev, BTN_TOUCH, touch_down);
-			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 1);
-			input_report_abs(ts->input_dev, ABS_MT_POSITION_X,
-				report->coords[i].x);
-			input_report_abs(ts->input_dev, ABS_MT_POSITION_Y,
-				report->coords[i].y);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR,
-				report->coords[i].major);
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE,
-				report->coords[i].pressure);
-		} else {
-			input_mt_slot(ts->input_dev, i);
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
-			input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID, -1);
-		}
-	}
-	input_report_key(ts->input_dev, BTN_TOUCH, touch_down);
-	input_sync(ts->input_dev);
-	goog_input_unlock(ts);
-
-	/*
-	 * TODO(b/193467748):
-	 * There could be one race condition that 'heatmap_spi_buf'
-	 * already updated by 'T + 1' frame. But, what v4l2 needed
-	 * is 'T' frame heatmap. This could be resolved that the
-	 * 'report' is not only with coords, but also includes
-	 * corresponding 'frame' with heatmap.
-	 */
-	if (ts->v4l2_enable && touch_down)
-		heatmap_read(&ts->v4l2, ktime_to_ns(report->timestamp));
-
-	/*
-	 * TODO(b/193467748):
-	 * Disable the firmware motion filter during single touch.
-	 */
-//	update_motion_filter(ts, touch_id);
-}
-
-int32_t goog_offload_remove(struct nvt_ts_data *ts)
-{
-	int32_t ret;
-
-	ret = touch_offload_cleanup(&ts->offload);
-	return ret;
-}
-
-int32_t goog_offload_probe(struct nvt_ts_data *ts)
-{
-	int32_t ret;
-	struct device_node *np = ts->client->dev.of_node;
-
-	if (of_property_read_u8_array(np, "goog,touch_offload_id",
-			ts->offload_id_byte, 4)) {
-		NVT_LOG("set default offload id!\n");
-		ts->offload_id_byte[0] = 't';
-		ts->offload_id_byte[1] = '6';
-		ts->offload_id_byte[2] = '0';
-		ts->offload_id_byte[3] = '0';
-	}
-
-	ts->offload.caps.touch_offload_major_version = 1;
-	ts->offload.caps.touch_offload_minor_version = 0;
-	ts->offload.caps.device_id = ts->offload_id;
-	ts->offload.caps.display_width = ts->touch_width;
-	ts->offload.caps.display_height = ts->touch_height;
-	ts->offload.caps.tx_size = ts->v4l2.width;
-	ts->offload.caps.rx_size = ts->v4l2.height;
-	ts->offload.caps.heatmap_size = HEATMAP_SIZE_FULL;
-	ts->offload.caps.bus_type = BUS_TYPE_SPI;
-	ts->offload.caps.bus_speed_hz = ts->client->max_speed_hz;
-
-	/* Currently can only reliably read mutual heatmap each frame.
-	 * Cannot support other formats due to penalties associated
-	 * with switching data types.
-	 */
-	ts->offload.caps.touch_data_types =
-		TOUCH_DATA_TYPE_COORD | TOUCH_DATA_TYPE_STRENGTH |
-		TOUCH_DATA_TYPE_RAW | TOUCH_DATA_TYPE_BASELINE;
-	ts->offload.caps.touch_scan_types =
-		TOUCH_SCAN_TYPE_MUTUAL;
-
-	ts->offload.caps.continuous_reporting = true;
-	ts->offload.caps.noise_reporting = false;
-	ts->offload.caps.cancel_reporting = false;
-	ts->offload.caps.size_reporting = true;
-	ts->offload.caps.filter_grip = true;
-	ts->offload.caps.filter_palm = true;
-	ts->offload.caps.num_sensitivity_settings = 1;
-
-	ts->offload.hcallback = (void *)ts;
-	ts->offload.report_cb = goog_offload_report;
-	ret = touch_offload_init(&ts->offload);
-	if (!ret && !ts->offload_spi_buf) {
-		/* Need one stuffing byte for heatmap I/O transfer. */
-		ts->offload_spi_buf_size = ts->v4l2.width * ts->v4l2.height * 2 + 1;
-		ts->offload_spi_buf = devm_kzalloc(&ts->client->dev,
-				ts->offload_spi_buf_size, GFP_KERNEL);
-		if (!ts->offload_spi_buf) {
-			NVT_ERR("failed to alloc offload buf!\n");
-			ret = -ENOMEM;
-		}
-	}
-
-	ts->offload_enable = of_property_read_bool(np, "goog,offload-enable");
-	NVT_LOG("offload ID: \"%c%c%c%c\" / 0x%08X, offload_enable=%d.\n",
-		ts->offload_id_byte[0], ts->offload_id_byte[1], ts->offload_id_byte[2],
-		ts->offload_id_byte[3], ts->offload_id, ts->offload_enable);
-	return ret;
-}
-#endif
-
-#if defined(GOOG_HEATMAP)
-static bool goog_v4l2_read_frame(struct v4l2_heatmap *v4l2)
-{
-	struct nvt_ts_data *ts = container_of(v4l2, struct nvt_ts_data, v4l2);
-	const uint8_t *heatmap_buf = ts->heatmap_spi_buf + 1; /* skip 1st stuffing byte */
-	bool ret = false;
-
-	if (ts->heatmap_updated) {
-		if (ts->v4l2.width == ts->x_num &&
-			ts->v4l2.height == ts->y_num) {
-			memcpy(v4l2->frame, heatmap_buf,
-			   ts->v4l2.width * ts->v4l2.height * 2);
-			ts->heatmap_updated = false;
-			ret = true;
-		} else {
-			NVT_ERR("size mismatched, (%lu, %lu) vs (%u, %u)!\n",
-			ts->v4l2.width, ts->v4l2.height,
-			ts->x_num, ts->y_num);
-		}
-	}
-	return ret;
-}
-
-void goog_heatmap_read(struct nvt_ts_data *ts)
-{
-	if (ts->v4l2_enable)
-		heatmap_read(&ts->v4l2, ktime_to_ns(ts->timestamp));
-}
-
-void goog_heatmap_remove(struct nvt_ts_data *ts)
-{
-	heatmap_remove(&ts->v4l2);
-	ts->v4l2_enable = false;
-}
-
-int32_t goog_heatmap_probe(struct nvt_ts_data *ts)
-{
-	int32_t ret;
-	u32 width, height;
-	struct device_node *np = ts->client->dev.of_node;
-
-	/*
-	 * Heatmap_probe must be called before irq routine is registered,
-	 * because heatmap_read is called from the irq context.
-	 * If the ISR runs before heatmap_probe is finished, it will invoke
-	 * heatmap_read and cause NPE, since read_frame would not yet be set.
-	 */
-	ts->v4l2.parent_dev = &ts->client->dev;
-	ts->v4l2.input_dev = ts->input_dev;
-	ts->v4l2.read_frame = goog_v4l2_read_frame;
-	if (of_property_read_u32(np, "goog,v4l2-width", &width))
-		ts->v4l2.width = NVT_V4L2_DEFAULT_WIDTH;
-	else
-		ts->v4l2.width = width;
-	if (of_property_read_u32(np, "goog,v4l2-height", &height))
-		ts->v4l2.height = NVT_V4L2_DEFAULT_HEIGHT;
-	else
-		ts->v4l2.height = height;
-	/* 120 Hz operation */
-	ts->v4l2.timeperframe.numerator = 1;
-	ts->v4l2.timeperframe.denominator = 120;
-	ret = heatmap_probe(&ts->v4l2);
-	if (!ret && !ts->heatmap_spi_buf) {
-		/* Need one stuffing byte for heatmap I/O transfer. */
-		ts->heatmap_spi_buf_size = ts->v4l2.width * ts->v4l2.height * 2 + 1;
-		ts->heatmap_spi_buf = devm_kzalloc(&ts->client->dev,
-				ts->heatmap_spi_buf_size, GFP_KERNEL);
-		if (!ts->heatmap_spi_buf) {
-			NVT_ERR("failed to alloc heatmap buf!\n");
-			ret = -ENOMEM;
-		} else {
-			ts->heatmap_addr = HM_DIFF_ADDR;
-			ts->heatmap_en = 1;
-			ts->v4l2_enable = of_property_read_bool(np, "goog,v4l2-enable");
-		}
-	}
-
-	NVT_LOG("v4l2 W/H=(%lu, %lu), v4l2_enable=%d.\n",
-		ts->v4l2.width, ts->v4l2.height, ts->v4l2_enable);
 	return ret;
 }
 #endif
 
 #if defined(CONFIG_SOC_GOOGLE)
-
-void goog_update_press_coord(struct nvt_ts_data *ts, uint32_t slot,
-		uint32_t x, uint32_t y, uint32_t major, uint32_t pressure)
-{
-	if (slot < TOUCH_MAX_FINGER_NUM) {
-		ts->coords[slot].x = x;
-		ts->coords[slot].y = y;
-		ts->coords[slot].major = major;
-		ts->coords[slot].pressure = pressure;
-		if (!ts->coords[slot].status) {
-			ts->coords[slot].x_pressed = x;
-			ts->coords[slot].y_pressed = y;
-			ts->coords[slot].ktime_pressed = ktime_get();
-		}
-		ts->coords[slot].status = 1;
-		ts->coord_changed = true;
-	}
-}
-
-void goog_update_release_coord(struct nvt_ts_data *ts, uint32_t slot)
-{
-	if (slot < TOUCH_MAX_FINGER_NUM) {
-		if (ts->coords[slot].status) {
-			ts->coords[slot].ktime_released = ktime_get();
-			ts->coords[slot].status = 0;
-			ts->coords[slot].major = 0;
-			ts->coords[slot].pressure = 0;
-			ts->coord_changed = true;
-		}
-	}
-}
 
 static void panel_bridge_enable(struct drm_bridge *bridge)
 {
@@ -598,50 +250,6 @@ int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
 	}
 
 	return result;
-}
-
-ssize_t goog_offload_enable_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	int ret;
-
-	ret = scnprintf(buf, PAGE_SIZE, "offload_enable: %u\n", ts->offload_enable);
-	return ret;
-}
-ssize_t goog_offload_enable_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
-{
-	if (kstrtobool(buf, &ts->offload_enable)) {
-		NVT_ERR("invalid input!\n");
-		return -EINVAL;
-	}
-#if defined(GOOG_OFFLOAD)
-	if (!ts->offload_enable && ts->offload.offload_running) {
-		NVT_LOG("terminate offload!\n");
-		ts->offload.offload_running = false;
-	}
-#endif
-	return count;
-}
-
-ssize_t goog_v4l2_enable_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	int ret;
-
-	ret = scnprintf(buf, PAGE_SIZE, "v4l2_enable: %d\n", ts->v4l2_enable);
-	return ret;
-}
-ssize_t goog_v4l2_enable_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
-{
-	if (kstrtobool(buf, &ts->v4l2_enable)) {
-		NVT_ERR("invalid input!\n");
-		return -EINVAL;
-	}
-	return count;
 }
 
 ssize_t force_touch_active_show(struct device *dev,

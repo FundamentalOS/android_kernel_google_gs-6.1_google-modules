@@ -1888,8 +1888,6 @@ static ssize_t nvt_fw_history_show(struct device *dev,
 }
 
 #if defined(CONFIG_SOC_GOOGLE)
-static DEVICE_ATTR_RW(goog_offload_enable);
-static DEVICE_ATTR_RW(goog_v4l2_enable);
 static DEVICE_ATTR_RW(force_touch_active);
 static DEVICE_ATTR_RW(force_release_fw);
 #endif
@@ -1925,8 +1923,6 @@ static DEVICE_ATTR_RO(nvt_fw_history);
 
 static struct attribute *nvt_api_attrs[] = {
 #if defined(CONFIG_SOC_GOOGLE)
-	&dev_attr_goog_offload_enable.attr,
-	&dev_attr_goog_v4l2_enable.attr,
 	&dev_attr_force_touch_active.attr,
 	&dev_attr_force_release_fw.attr,
 #endif

@@ -261,33 +261,14 @@ struct nvt_ts_data {
 	u8 force_release_fw;
 
 	/*
-	 * Used for heatmap.
+	 * Used for google touch interface.
 	 */
-#if defined(GOOG_HEATMAP)
-	struct v4l2_heatmap v4l2;
-#endif
-	bool v4l2_enable;
-	bool heatmap_updated;
+	struct goog_touch_interface *gti;
 	uint32_t heatmap_spi_buf_size;
 	uint8_t *heatmap_spi_buf;
 	uint32_t heatmap_addr;
-
-	/*
-	 * Used for offload.
-	 */
-#if defined(GOOG_OFFLOAD)
-	struct touch_offload_context offload;
-#endif
-	bool offload_enable;
-	bool coord_changed;
-	union {
-	u8 offload_id_byte[4];
-	u32 offload_id;
-	};
-	uint32_t offload_spi_buf_size;
-	uint8_t *offload_spi_buf;
-	struct mutex input_report_lock;
-	struct nvt_ts_coordinate coords[TOUCH_MAX_FINGER_NUM];
+	uint32_t extra_spi_buf_size;
+	uint8_t *extra_spi_buf;
 };
 
 #if NVT_TOUCH_PROC

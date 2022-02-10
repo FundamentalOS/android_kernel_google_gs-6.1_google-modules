@@ -747,6 +747,32 @@ info_retry:
 	NVT_LOG("fw_ver=0x%02X, fw_type=0x%02X, PID=0x%04X, W/H=(%d, %d)\n",
 		ts->fw_ver, buf[14], ts->nvt_pid, ts->touch_width, ts->touch_height);
 
+	/* Allocate buffer for heatmap(delta) data. */
+	if (!ts->heatmap_spi_buf) {
+		ts->heatmap_en = true;
+		ts->heatmap_addr = HM_DIFF_ADDR;
+		/* Need one stuffing byte for I/O transfer. */
+		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
+		ts->heatmap_spi_buf = devm_kzalloc(&ts->client->dev,
+				ts->heatmap_spi_buf_size, GFP_KERNEL);
+		if (!ts->heatmap_spi_buf) {
+			NVT_ERR("failed to alloc heatmap buf!\n");
+			return -ENOMEM;
+		}
+	}
+
+	/* Allocate buffer for extra(non-delta) data. */
+	if (!ts->extra_spi_buf) {
+		/* Need one stuffing byte for I/O transfer. */
+		ts->extra_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
+		ts->extra_spi_buf = devm_kzalloc(&ts->client->dev,
+				ts->extra_spi_buf_size, GFP_KERNEL);
+		if (!ts->extra_spi_buf) {
+			NVT_ERR("failed to alloc extra buf!\n");
+			return -ENOMEM;
+		}
+	}
+
 	ret = 0;
 out:
 
@@ -1572,7 +1598,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 	finger_cnt = 0;
 
-	goog_input_lock(ts);
+	goog_input_lock(ts->gti);
+	goog_input_set_timestamp(ts->gti, ts->input_dev, ts->timestamp);
 
 #if NVT_MT_CUSTOM
 	switch (point_data[position] & 0x07) {
@@ -1623,13 +1650,11 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_p = 1;
 
 			press_id[input_id - 1] = 1;
-			goog_update_press_coord(ts, input_id - 1, input_x, input_y,
-					input_w, input_p);
 
-			if (goog_offload_is_off(ts) &&
-				ts->report_protocol == REPORT_PROTOCOL_B) {
-				input_mt_slot(ts->input_dev, input_id - 1);
-				input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, true);
+			if (ts->report_protocol == REPORT_PROTOCOL_B) {
+				goog_input_mt_slot(ts->gti, ts->input_dev, input_id - 1);
+				goog_input_mt_report_slot_state(ts->gti, ts->input_dev,
+						MT_TOOL_FINGER, true);
 			}
 
 			if (ts->report_protocol == REPORT_PROTOCOL_A) {
@@ -1637,12 +1662,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->input_dev, BTN_TOUCH, 1);
 			}
 
-			if (goog_offload_is_off(ts)) {
-				input_report_abs(ts->input_dev, ABS_MT_POSITION_X, input_x);
-				input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, input_y);
-				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, input_w);
-				input_report_abs(ts->input_dev, ABS_MT_PRESSURE, input_p);
-			}
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_POSITION_X, input_x);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_POSITION_Y, input_y);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_TOUCH_MAJOR, input_w);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_PRESSURE, input_p);
 
 			if (ts->report_protocol == REPORT_PROTOCOL_A)
 				input_mt_sync(ts->input_dev);
@@ -1654,20 +1677,18 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	if (ts->report_protocol == REPORT_PROTOCOL_B) {
 		for (i = 0; i < ts->max_touch_num; i++) {
 			if (press_id[i] != 1) {
-				goog_update_release_coord(ts, i);
-				if (goog_offload_is_off(ts)) {
-					input_mt_slot(ts->input_dev, i);
-					input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-					input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-					input_mt_report_slot_state(ts->input_dev,
-						MT_TOOL_FINGER, false);
-				}
+				goog_input_mt_slot(ts->gti, ts->input_dev, i);
+				goog_input_report_abs(ts->gti, ts->input_dev,
+						ABS_MT_TOUCH_MAJOR, 0);
+				goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_PRESSURE, 0);
+				goog_input_mt_report_slot_state(ts->gti, ts->input_dev,
+					MT_TOOL_FINGER, false);
 			}
 		}
 	}
 
-	if (goog_offload_is_off(ts))
-		input_report_key(ts->input_dev, BTN_TOUCH, (finger_cnt > 0));
+
+	goog_input_report_key(ts->gti, ts->input_dev, BTN_TOUCH, (finger_cnt > 0));
 
 	if (ts->report_protocol == REPORT_PROTOCOL_A && finger_cnt == 0) {
 #ifdef ABS_MT_CUSTOM
@@ -1694,14 +1715,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	}
 #endif
 
-#if defined(CONFIG_SOC_GOOGLE)
-	if (goog_offload_is_off(ts))
-		input_set_timestamp(ts->input_dev, ts->timestamp);
-#endif
-	if (goog_offload_is_off(ts))
-		input_sync(ts->input_dev);
-	goog_offload_update_coords(ts);
-	goog_input_unlock(ts);
+	goog_input_sync(ts->gti, ts->input_dev);
+	goog_input_unlock(ts->gti);
 
 	if (ts->pen_support) {
 		/*
@@ -1773,24 +1788,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	} /* if (ts->pen_support) */
 
 
-	/* Push frame into offload if any finger(s) changed. */
-	goog_offload_push_frame(ts);
-
-	/* non-offload delta heatmap for v4l2. */
-	if (goog_offload_is_off(ts) &&
-		ts->heatmap_en && finger_cnt) {
-		nvt_set_page(ts->heatmap_addr);
-		ts->heatmap_spi_buf[0] = ts->heatmap_addr & 0x7F;
-		CTP_SPI_READ(ts->client, ts->heatmap_spi_buf, ts->heatmap_spi_buf_size);
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-		ts->heatmap_updated = true;
-		goog_heatmap_read(ts);
-		/*
-		 * TODO(b/193467748):
-		 * Disable the firmware motion filter during single touch.
-		 */
-//		update_motion_filter(ts, touch_id);
-	}
+	/* google input process at the end of IRQ. */
+	goog_input_process(ts->gti);
 
 XFER_ERROR:
 
@@ -2063,7 +2062,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	mutex_init(&ts->lock);
 	mutex_init(&ts->xbuf_lock);
 	mutex_init(&ts->bus_mutex);
-	mutex_init(&ts->input_report_lock);
 
 	//---eng reset before TP_RESX high
 	nvt_eng_reset();
@@ -2245,18 +2243,12 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	} /* if (ts->pen_support) */
 
-	/* probe heatmap. */
-	ret = goog_heatmap_probe(ts);
-	if (ret) {
-		NVT_ERR("v4l2 probe failed. ret=%d!\n", ret);
-		goto err_heatmap_probe;
-	}
-
-	/* probe offload. */
-	ret = goog_offload_probe(ts);
-	if (ret) {
+	/* probe google touch interface. */
+	ts->gti = goog_touch_interface_probe(ts, &ts->client->dev,
+					ts->input_dev, nvt_get_channel_data);
+	if (ts->gti == NULL) {
 		NVT_ERR("offload probe failed. ret=%d!\n", ret);
-		goto err_offload_probe;
+		goto err_goog_touch_interface;
 	}
 
 	/* init pm_qos. */
@@ -2463,17 +2455,13 @@ err_create_nvt_fwu_wq_failed:
 	free_irq(client->irq, ts);
 err_int_request_failed:
 	cpu_latency_qos_remove_request(&ts->pm_qos_req);
-	goog_offload_remove(ts);
-err_offload_probe:
-	goog_heatmap_remove(ts);
-err_heatmap_probe:
+	goog_touch_interface_remove(ts->gti);
+err_goog_touch_interface:
 	pen_clean_battery(ts->pen_bat_psy);
 	ts->pen_bat_psy = NULL;
 err_pen_setup_battery_failed:
-	if (ts->pen_support) {
+	if (ts->pen_support)
 		input_unregister_device(ts->pen_input_dev);
-		ts->pen_input_dev = NULL;
-	}
 err_pen_input_register_device_failed:
 	if (ts->pen_support) {
 		if (ts->pen_input_dev) {
@@ -2483,7 +2471,6 @@ err_pen_input_register_device_failed:
 	}
 err_pen_input_dev_alloc_failed:
 	input_unregister_device(ts->input_dev);
-	ts->input_dev = NULL;
 err_input_register_device_failed:
 	if (ts->input_dev) {
 		input_free_device(ts->input_dev);
@@ -2588,8 +2575,7 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 	nvt_irq_enable(false);
 	free_irq(client->irq, ts);
 
-	goog_offload_remove(ts);
-	goog_heatmap_remove(ts);
+	goog_touch_interface_remove(ts->gti);
 	cpu_latency_qos_remove_request(&ts->pm_qos_req);
 
 	mutex_destroy(&ts->bus_mutex);
@@ -2611,6 +2597,13 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 	}
 
 	spi_set_drvdata(client, NULL);
+
+	devm_kfree(&client->dev, ts->heatmap_spi_buf);
+	ts->heatmap_spi_buf = NULL;
+	ts->heatmap_spi_buf_size = 0;
+	devm_kfree(&client->dev, ts->extra_spi_buf);
+	ts->extra_spi_buf = NULL;
+	ts->extra_spi_buf_size = 0;
 
 	if (ts->xbuf) {
 		kfree(ts->xbuf);
@@ -2760,24 +2753,23 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	mutex_unlock(&ts->lock);
 
 	/* release all touches */
-	goog_input_lock(ts);
+	goog_input_lock(ts->gti);
+	goog_input_set_timestamp(ts->gti, ts->input_dev, KTIME_RELEASE_ALL);
 	if (ts->report_protocol == REPORT_PROTOCOL_B) {
 		for (i = 0; i < ts->max_touch_num; i++) {
-			goog_update_release_coord(ts, i);
-			input_mt_slot(ts->input_dev, i);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
+			goog_input_mt_slot(ts->gti, ts->input_dev, i);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_PRESSURE, 0);
+			goog_input_mt_report_slot_state(ts->gti, ts->input_dev, MT_TOOL_FINGER, 0);
 		}
-		goog_offload_update_coords(ts);
 	}
-	input_report_key(ts->input_dev, BTN_TOUCH, 0);
+	goog_input_report_key(ts->gti, ts->input_dev, BTN_TOUCH, 0);
 
 	if (ts->report_protocol == REPORT_PROTOCOL_A)
 		input_mt_sync(ts->input_dev);
 
-	input_sync(ts->input_dev);
-	goog_input_unlock(ts);
+	goog_input_sync(ts->gti, ts->input_dev);
+	goog_input_unlock(ts->gti);
 
 	/* release pen event */
 	if (ts->pen_support) {
