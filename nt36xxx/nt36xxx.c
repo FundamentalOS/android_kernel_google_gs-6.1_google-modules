@@ -1547,9 +1547,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			if (input_p == 0)
 				input_p = 1;
 
+			press_id[input_id - 1] = 1;
+			goog_update_press_coord(ts, input_id - 1, input_x, input_y,
+					input_w, input_p);
+
 			if (goog_offload_is_off(ts) &&
 				ts->report_protocol == REPORT_PROTOCOL_B) {
-				press_id[input_id - 1] = 1;
 				input_mt_slot(ts->input_dev, input_id - 1);
 				input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, true);
 			}
@@ -1565,9 +1568,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, input_w);
 				input_report_abs(ts->input_dev, ABS_MT_PRESSURE, input_p);
 			}
-
-			goog_update_press_coord(ts, input_id - 1, input_x, input_y,
-					input_w, input_p);
 
 			if (ts->report_protocol == REPORT_PROTOCOL_A)
 				input_mt_sync(ts->input_dev);
@@ -1697,9 +1697,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	} /* if (ts->pen_support) */
 
 
-	/* Push frame into offload if any active finger(s). */
-	if (finger_cnt)
-		goog_offload_push_frame(ts);
+	/* Push frame into offload if any finger(s) changed. */
+	goog_offload_push_frame(ts);
 
 	/* non-offload delta heatmap for v4l2. */
 	if (goog_offload_is_off(ts) &&

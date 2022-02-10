@@ -149,7 +149,7 @@ void goog_offload_push_frame(struct nvt_ts_data *ts)
 	int ret;
 	struct touch_offload_frame *frame = NULL;
 
-	if (!ts->offload_enable)
+	if (!ts->offload_enable || !ts->coord_changed)
 		return;
 
 	ret = touch_offload_reserve_frame(&ts->offload, &frame);
@@ -169,6 +169,8 @@ void goog_offload_push_frame(struct nvt_ts_data *ts)
 		if (ret != 0)
 			NVT_ERR("failed to queue reserved frame, ret=%d.\n", ret);
 	}
+
+	ts->coord_changed = false;
 }
 
 static void goog_offload_report(void *handle,
@@ -393,9 +395,9 @@ void goog_update_press_coord(struct nvt_ts_data *ts, uint32_t slot,
 			ts->coords[slot].x_pressed = x;
 			ts->coords[slot].y_pressed = y;
 			ts->coords[slot].ktime_pressed = ktime_get();
-		} else {
-			ts->coords[slot].status = 1;
 		}
+		ts->coords[slot].status = 1;
+		ts->coord_changed = true;
 	}
 }
 
@@ -403,11 +405,11 @@ void goog_update_release_coord(struct nvt_ts_data *ts, uint32_t slot)
 {
 	if (slot < TOUCH_MAX_FINGER_NUM) {
 		if (ts->coords[slot].status) {
-			NVT_LOG("force to release slot %d!\n", slot);
 			ts->coords[slot].ktime_released = ktime_get();
 			ts->coords[slot].status = 0;
 			ts->coords[slot].major = 0;
 			ts->coords[slot].pressure = 0;
+			ts->coord_changed = true;
 		}
 	}
 }

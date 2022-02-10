@@ -272,6 +272,7 @@ struct nvt_ts_data {
 	struct touch_offload_context offload;
 #endif
 	bool offload_enable;
+	bool coord_changed;
 	union {
 	u8 offload_id_byte[4];
 	u32 offload_id;
