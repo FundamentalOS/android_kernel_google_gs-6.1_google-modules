@@ -27818,7 +27818,7 @@ gdb_proxy_fs_iovar_data_op(struct file *fp, const char __user *user_buffer_in,
 	const char *iovar, void *iovar_data_buf, size_t iovar_data_len,
 	void *read_params, size_t read_plen)
 {
-	dhd_info_t *dhd = (dhd_info_t *)PDE_DATA(file_inode(fp));
+	dhd_info_t *dhd = (dhd_info_t *)pde_data(file_inode(fp));
 	int err;
 	if (count == 0) {
 		return 0;
@@ -27950,7 +27950,7 @@ gdb_proxy_fs_iovar_mem_op(struct file *fp, const char __user *user_buffer_in,
 	char __user *user_buffer_out, size_t count, loff_t *position,
 	const char *iovar, bool address_first)
 {
-	dhd_info_t *dhd = (dhd_info_t *)PDE_DATA(file_inode(fp));
+	dhd_info_t *dhd = (dhd_info_t *)pde_data(file_inode(fp));
 	uint32 buf[3];
 	int err;
 	if (count == 0) {
