@@ -168,7 +168,14 @@ int cnss_pci_get_msi_assignment(struct cnss_pci_data *pci_priv)
 	return 0;
 }
 
-int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv) {
+int cnss_pci_init_smmu(struct cnss_pci_data *pci_priv)
+{
+	return 0;
+}
+
+int _cnss_pci_get_reg_dump(struct cnss_pci_data *pci_priv,
+			   u8 *buf, u32 len)
+{
 	return 0;
 }
 

@@ -242,6 +242,11 @@ void *mhi_to_virtual(struct mhi_ring *ring, dma_addr_t addr)
 	return (addr - ring->iommu_base) + ring->base;
 }
 
+dma_addr_t mhi_to_physical(struct mhi_ring *ring, void *addr)
+{
+	return (addr - ring->base) + ring->iommu_base;
+}
+
 static void mhi_add_ring_element(struct mhi_controller *mhi_cntrl,
 				 struct mhi_ring *ring)
 {
@@ -671,6 +676,8 @@ static int parse_xfer_event(struct mhi_controller *mhi_cntrl,
 			mhi_del_ring_element(mhi_cntrl, tre_ring);
 			local_rp = tre_ring->rp;
 
+			read_unlock_bh(&mhi_chan->lock);
+
 			/* notify client */
 			mhi_chan->xfer_cb(mhi_chan->mhi_dev, &result);
 
@@ -693,6 +700,8 @@ static int parse_xfer_event(struct mhi_controller *mhi_cntrl,
 					kfree(buf_info->cb_buf);
 				}
 			}
+
+			read_lock_bh(&mhi_chan->lock);
 		}
 		break;
 	} /* CC_EOT */
@@ -799,6 +808,7 @@ static void mhi_process_cmd_completion(struct mhi_controller *mhi_cntrl,
 	struct mhi_ring *mhi_ring = &cmd_ring->ring;
 	struct mhi_tre *cmd_pkt;
 	struct mhi_chan *mhi_chan;
+	struct mhi_tre *mhi_tre;
 	u32 chan;
 
 	if (!is_valid_ring_ptr(mhi_ring, ptr)) {
@@ -808,9 +818,11 @@ static void mhi_process_cmd_completion(struct mhi_controller *mhi_cntrl,
 
 	cmd_pkt = mhi_to_virtual(mhi_ring, ptr);
 
-	if (cmd_pkt != mhi_ring->rp)
-		panic("Out of order cmd completion: 0x%p. Expected: 0x%p\n",
-		      cmd_pkt, mhi_ring->rp);
+	if (cmd_pkt != mhi_ring->rp) {
+		mhi_tre = mhi_ring->rp;
+		panic("Out of order cmd completion: 0x%llx. Expected: 0x%llx\n",
+			ptr, (u64)mhi_to_physical(mhi_ring, mhi_tre));
+	}
 
 	if (MHI_TRE_GET_CMD_TYPE(cmd_pkt) == MHI_CMD_SFR_CFG) {
 		mhi_misc_cmd_completion(mhi_cntrl, MHI_CMD_SFR_CFG,
@@ -1287,6 +1299,9 @@ int mhi_gen_tre(struct mhi_controller *mhi_cntrl, struct mhi_chan *mhi_chan,
 	int eot, eob, chain, bei;
 	int ret;
 
+	/* Protect accesses for reading and incrementing WP */
+	write_lock_bh(&mhi_chan->lock);
+
 	buf_ring = &mhi_chan->buf_ring;
 	tre_ring = &mhi_chan->tre_ring;
 
@@ -1304,8 +1319,10 @@ int mhi_gen_tre(struct mhi_controller *mhi_cntrl, struct mhi_chan *mhi_chan,
 
 	if (!info->pre_mapped) {
 		ret = mhi_cntrl->map_single(mhi_cntrl, buf_info);
-		if (ret)
+		if (ret) {
+			write_unlock_bh(&mhi_chan->lock);
 			return ret;
+		}
 	}
 
 	eob = !!(flags & MHI_EOB);
@@ -1318,13 +1335,16 @@ int mhi_gen_tre(struct mhi_controller *mhi_cntrl, struct mhi_chan *mhi_chan,
 	mhi_tre->dword[0] = MHI_TRE_DATA_DWORD0(info->len);
 	mhi_tre->dword[1] = MHI_TRE_DATA_DWORD1(bei, eot, eob, chain);
 
-	MHI_VERB("Channel: %d WP: 0x%p TRE: 0x%llx 0x%08x 0x%08x\n",
-		 mhi_chan->chan, mhi_tre, mhi_tre->ptr, mhi_tre->dword[0],
+	MHI_VERB("Channel: %d WP: 0x%llx TRE: 0x%llx 0x%08x 0x%08x\n",
+		 mhi_chan->chan, (u64)mhi_to_physical(tre_ring, mhi_tre),
+		 mhi_tre->ptr, mhi_tre->dword[0],
 		 mhi_tre->dword[1]);
 
 	/* increment WP */
 	mhi_add_ring_element(mhi_cntrl, tre_ring);
 	mhi_add_ring_element(mhi_cntrl, buf_ring);
+
+	write_unlock_bh(&mhi_chan->lock);
 
 	return 0;
 }
