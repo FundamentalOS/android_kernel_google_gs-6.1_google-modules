@@ -7,9 +7,10 @@
 #define __LINUX_BLUETOOTH_POWER_H
 
 #include <linux/cdev.h>
-#include <linux/types.h>
 #include <linux/mailbox_client.h>
 #include <linux/mailbox/qmp.h>
+#include <linux/pinctrl/consumer.h>
+#include <linux/types.h>
 
 /*
  * voltage regulator information required for configuring the
@@ -67,6 +68,8 @@ struct btpower_platform_data {
 	char compatible[MAX_PROP_SIZE];        /*Bluetooth SoC name */
 
 	/* GPIOs */
+	struct pinctrl *pinctrls;
+	struct pinctrl_state *pinctrl_default_state;
 	int bt_gpio_sys_rst;                   /* Bluetooth reset gpio */
 	int wl_gpio_sys_rst;                   /* Wlan reset gpio */
 	int bt_gpio_sw_ctrl;                   /* Bluetooth sw_ctrl gpio */

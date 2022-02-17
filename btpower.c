@@ -937,6 +937,14 @@ static int btpower_gpios_source_initialize(struct btpower_platform_data *drvdata
 {
 	int rc = 0;
 
+	if (!IS_ERR_OR_NULL(drvdata->pinctrl_default_state)) {
+		rc = pinctrl_select_state(drvdata->pinctrls,
+					drvdata->pinctrl_default_state);
+		if (unlikely(rc))
+			pr_warn("%s: failed to set default pinctrl state rc=%d\n",
+				 __func__, rc);
+	}
+
 	rc = btpower_gpio_acquire_output(drvdata->bt_gpio_sys_rst,
 					"bt_sys_rst_n", 0);
 	if (rc) {
@@ -999,6 +1007,17 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 	rc = bt_power_vreg_get(pdev, drvdata);
 	if (rc)
 		return rc;
+
+	drvdata->pinctrls = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(drvdata->pinctrls)) {
+		pr_warn("%s: pinctrls not provided in device tree\n", __func__);
+	} else {
+		drvdata->pinctrl_default_state =
+			pinctrl_lookup_state(drvdata->pinctrls, "default");
+	}
+	if (IS_ERR(drvdata->pinctrl_default_state))
+		pr_warn("%s: default pinctrl state not provided in device tree\n",
+			__func__);
 
 	drvdata->bt_gpio_sys_rst =
 		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-reset-gpio", 0);
