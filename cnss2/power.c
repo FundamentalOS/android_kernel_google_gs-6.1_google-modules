@@ -941,13 +941,18 @@ int cnss_get_input_gpio_value(struct cnss_plat_data *plat_priv, int gpio_num)
 }
 
 #ifdef CONFIG_WCN_GOOGLE
+#define WLAN_BUCK			"wlan_buck"
 static int wlan_buck_gpio=0;
 int wlan_buck_enable(struct cnss_plat_data *plat_priv)
 {
 	int ret = 0;
 	struct device *dev;
 	int wlan_buck_gpio_val;
+	struct cnss_pinctrl_info *pinctrl_info;
+	struct pinctrl_state *wlan_buck_en;
+
 	dev = &plat_priv->plat_dev->dev;
+	pinctrl_info = &plat_priv->pinctrl_info;
 	cnss_pr_info("%s Enter\n",__func__);
 
 	if (!wlan_buck_gpio) {
@@ -959,6 +964,20 @@ int wlan_buck_enable(struct cnss_plat_data *plat_priv)
 				return -ENODEV;
 			}
 			cnss_pr_info("BUCK GPIO: %d\n", wlan_buck_gpio);
+			//configure wlan_buck GPIO
+			wlan_buck_en = pinctrl_lookup_state(pinctrl_info->pinctrl,
+							WLAN_BUCK);
+			if (IS_ERR_OR_NULL(wlan_buck_en)) {
+				ret = PTR_ERR(wlan_buck_en);
+				cnss_pr_info("Failed to get wlan_buck state, err = %d\n",
+						ret);
+			} else {
+				ret = pinctrl_select_state(pinctrl_info->pinctrl,
+						wlan_buck_en);
+				if (ret)
+					cnss_pr_info("Failed to select wlan_buck state, err = %d\n",
+						ret);
+			}
 		} else {
 			cnss_pr_err("No BUCK GPIO\n");
 		}
