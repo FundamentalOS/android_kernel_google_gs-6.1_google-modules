@@ -944,6 +944,13 @@ static int btpower_gpios_source_initialize(struct btpower_platform_data *drvdata
 			pr_warn("%s: failed to set default pinctrl state rc=%d\n",
 				 __func__, rc);
 	}
+	if (!IS_ERR_OR_NULL(drvdata->pinctrl_supply_state)) {
+		rc = pinctrl_select_state(drvdata->pinctrls,
+					drvdata->pinctrl_supply_state);
+		if (unlikely(rc))
+			pr_warn("%s: failed to set supply pinctrl state rc=%d\n",
+				 __func__, rc);
+	}
 
 	rc = btpower_gpio_acquire_output(drvdata->bt_gpio_sys_rst,
 					"bt_sys_rst_n", 0);
@@ -1014,9 +1021,14 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 	} else {
 		drvdata->pinctrl_default_state =
 			pinctrl_lookup_state(drvdata->pinctrls, "default");
+		drvdata->pinctrl_supply_state =
+			pinctrl_lookup_state(drvdata->pinctrls, "supply");
 	}
 	if (IS_ERR(drvdata->pinctrl_default_state))
 		pr_warn("%s: default pinctrl state not provided in device tree\n",
+			__func__);
+	if (IS_ERR(drvdata->pinctrl_supply_state))
+		pr_warn("%s: supply pinctrl state not provided in device tree\n",
 			__func__);
 
 	drvdata->bt_gpio_sys_rst =

@@ -70,6 +70,7 @@ struct btpower_platform_data {
 	/* GPIOs */
 	struct pinctrl *pinctrls;
 	struct pinctrl_state *pinctrl_default_state;
+	struct pinctrl_state *pinctrl_supply_state;
 	int bt_gpio_sys_rst;                   /* Bluetooth reset gpio */
 	int wl_gpio_sys_rst;                   /* Wlan reset gpio */
 	int bt_gpio_sw_ctrl;                   /* Bluetooth sw_ctrl gpio */
