@@ -1418,7 +1418,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint8_t press_id[TOUCH_MAX_FINGER_NUM] = {0};
 	int32_t i = 0;
 	int32_t finger_cnt = 0;
-	uint8_t pen_format_id = 0;
 	uint32_t pen_x = 0;
 	uint32_t pen_y = 0;
 	uint32_t pen_pressure = 0;
@@ -1644,9 +1643,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif // #if CHECK_PEN_DATA_CHECKSUM
 
 		// parse and handle pen report
-		pen_format_id = point_data[66];
-		if (pen_format_id != 0xFF) {
-			if (pen_format_id == 0x01) {
+		ts->pen_format_id = point_data[66];
+		if (ts->pen_format_id != 0xFF) {
+			if (ts->pen_format_id == 0x01) {
 				// report pen data
 				pen_x = (uint32_t)(point_data[67] << 8) + (uint32_t)(point_data[68]);
 				pen_y = (uint32_t)(point_data[69] << 8) + (uint32_t)(point_data[70]);
@@ -1674,7 +1673,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
 				// TBD: pen battery event report
 				// NVT_LOG("pen_battery=%d\n", pen_battery);
-			} else if (pen_format_id == 0xF0) {
+			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
 			} else {
 				NVT_ERR("Unknown pen format id!\n");
@@ -2245,6 +2244,14 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 #endif
 
+#if NVT_TOUCH_EXT_USI
+	ret = nvt_extra_usi_init();
+	if (ret) {
+		NVT_ERR("nvt extra usi init failed. ret=%d\n", ret);
+		goto err_extra_usi_init_failed;
+	}
+#endif
+
 #if NVT_TOUCH_MP
 	ret = nvt_mp_proc_init();
 	if (ret != 0) {
@@ -2301,6 +2308,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #endif
 
 	ts->bTouchIsAwake = true;
+	ts->pen_format_id = 0xFF;
 
 	register_panel_bridge(ts);
 	NVT_LOG("end\n");
@@ -2323,6 +2331,10 @@ err_register_early_suspend_failed:
 #if NVT_TOUCH_MP
 	nvt_mp_proc_deinit();
 err_mp_proc_init_failed:
+#endif
+#if NVT_TOUCH_EXT_USI
+	nvt_extra_usi_deinit();
+err_extra_usi_init_failed:
 #endif
 #if NVT_TOUCH_EXT_API
 	nvt_extra_api_deinit();
@@ -2444,6 +2456,9 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 #if NVT_TOUCH_MP
 	nvt_mp_proc_deinit();
 #endif
+#if NVT_TOUCH_EXT_USI
+	nvt_extra_usi_deinit();
+#endif
 #if NVT_TOUCH_EXT_API
 	nvt_extra_api_deinit();
 #endif
@@ -2539,6 +2554,9 @@ static void nvt_ts_shutdown(struct spi_device *client)
 
 #if NVT_TOUCH_MP
 	nvt_mp_proc_deinit();
+#endif
+#if NVT_TOUCH_EXT_USI
+	nvt_extra_usi_deinit();
 #endif
 #if NVT_TOUCH_EXT_API
 	nvt_extra_api_deinit();

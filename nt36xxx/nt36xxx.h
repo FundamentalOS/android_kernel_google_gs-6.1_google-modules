@@ -104,6 +104,7 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define NVT_TOUCH_PROC 1
 #define NVT_TOUCH_EXT_PROC 1
 #define NVT_TOUCH_EXT_API 1
+#define NVT_TOUCH_EXT_USI 1
 #define REPORT_PROTOCOL_A 1
 #define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
@@ -208,6 +209,7 @@ struct nvt_ts_data {
 	uint8_t report_protocol;
 	uint8_t wkg_flag;
 	uint8_t bTouchIsAwake;
+	uint8_t pen_format_id;
 #if NVT_TOUCH_EXT_API
 	uint16_t dttw_touch_area_max;
 	uint16_t dttw_touch_area_min;
@@ -350,6 +352,10 @@ extern void nvt_read_fw_history(uint32_t addr);
 extern int32_t nvt_extra_api_init(void);
 extern void nvt_extra_api_deinit(void);
 extern ssize_t nvt_set_dttw(uint8_t wkg_flag);
+#endif
+#if NVT_TOUCH_EXT_USI
+extern int32_t nvt_extra_usi_init(void);
+extern void nvt_extra_usi_deinit(void);
 #endif
 
 #if NVT_TOUCH_ESD_PROTECT
