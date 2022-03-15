@@ -1875,6 +1875,17 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 //						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
 
 				input_set_timestamp(ts->pen_input_dev, ts->timestamp);
+
+				/* Snapshot some stylus context information for
+				 * offload
+				 */
+				ts->pen_active = 1;
+				ts->pen_offload_coord.status = COORD_STATUS_PEN;
+				ts->pen_offload_coord.x = pen_x;
+				ts->pen_offload_coord.y = pen_y;
+				ts->pen_offload_coord.pressure = pen_pressure;
+				ts->pen_offload_coord_timestamp = ts->timestamp;
+
 				input_report_abs(ts->pen_input_dev, ABS_X, pen_x);
 				input_report_abs(ts->pen_input_dev, ABS_Y, pen_y);
 				input_report_abs(ts->pen_input_dev, ABS_PRESSURE, pen_pressure);
@@ -1895,6 +1906,13 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			}
 		} else { // pen_format_id = 0xFF, i.e. no pen present
 			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
+
+			/* Snapshot some stylus context information for offload */
+			ts->pen_active = 0;
+			ts->pen_offload_coord_timestamp = ts->timestamp;
+			memset(&ts->pen_offload_coord, 0,
+			       sizeof(ts->pen_offload_coord));
+
 			input_report_abs(ts->pen_input_dev, ABS_X, 0);
 			input_report_abs(ts->pen_input_dev, ABS_Y, 0);
 			input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
@@ -2406,7 +2424,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->gti = goog_touch_interface_probe(ts, &ts->client->dev,
 					ts->input_dev, nvt_callback, NULL);
 	if (ts->gti == NULL) {
-		NVT_ERR("offload probe failed. ret=%d!\n", ret);
+		NVT_ERR("goog_touch_interface probe failed. ret=%d!\n", ret);
 		goto err_goog_touch_interface;
 	}
 #ifdef GOOG_TOUCH_INTERFACE
@@ -2955,7 +2973,6 @@ int nvt_ts_suspend(struct device *dev)
 	}
 
 	mutex_unlock(&ts->lock);
-
 
 #if defined(CONFIG_SOC_GOOGLE)
 	if (!ts->wkg_flag)

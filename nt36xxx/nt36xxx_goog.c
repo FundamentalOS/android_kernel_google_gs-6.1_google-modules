@@ -180,6 +180,42 @@ int nvt_callback(void *private_data,
 	}
 		break;
 
+	case GTI_CMD_GET_CONTEXT_DRIVER:
+		cmd->context_driver_cmd.contents.screen_state = 1;
+		cmd->context_driver_cmd.screen_state =
+				ts->bTouchIsAwake ? 1 : 0;
+#ifdef DYNAMIC_REFRESH_RATE
+		cmd->context_driver_cmd.contents.display_refresh_rate = 1;
+		cmd->context_driver_cmd.display_refresh_rate =
+				ts->display_refresh_rate;
+#endif
+		/* Fixed touch report rate and no update event */
+		cmd->context_driver_cmd.contents.touch_report_rate = 1;
+		cmd->context_driver_cmd.touch_report_rate = 120;
+
+		cmd->context_driver_cmd.contents.offload_timestamp = 1;
+		cmd->context_driver_cmd.offload_timestamp =
+				ts->pen_offload_coord_timestamp;
+		ret = 0;
+		break;
+
+	case GTI_CMD_GET_CONTEXT_STYLUS:
+		cmd->context_stylus_cmd.contents.coords = 1;
+		cmd->context_stylus_cmd.pen_offload_coord =
+				ts->pen_offload_coord;
+
+		cmd->context_stylus_cmd.contents.coords_timestamp = 1;
+		cmd->context_stylus_cmd.pen_offload_coord_timestamp =
+				ts->pen_offload_coord_timestamp;
+
+		cmd->context_stylus_cmd.contents.pen_active = 1;
+		cmd->context_stylus_cmd.pen_active = ts->pen_active;
+
+		/* No useful pen-pairing information available in this driver */
+		cmd->context_stylus_cmd.contents.pen_paired = 0;
+		ret = 0;
+		break;
+
 	case GTI_CMD_GET_FW_VERSION: {
 		int buf_idx = 0;
 		char *buf = cmd->fw_version_cmd.buffer;

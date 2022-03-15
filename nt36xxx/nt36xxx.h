@@ -316,6 +316,13 @@ struct nvt_ts_data {
 	uint32_t extra_spi_buf_size;
 	uint8_t *extra_spi_buf;
 	uint32_t touch_heatmap_comp_len;
+
+	/*
+	 * Stylus context used by touch_offload
+	 */
+	struct TouchOffloadCoord pen_offload_coord;
+	ktime_t pen_offload_coord_timestamp;
+	u8 pen_active;
 };
 
 #if NVT_TOUCH_PROC
