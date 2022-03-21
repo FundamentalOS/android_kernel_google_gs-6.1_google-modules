@@ -47,6 +47,7 @@
 #define KIWI_PATH_PREFIX		"kiwi/"
 #define DEFAULT_PHY_M3_FILE_NAME	"m3.bin"
 #define DEFAULT_PHY_UCODE_FILE_NAME	"phy_ucode.elf"
+#define PHY_UCODE_V2_FILE_NAME		"phy_ucode20.elf"
 #define DEFAULT_FW_FILE_NAME		"amss.bin"
 #define FW_V2_FILE_NAME			"amss20.bin"
 #define DEVICE_MAJOR_VERSION_MASK	0xF
@@ -1699,7 +1700,7 @@ int cnss_pci_start_mhi(struct cnss_pci_data *pci_priv)
 		  jiffies + msecs_to_jiffies(BOOT_DEBUG_TIMEOUT_MS));
 
 	ret = cnss_pci_set_mhi_state(pci_priv, CNSS_MHI_POWER_ON);
-	del_timer(&pci_priv->boot_debug_timer);
+	del_timer_sync(&pci_priv->boot_debug_timer);
 	if (ret == 0)
 		cnss_wlan_adsp_pc_enable(pci_priv, false);
 
@@ -2785,6 +2786,18 @@ int cnss_wlan_register_driver(struct cnss_wlan_driver *driver_ops)
 		return -ENODEV;
 	}
 #endif
+
+	/* Assume only for those drivers provide chip version explicitly
+	 * need version check.
+	 */
+	if (driver_ops->chip_version != CNSS_CHIP_VER_ANY &&
+	    driver_ops->chip_version != plat_priv->device_version.major_version) {
+		cnss_pr_err("Driver built for chip ver 0x%x, enumerated ver 0x%x, reject unsupported driver\n",
+			    driver_ops->chip_version,
+			    plat_priv->device_version.major_version);
+		return -ENODEV;
+	}
+
 	set_bit(CNSS_DRIVER_REGISTER, &plat_priv->driver_state);
 
 	if (!plat_priv->cbc_enabled ||
@@ -3847,6 +3860,15 @@ int cnss_pci_load_m3(struct cnss_pci_data *pci_priv)
 	case QCA6390_DEVICE_ID:
 	case QCA6490_DEVICE_ID:
 		phy_filename = DEFAULT_PHY_M3_FILE_NAME;
+		break;
+	case KIWI_DEVICE_ID:
+		switch (plat_priv->device_version.major_version) {
+		case FW_V2_NUMBER:
+			phy_filename = PHY_UCODE_V2_FILE_NAME;
+			break;
+		default:
+			break;
+		}
 		break;
 	default:
 		break;
