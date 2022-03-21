@@ -25,6 +25,11 @@
 #include <linux/input/mt.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
+#include <linux/power_supply.h>
+
+#define NVT_VENDOR_ID		0x0603
+#define NVT_PRODUCT_ID		0x7806
+#define NVT_VERSION		0x0100
 
 #if defined(CONFIG_DRM_PANEL)
 #include <drm/drm_panel.h>
@@ -1388,6 +1393,78 @@ static int32_t nvt_ts_point_data_checksum(uint8_t *buf, uint8_t length)
 }
 #endif /* POINT_DATA_CHECKSUM */
 
+static enum power_supply_property pen_battery_props[] = {
+	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_SCOPE,
+};
+
+static int pen_get_battery_property(struct power_supply *psy,
+		enum power_supply_property prop, union power_supply_propval *val)
+{
+	switch (prop) {
+	case POWER_SUPPLY_PROP_PRESENT:
+		val->intval = 1;
+		break;
+
+	case POWER_SUPPLY_PROP_CAPACITY:
+		val->intval = (100 * (ts->pen_bat_capa - PEN_BATTERY_MIN) /
+			(PEN_BATTERY_MAX - PEN_BATTERY_MIN));
+		break;
+
+	case POWER_SUPPLY_PROP_STATUS:
+		val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+		break;
+
+	case POWER_SUPPLY_PROP_SCOPE:
+		val->intval = POWER_SUPPLY_SCOPE_DEVICE;
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static struct power_supply *pen_setup_battery()
+{
+	int error;
+	struct power_supply_desc *psy_desc;
+	struct power_supply *battery;
+
+	psy_desc = kzalloc(sizeof(*psy_desc), GFP_KERNEL);
+	if (!psy_desc) {
+		NVT_ERR("cannot allocate psy_desc\n");
+		return NULL;
+	}
+
+	psy_desc->name = NVT_PEN_BATTERY_NAME;
+	psy_desc->type = POWER_SUPPLY_TYPE_BATTERY;
+	psy_desc->properties = pen_battery_props;
+	psy_desc->num_properties = ARRAY_SIZE(pen_battery_props);
+	psy_desc->get_property = pen_get_battery_property;
+
+	battery = power_supply_register(ts->pen_input_dev->dev.parent, psy_desc, NULL);
+	if (IS_ERR(battery)) {
+		error = PTR_ERR(battery);
+		kfree(psy_desc);
+		NVT_ERR("Can't register power supply, err  = %d\n", error);
+		return NULL;
+	}
+
+	return battery;
+}
+
+static void pen_clean_battery(struct power_supply *battery)
+{
+	const struct power_supply_desc *psy_desc = battery->desc;
+
+	power_supply_unregister(battery);
+	kfree(psy_desc);
+}
+
 static irqreturn_t nvt_ts_isr(int irq, void *handle)
 {
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)handle;
@@ -1426,7 +1503,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	int8_t pen_tilt_y = 0;
 	uint32_t pen_btn1 = 0;
 	uint32_t pen_btn2 = 0;
-	uint32_t pen_battery = 0;
 
 	cpu_latency_qos_update_request(&ts->pm_qos_req, 100 /* usec */);
 
@@ -1657,7 +1733,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 						       point_data[76]);
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-				pen_battery = (uint32_t)point_data[78];
+				if (ts->pen_bat_capa != (uint32_t)point_data[78]) {
+					ts->pen_bat_capa = (uint32_t)point_data[78];
+					power_supply_changed(ts->pen_bat_psy);
+				}
 //				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
 //						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
 
@@ -1671,8 +1750,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
-				// TBD: pen battery event report
-				// NVT_LOG("pen_battery=%d\n", pen_battery);
 			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
 			} else {
@@ -2089,8 +2166,13 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	snprintf(ts->phys, sizeof(ts->phys), "input/ts");
 	ts->input_dev->name = NVT_TS_NAME;
+	ts->input_dev->uniq = ts->input_dev->name;
 	ts->input_dev->phys = ts->phys;
+	ts->input_dev->dev.parent = &client->dev;
 	ts->input_dev->id.bustype = BUS_SPI;
+        ts->input_dev->id.vendor = NVT_VENDOR_ID;
+        ts->input_dev->id.product = NVT_PRODUCT_ID;
+        ts->input_dev->id.version = NVT_VERSION;
 
 	//---register input device---
 	ret = input_register_device(ts->input_dev);
@@ -2140,8 +2222,13 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 		snprintf(ts->pen_phys, sizeof(ts->pen_phys), "input/pen");
 		ts->pen_input_dev->name = NVT_PEN_NAME;
+		ts->pen_input_dev->uniq = ts->pen_input_dev->name;
 		ts->pen_input_dev->phys = ts->pen_phys;
+		ts->pen_input_dev->dev.parent = &client->dev;
 		ts->pen_input_dev->id.bustype = BUS_SPI;
+		ts->pen_input_dev->id.vendor = NVT_VENDOR_ID;
+		ts->pen_input_dev->id.product = NVT_PRODUCT_ID;
+		ts->pen_input_dev->id.version = NVT_VERSION;
 
 		//---register pen input device---
 		ret = input_register_device(ts->pen_input_dev);
@@ -2149,6 +2236,12 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 			NVT_ERR("register pen input device (%s) failed. ret=%d\n",
 				ts->pen_input_dev->name, ret);
 			goto err_pen_input_register_device_failed;
+		}
+
+		ts->pen_bat_psy = pen_setup_battery();
+		if (ts->pen_bat_psy == NULL) {
+			NVT_ERR("register pen battery failed.\n");
+			goto err_pen_setup_battery_failed;
 		}
 	} /* if (ts->pen_support) */
 
@@ -2239,7 +2332,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #if NVT_TOUCH_EXT_API
 	ret = nvt_extra_api_init();
 	if (ret) {
-		NVT_ERR("nvt extra proc init failed. ret=%d\n", ret);
+		NVT_ERR("nvt extra api init failed. ret=%d\n", ret);
 		goto err_extra_api_init_failed;
 	}
 #endif
@@ -2374,6 +2467,9 @@ err_int_request_failed:
 err_offload_probe:
 	goog_heatmap_remove(ts);
 err_heatmap_probe:
+	pen_clean_battery(ts->pen_bat_psy);
+	ts->pen_bat_psy = NULL;
+err_pen_setup_battery_failed:
 	if (ts->pen_support) {
 		input_unregister_device(ts->pen_input_dev);
 		ts->pen_input_dev = NULL;

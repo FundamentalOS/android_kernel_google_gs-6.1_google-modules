@@ -81,6 +81,7 @@
 //---Input device info.---
 #define NVT_TS_NAME "NVTCapacitiveTouchScreen"
 #define NVT_PEN_NAME "NVTCapacitivePen"
+#define NVT_PEN_BATTERY_NAME "nvt-pen-battery"
 
 //---Touch info.---
 #define TOUCH_DEFAULT_MAX_WIDTH 1600
@@ -96,6 +97,8 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define PEN_DISTANCE_MAX (1)
 #define PEN_TILT_MIN (-60)
 #define PEN_TILT_MAX (60)
+#define PEN_BATTERY_MAX (100)
+#define PEN_BATTERY_MIN (0)
 
 /* Enable only when module have tp reset pin and connected to host */
 #define NVT_TOUCH_SUPPORT_HW_RST 1
@@ -210,6 +213,8 @@ struct nvt_ts_data {
 	uint8_t wkg_flag;
 	uint8_t bTouchIsAwake;
 	uint8_t pen_format_id;
+	uint32_t pen_bat_capa;
+	struct power_supply *pen_bat_psy;
 #if NVT_TOUCH_EXT_API
 	uint16_t dttw_touch_area_max;
 	uint16_t dttw_touch_area_min;
