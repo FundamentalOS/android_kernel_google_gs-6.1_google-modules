@@ -119,6 +119,8 @@ extern const uint16_t gesture_key_array[];
 #define MP_UPDATE_FIRMWARE_NAME   "novatek_ts_mp.bin"
 #define POINT_DATA_CHECKSUM 0
 #define POINT_DATA_CHECKSUM_LEN 65
+#define NVT_HEATMAP_COMP 1
+#define NVT_HEATMAP_COMP_NOT_READY_SIZE (0xFFF << 1)
 
 //---ESD Protect.---
 #define NVT_TOUCH_ESD_PROTECT 1
@@ -144,11 +146,16 @@ extern const uint16_t gesture_key_array[];
 #define PALM_TOUCH 0x05
 #endif
 
-// HEATMAP ADDR
+// HEATMAP
 #if NVT_TOUCH_EXT_API
 #define HM_RAWDATA_ADDR 0x26238
 #define HM_BASELINE_ADDR 0x36510
-#define HM_DIFF_ADDR 0x373E8
+#define HM_TOUCH_DIFF_ADDR 0x373E8
+#define HM_PEN_DIFF_ADDR 0x2A50A
+#define HM_TOUCH_RAW_MODE 1
+#define HM_TOUCH_BASELINE_MODE 2
+#define HM_TOUCH_DIFF_MODE 3
+#define HM_PEN_DIFF_MODE 4
 #endif
 
 /* FW History */
@@ -264,11 +271,14 @@ struct nvt_ts_data {
 	 * Used for google touch interface.
 	 */
 	struct goog_touch_interface *gti;
+	uint32_t heatmap_addr;
+	uint32_t heatmap_out_buf_size;
+	uint8_t *heatmap_out_buf;
 	uint32_t heatmap_spi_buf_size;
 	uint8_t *heatmap_spi_buf;
-	uint32_t heatmap_addr;
 	uint32_t extra_spi_buf_size;
 	uint8_t *extra_spi_buf;
+	uint32_t touch_heatmap_comp_len;
 };
 
 #if NVT_TOUCH_PROC

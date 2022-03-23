@@ -18,6 +18,10 @@
  */
 struct nvt_ts_data; /* forward declaration */
 
+void nvt_heatmap_decode(
+		const uint8_t *in, const uint32_t in_sz,
+		const uint8_t *out, const uint32_t out_sz);
+
 #ifdef GOOG_TOUCH_INTERFACE
 int nvt_get_channel_data(void *private_data,
 		u32 type, u8 **ptr, u32 *size);

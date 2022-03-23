@@ -9,15 +9,59 @@
 #include <samsung/exynos_drm_connector.h> /* to_exynos_connector_state() */
 
 
+void nvt_heatmap_decode(
+		const uint8_t *in, const uint32_t in_sz,
+		const uint8_t *out, const uint32_t out_sz)
+{
+	const u16 ESCAPE_MASK = 0xF000;
+	const u16 ESCAPE_BIT = 0x8000;
+	const u16 *in_array = (u16 *)in;
+	u16 *out_array = (u16 *)out;
+	const int in_array_size = in_sz / 2;
+	const int out_array_max_size = out_sz / 2;
+
+	int i;
+	int j;
+	int out_array_size = 0;
+	u16 prev_word = 0;
+	u16 repetition = 0;
+
+	for (i = 0; i < in_array_size; i++) {
+		u16 curr_word = in_array[i];
+
+		if ((curr_word & ESCAPE_MASK) == ESCAPE_BIT) {
+			repetition = (curr_word & ~ESCAPE_MASK);
+			if (out_array_size + repetition > out_array_max_size)
+				break;
+			for (j = 0; j < repetition; j++) {
+				*out_array++ = prev_word;
+				out_array_size++;
+			}
+		} else {
+			if (out_array_size >= out_array_max_size)
+				break;
+			*out_array++ = curr_word;
+			out_array_size++;
+			prev_word = curr_word;
+		}
+	}
+
+	if (i != in_array_size || out_array_size != out_array_max_size) {
+		NVT_DBG("%d (in=%d, out=%d, rep=%d, out_max=%d).\n",
+				i, in_array_size, out_array_size,
+				repetition, out_array_max_size);
+	}
+}
+
 #ifdef GOOG_TOUCH_INTERFACE
 int nvt_get_channel_data(void *private_data,
 			u32 type, u8 **ptr, u32 *size)
 {
 	int ret = 0;
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
-	uint32_t page_addr = HM_DIFF_ADDR;
+	uint32_t page_addr = HM_TOUCH_DIFF_ADDR;
 	uint8_t *spi_buf = ts->heatmap_spi_buf;
-	uint16_t spi_buf_size = ts->heatmap_spi_buf_size;
+	uint32_t spi_buf_size = ts->heatmap_spi_buf_size;
 
 	/* Only support mutual data currently. */
 	if (!(type & TOUCH_SCAN_TYPE_MUTUAL))
@@ -41,7 +85,7 @@ int nvt_get_channel_data(void *private_data,
 		if (ts->heatmap_en && ts->heatmap_addr)
 			page_addr = ts->heatmap_addr;
 		else
-			page_addr = HM_DIFF_ADDR;
+			page_addr = HM_TOUCH_DIFF_ADDR;
 		spi_buf = ts->heatmap_spi_buf;
 		spi_buf_size = ts->heatmap_spi_buf_size;
 		break;
@@ -53,16 +97,29 @@ int nvt_get_channel_data(void *private_data,
 	if (ret)
 		return ret;
 
+	/* Extra 1 byte for SPI header. */
+	if (page_addr == HM_TOUCH_DIFF_ADDR && ts->touch_heatmap_comp_len)
+		spi_buf_size = ts->touch_heatmap_comp_len + 1;
+
 	nvt_set_page(page_addr);
 	spi_buf[0] = page_addr & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, spi_buf_size);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-	*ptr = spi_buf + 1;
-	*size = ts->x_num * ts->y_num * 2;
+
+	if (page_addr == HM_TOUCH_DIFF_ADDR && ts->touch_heatmap_comp_len) {
+		/* Skip 1 byte header to the data start. */
+		nvt_heatmap_decode(spi_buf + 1, ts->touch_heatmap_comp_len,
+				ts->heatmap_out_buf, ts->heatmap_out_buf_size);
+		*ptr = ts->heatmap_out_buf;
+		*size = ts->heatmap_out_buf_size;
+	} else {
+		*ptr = spi_buf + 1;
+		*size = ts->x_num * ts->y_num * 2;
+	}
 
 	return ret;
 }
-#endif
+#endif /* GOOG_TOUCH_INTERFACE */
 
 #if defined(CONFIG_SOC_GOOGLE)
 

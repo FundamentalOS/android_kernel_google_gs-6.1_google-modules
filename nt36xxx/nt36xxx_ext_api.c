@@ -368,7 +368,7 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	if (kstrtou8(buf, 10, &mode) || mode > MODE_3)
+	if (kstrtou8(buf, 10, &mode) || mode > HM_TOUCH_DIFF_MODE)
 		return -EINVAL;
 
 	if (!ts->heatmap_spi_buf) {
@@ -383,17 +383,17 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 	case CMD_DISABLE:
 		NVT_LOG("Disable Heatmap Mode\n");
 		break;
-	case MODE_1: // Rawdata
+	case HM_TOUCH_RAW_MODE:
 		NVT_LOG("Enter Heatmap Rawdata Mode\n");
 		ts->heatmap_addr = HM_RAWDATA_ADDR;
 		break;
-	case MODE_2: // Baseline
+	case HM_TOUCH_BASELINE_MODE:
 		NVT_LOG("Enter Heatmap Baseline Mode\n");
 		ts->heatmap_addr = HM_BASELINE_ADDR;
 		break;
-	case MODE_3: // Diff
+	case HM_TOUCH_DIFF_MODE:
 		NVT_LOG("Enter Heatmap Diff Mode\n");
-		ts->heatmap_addr = HM_DIFF_ADDR;
+		ts->heatmap_addr = HM_TOUCH_DIFF_ADDR;
 		break;
 	}
 
@@ -2030,13 +2030,35 @@ static struct proc_dir_entry *NVT_proc_cc_uniformity_entry;
 
 static int32_t c_show_heatmap(struct seq_file *m, void *v)
 {
+	uint32_t count = 0;
+	uint32_t start = 1;
 	uint32_t i;
+	uint8_t *buf = ts->heatmap_spi_buf;
+	uint32_t buf_size = ts->heatmap_spi_buf_size;
+
+	switch (ts->heatmap_addr) {
+	case HM_TOUCH_DIFF_ADDR:
+		buf = ts->heatmap_spi_buf;
+		if (ts->touch_heatmap_comp_len) {
+			start = 0;
+			buf = ts->heatmap_out_buf;
+			buf_size = ts->heatmap_out_buf_size;
+		} else {
+			buf = ts->heatmap_spi_buf;
+			buf_size = ts->heatmap_spi_buf_size;
+		}
+		break;
+	default:
+		buf = ts->extra_spi_buf;
+		buf_size = ts->extra_spi_buf_size;
+		break;
+	}
 
 	// Set size = 8 to align page with 4096 and fit in the data range for raw data
-	for (i = 1; i < ts->heatmap_spi_buf_size; i += 2) {
+	for (i = start; i < buf_size; i += 2, count++) {
 		seq_printf(m, "%7d",
-			(int16_t)((ts->heatmap_spi_buf[i + 1] << 8) + ts->heatmap_spi_buf[i]));
-		if ((i + 1) % (ts->x_num * 2) == 0)
+			(int16_t)((buf[i + 1] << 8) + buf[i]));
+		if ((count + 1) % ts->x_num == 0)
 			seq_puts(m, "\n");
 		else
 			seq_puts(m, " ");

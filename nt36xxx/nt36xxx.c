@@ -748,27 +748,38 @@ info_retry:
 		ts->fw_ver, buf[14], ts->nvt_pid, ts->touch_width, ts->touch_height);
 
 	/* Allocate buffer for heatmap(delta) data. */
+	if (!ts->heatmap_out_buf) {
+		ts->heatmap_out_buf_size = ts->x_num * ts->y_num * 2;
+		ts->heatmap_out_buf = devm_kzalloc(&ts->client->dev,
+				ts->heatmap_out_buf_size, GFP_KERNEL);
+		if (!ts->heatmap_out_buf) {
+			NVT_ERR("failed to alloc heatmap_out_buf!\n");
+			return -ENOMEM;
+		}
+	}
+
+	/* Allocate buffer for SPI heatmap(delta) data. */
 	if (!ts->heatmap_spi_buf) {
 		ts->heatmap_en = true;
-		ts->heatmap_addr = HM_DIFF_ADDR;
+		ts->heatmap_addr = HM_TOUCH_DIFF_ADDR;
 		/* Need one stuffing byte for I/O transfer. */
 		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
 		ts->heatmap_spi_buf = devm_kzalloc(&ts->client->dev,
 				ts->heatmap_spi_buf_size, GFP_KERNEL);
 		if (!ts->heatmap_spi_buf) {
-			NVT_ERR("failed to alloc heatmap buf!\n");
+			NVT_ERR("failed to alloc heatmap_spi_buf!\n");
 			return -ENOMEM;
 		}
 	}
 
-	/* Allocate buffer for extra(non-delta) data. */
+	/* Allocate buffer for SPI extra(non-delta) data. */
 	if (!ts->extra_spi_buf) {
 		/* Need one stuffing byte for I/O transfer. */
 		ts->extra_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
 		ts->extra_spi_buf = devm_kzalloc(&ts->client->dev,
 				ts->extra_spi_buf_size, GFP_KERNEL);
 		if (!ts->extra_spi_buf) {
-			NVT_ERR("failed to alloc extra buf!\n");
+			NVT_ERR("failed to alloc extra_spi_buf!\n");
 			return -ENOMEM;
 		}
 	}
@@ -1718,6 +1729,53 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	goog_input_sync(ts->gti, ts->input_dev);
 	goog_input_unlock(ts->gti);
 
+#if (NVT_HEATMAP_COMP && !TOUCH_KEY_NUM)
+	/* Replace button status with heatmap compression length. */
+	if (finger_cnt) {
+		ts->touch_heatmap_comp_len = (((point_data[62] & 0x0F) << 8) + point_data[61]) * 2;
+		if (ts->touch_heatmap_comp_len + 1 > ts->heatmap_spi_buf_size) {
+			if (ts->touch_heatmap_comp_len != NVT_HEATMAP_COMP_NOT_READY_SIZE) {
+				NVT_ERR("invalid heatmap comp size %d!\n",
+						ts->touch_heatmap_comp_len);
+			}
+			ts->touch_heatmap_comp_len = 0;
+		}
+	}
+#endif
+
+#ifndef GOOG_TOUCH_INTERFACE
+	if (ts->heatmap_en && finger_cnt) {
+		uint8_t *spi_buf;
+		uint32_t spi_buf_size;
+
+		switch (ts->heatmap_addr) {
+		case HM_TOUCH_DIFF_ADDR:
+			spi_buf = ts->heatmap_spi_buf;
+			/* Extra 1 byte for SPI header. */
+			if (ts->touch_heatmap_comp_len)
+				spi_buf_size = ts->touch_heatmap_comp_len + 1;
+			else
+				spi_buf_size = ts->heatmap_spi_buf_size;
+			break;
+		default:
+			spi_buf = ts->extra_spi_buf;
+			spi_buf_size = ts->extra_spi_buf_size;
+			break;
+		}
+
+		nvt_set_page(ts->heatmap_addr);
+		spi_buf[0] = ts->heatmap_addr & 0x7F;
+		CTP_SPI_READ(ts->client, spi_buf, spi_buf_size);
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
+		if (ts->touch_heatmap_comp_len) {
+			/* Skip 1 byte header to the data start. */
+			nvt_heatmap_decode(spi_buf + 1, ts->touch_heatmap_comp_len,
+					ts->heatmap_out_buf, ts->heatmap_out_buf_size);
+		}
+	}
+#endif	/* !GOOG_TOUCH_INTERFACE */
+
 	if (ts->pen_support) {
 		/*
 		//--- dump pen buf ---
@@ -2598,6 +2656,9 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 
 	spi_set_drvdata(client, NULL);
 
+	devm_kfree(&client->dev, ts->heatmap_out_buf);
+	ts->heatmap_out_buf = NULL;
+	ts->heatmap_out_buf_size = 0;
 	devm_kfree(&client->dev, ts->heatmap_spi_buf);
 	ts->heatmap_spi_buf = NULL;
 	ts->heatmap_spi_buf_size = 0;
