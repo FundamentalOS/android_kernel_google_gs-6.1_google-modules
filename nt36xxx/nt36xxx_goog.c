@@ -119,6 +119,72 @@ int nvt_get_channel_data(void *private_data,
 
 	return ret;
 }
+
+int nvt_callback(void *private_data,
+		u32 cmd, u32 sub_cmd, u8 **buffer, u32 *size)
+{
+	int ret = -EOPNOTSUPP;
+	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
+
+	switch (cmd) {
+	case GTI_CMD_GET_SENSOR_DATA:
+		ret = nvt_get_channel_data(ts, sub_cmd, buffer, size);
+		break;
+	case GTI_CMD_SET_GRIP: {
+		#define GRIP_ENABLE  0x41
+		#define GRIP_DISABLE 0x40
+		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, GRIP_DISABLE};
+		uint8_t fw_cmd = GRIP_DISABLE;
+
+		if (sub_cmd == GTI_SUB_CMD_ENABLE)
+			fw_cmd = GRIP_ENABLE;
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		spi_buf[2] = fw_cmd;
+		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
+		ret = 0;
+		NVT_LOG("grip %s.\n", (fw_cmd == GRIP_ENABLE) ? "enable" : "disable");
+	}
+		break;
+	case GTI_CMD_SET_PALM: {
+		#define PALM_ENABLE  0xB3
+		#define PALM_DISABLE 0xB4
+		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, PALM_DISABLE, 0};
+		uint8_t fw_cmd = PALM_DISABLE;
+
+		if (sub_cmd == GTI_SUB_CMD_ENABLE)
+			fw_cmd = PALM_ENABLE;
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		spi_buf[1] = fw_cmd;
+		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
+		ret = 0;
+		NVT_LOG("palm %s.\n", (fw_cmd == PALM_ENABLE) ? "enable" : "disable");
+	}
+		break;
+	case GTI_CMD_SET_CONTINUOUS_REPORT: {
+		#define CONTINUOUS_ENABLE  0x01
+		#define CONTINUOUS_DISABLE 0x00
+		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, CONTINUOUS_DISABLE};
+		uint8_t fw_cmd = CONTINUOUS_DISABLE;
+
+		if (sub_cmd == GTI_SUB_CMD_ENABLE)
+			fw_cmd = CONTINUOUS_ENABLE;
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		spi_buf[2] = fw_cmd;
+		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
+		ret = 0;
+		NVT_DBG("continuous report %s.\n",
+				(fw_cmd == GTI_SUB_CMD_ENABLE) ? "enable" : "disable");
+	}
+		break;
+	default:
+		NVT_ERR("unsupport request cmd %#x!\n", cmd);
+		ret = -EOPNOTSUPP;
+		break;
+	}
+
+	return ret;
+}
+
 #endif /* GOOG_TOUCH_INTERFACE */
 
 #if defined(CONFIG_SOC_GOOGLE)

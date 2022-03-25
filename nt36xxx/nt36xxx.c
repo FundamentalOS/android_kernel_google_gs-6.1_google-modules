@@ -2303,7 +2303,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	/* probe google touch interface. */
 	ts->gti = goog_touch_interface_probe(ts, &ts->client->dev,
-					ts->input_dev, nvt_get_channel_data);
+					ts->input_dev, nvt_callback);
 	if (ts->gti == NULL) {
 		NVT_ERR("offload probe failed. ret=%d!\n", ret);
 		goto err_goog_touch_interface;
@@ -2773,6 +2773,40 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	reinit_completion(&ts->bus_resumed);
 	ts->bTouchIsAwake = false;
 
+	/* release all touches */
+	goog_input_lock(ts->gti);
+	goog_input_set_timestamp(ts->gti, ts->input_dev, KTIME_RELEASE_ALL);
+	if (ts->report_protocol == REPORT_PROTOCOL_B) {
+		for (i = 0; i < ts->max_touch_num; i++) {
+			goog_input_mt_slot(ts->gti, ts->input_dev, i);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_PRESSURE, 0);
+			goog_input_mt_report_slot_state(ts->gti, ts->input_dev, MT_TOOL_FINGER, 0);
+		}
+	}
+	goog_input_report_key(ts->gti, ts->input_dev, BTN_TOUCH, 0);
+
+	if (ts->report_protocol == REPORT_PROTOCOL_A)
+		input_mt_sync(ts->input_dev);
+
+	goog_input_sync(ts->gti, ts->input_dev);
+	goog_input_unlock(ts->gti);
+
+	/* release pen event */
+	if (ts->pen_support) {
+		input_report_abs(ts->pen_input_dev, ABS_X, 0);
+		input_report_abs(ts->pen_input_dev, ABS_Y, 0);
+		input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
+		input_report_abs(ts->pen_input_dev, ABS_TILT_X, 0);
+		input_report_abs(ts->pen_input_dev, ABS_TILT_Y, 0);
+		input_report_abs(ts->pen_input_dev, ABS_DISTANCE, 0);
+		input_report_key(ts->pen_input_dev, BTN_TOUCH, 0);
+		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
+		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
+		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+		input_sync(ts->pen_input_dev);
+	}
+
 #if WAKEUP_GESTURE
 	if (ts->wkg_flag) {
 		switch (nvt_set_dttw(ts->wkg_flag)) {
@@ -2813,39 +2847,6 @@ static int32_t nvt_ts_suspend(struct device *dev)
 
 	mutex_unlock(&ts->lock);
 
-	/* release all touches */
-	goog_input_lock(ts->gti);
-	goog_input_set_timestamp(ts->gti, ts->input_dev, KTIME_RELEASE_ALL);
-	if (ts->report_protocol == REPORT_PROTOCOL_B) {
-		for (i = 0; i < ts->max_touch_num; i++) {
-			goog_input_mt_slot(ts->gti, ts->input_dev, i);
-			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-			goog_input_report_abs(ts->gti, ts->input_dev, ABS_MT_PRESSURE, 0);
-			goog_input_mt_report_slot_state(ts->gti, ts->input_dev, MT_TOOL_FINGER, 0);
-		}
-	}
-	goog_input_report_key(ts->gti, ts->input_dev, BTN_TOUCH, 0);
-
-	if (ts->report_protocol == REPORT_PROTOCOL_A)
-		input_mt_sync(ts->input_dev);
-
-	goog_input_sync(ts->gti, ts->input_dev);
-	goog_input_unlock(ts->gti);
-
-	/* release pen event */
-	if (ts->pen_support) {
-		input_report_abs(ts->pen_input_dev, ABS_X, 0);
-		input_report_abs(ts->pen_input_dev, ABS_Y, 0);
-		input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
-		input_report_abs(ts->pen_input_dev, ABS_TILT_X, 0);
-		input_report_abs(ts->pen_input_dev, ABS_TILT_Y, 0);
-		input_report_abs(ts->pen_input_dev, ABS_DISTANCE, 0);
-		input_report_key(ts->pen_input_dev, BTN_TOUCH, 0);
-		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
-		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
-		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
-		input_sync(ts->pen_input_dev);
-	}
 
 #if defined(CONFIG_SOC_GOOGLE)
 	if (!ts->wkg_flag)

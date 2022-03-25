@@ -24,10 +24,17 @@ void nvt_heatmap_decode(
 
 #ifdef GOOG_TOUCH_INTERFACE
 int nvt_get_channel_data(void *private_data,
-		u32 type, u8 **ptr, u32 *size);
+		u32 type, u8 **buffer, u32 *size);
+int nvt_callback(void *private_data,
+		u32 cmd, u32 sub_cmd, u8 **buffer, u32 *size);
 #else
 static inline int nvt_get_channel_data(void *private_data,
-		u32 type, u8 **ptr, u32 *size)
+		u32 type, u8 **buffer, u32 *size)
+{
+	return -ENODATA;
+}
+static inline int nvt_callback(void *private_data,
+		u32 cmd, u32 sub_cmd, u8 **buffer, u32 *size)
 {
 	return -ENODATA;
 }
@@ -106,7 +113,7 @@ static inline int nvt_ts_pm_resume(struct device *dev)
  */
 
 #define NVT_SUSPEND_WORK_MS_DELAY	0
-#define NVT_SUSPEND_POST_MS_DELAY	50
+#define NVT_SUSPEND_POST_MS_DELAY	80
 #define NVT_RESUME_WORK_MS_DELAY	0
 #define NVT_FORCE_ACTIVE_MS_DELAY	500
 #define NVT_PINCTRL_US_DELAY		(10*1000)
