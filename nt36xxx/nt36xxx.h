@@ -235,6 +235,9 @@ struct nvt_ts_data {
 	uint8_t heatmap_en;
 #endif
 
+	const char *fw_name;
+	const char *mp_fw_name;
+
 	/*
 	 * Time that the event was first received from
 	 * the touch IC, acquired during hard interrupt,
@@ -339,7 +342,7 @@ int32_t nvt_check_spi_dma_tx_info(void);
 int32_t nvt_set_page(uint32_t addr);
 int32_t nvt_write_addr(uint32_t addr, uint8_t data);
 extern void update_firmware_release(void);
-extern int32_t nvt_update_firmware(char *firmware_name, uint8_t full);
+extern int32_t nvt_update_firmware(const char *firmware_name, uint8_t full);
 extern void nvt_change_mode(uint8_t mode);
 extern int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis);
 extern uint8_t nvt_get_fw_pipe(void);
@@ -357,5 +360,8 @@ extern void nvt_extra_usi_deinit(void);
 #if NVT_TOUCH_ESD_PROTECT
 extern void nvt_esd_check_enable(uint8_t enable);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+inline const char *get_fw_name(void);
+inline const char *get_mp_fw_name(void);
 
 #endif /* _LINUX_NVT_TOUCH_H */

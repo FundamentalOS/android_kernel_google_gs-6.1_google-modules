@@ -350,7 +350,7 @@ Description:
 return:
 	Executive outcomes. 0---succeed. -1,-22---failed.
 *******************************************************/
-static int32_t update_firmware_request(char *filename)
+static int32_t update_firmware_request(const char *filename)
 {
 	uint8_t retry = 0;
 	int32_t ret = 0;
@@ -949,7 +949,7 @@ Description:
 return:
 	n.a.
 *******************************************************/
-int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
+int32_t nvt_update_firmware(const char *firmware_name, uint8_t full)
 {
 	int32_t ret = 0;
 #if defined(NVT_FW_UPDATE_PROFILING)
@@ -957,8 +957,8 @@ int32_t nvt_update_firmware(char *firmware_name, uint8_t full)
 	ktime_t profile_end;
 #endif
 
-	if (strncmp(firmware_name, BOOT_UPDATE_FIRMWARE_NAME,
-		sizeof(BOOT_UPDATE_FIRMWARE_NAME)) == 0) {
+	if (strncmp(firmware_name, get_fw_name(),
+		strlen(get_fw_name())) == 0) {
 		is_mp_fw = false;
 	} else {
 		is_mp_fw = true;
@@ -1037,7 +1037,7 @@ return:
 void Boot_Update_Firmware(struct work_struct *work)
 {
 	mutex_lock(&ts->lock);
-	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+	nvt_update_firmware(get_fw_name(), 1);
 	mutex_unlock(&ts->lock);
 }
 #endif /* BOOT_UPDATE_FIRMWARE */

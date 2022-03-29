@@ -386,6 +386,8 @@ static int32_t c_fw_version_show(struct seq_file *m, void *v)
 		ts->trim_table->id[0], ts->trim_table->id[1],
 		ts->trim_table->id[2], ts->trim_table->id[3],
 		ts->trim_table->id[4], ts->trim_table->id[5]);
+	seq_printf(m, "mp_fw_name= %s\n", get_mp_fw_name());
+	seq_printf(m, "fw_name= %s\n", get_fw_name());
 #endif
 	return 0;
 }
@@ -645,7 +647,7 @@ static int32_t nvt_fw_update_open(struct inode *inode, struct file *file)
 	NVT_LOG("++\n");
 
 	mutex_lock(&ts->lock);
-	ret = nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+	ret = nvt_update_firmware(get_fw_name(), 1);
 	mutex_unlock(&ts->lock);
 
 	if (ret) {

@@ -611,7 +611,7 @@ static ssize_t nvt_sw_reset_store(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+	nvt_update_firmware(get_fw_name(), 1);
 	mutex_unlock(&ts->lock);
 
 	NVT_LOG("--\n");
@@ -638,7 +638,7 @@ static ssize_t nvt_sensing_store(struct device *dev,
 	switch (mode) {
 	case CMD_ENABLE:
 		NVT_LOG("Enable Sensing Mode\n");
-		ret = nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+		ret = nvt_update_firmware(get_fw_name(), 1);
 		break;
 	case CMD_DISABLE:
 		NVT_LOG("Disable Sensing Mode\n");
@@ -998,7 +998,7 @@ static int32_t nvt_get_cc_uniformity(void)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	nvt_update_firmware(MP_UPDATE_FIRMWARE_NAME, 1);
+	nvt_update_firmware(get_mp_fw_name(), 1);
 
 	if (nvt_get_fw_info()) {
 		mutex_unlock(&ts->lock);
@@ -1053,7 +1053,7 @@ static int32_t nvt_get_cc_uniformity(void)
 		     cc_uniformity_spi_buf_size);
 
 	nvt_change_mode(NORMAL_MODE);
-	nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+	nvt_update_firmware(get_fw_name(), 1);
 	mutex_unlock(&ts->lock);
 
 	cal_uniformity(cc_uniformity_spi_buf, cc_uniformity_spi_buf_size);

@@ -159,6 +159,23 @@ const struct mtk_chip_config spi_ctrdata = {
 };
 #endif
 
+const char *get_fw_name(void)
+{
+	if (ts && ts->fw_name)
+		return ts->fw_name;
+	else
+		return BOOT_UPDATE_FIRMWARE_NAME;
+}
+
+const char *get_mp_fw_name(void)
+{
+	if (ts && ts->mp_fw_name)
+		return ts->mp_fw_name;
+	else
+		return MP_UPDATE_FIRMWARE_NAME;
+}
+
+
 /*******************************************************
 Description:
 	Novatek touchscreen pinctrl enable/disable function.
@@ -1287,7 +1304,7 @@ static void nvt_esd_check_func(struct work_struct *work)
 		mutex_lock(&ts->lock);
 		NVT_ERR("do ESD recovery, timer = %d, retry = %d\n", timer, esd_retry);
 		/* do esd recovery, reload fw */
-		nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+		nvt_update_firmware(get_fw_name(), 1);
 		mutex_unlock(&ts->lock);
 		/* update interrupt timer */
 		irq_timer = jiffies;
@@ -1577,7 +1594,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			nvt_sw_reset_idle();
 		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
 		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
-		nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 1);
+		nvt_update_firmware(get_fw_name(), 1);
 		goto XFER_ERROR;
 	}
 #endif /* #if NVT_TOUCH_WDT_RECOVERY */
@@ -1941,6 +1958,7 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 	struct drm_panel *panel = NULL;
 	struct device *dev = &ts->client->dev;
 	struct device_node *np = dev->of_node;
+	const char *name;
 
 	if (of_property_read_bool(np, "novatek,panel_map")) {
 		for (index = 0 ;; index++) {
@@ -1961,6 +1979,27 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 			}
 		}
 	}
+
+	if (ts->active_panel) {
+		name = NULL;
+		of_property_read_string_index(np, "novatek,firmware_names",
+				ts->initial_panel_index, &name);
+		if (name)
+			ts->fw_name = name;
+		else
+			ts->fw_name = BOOT_UPDATE_FIRMWARE_NAME;
+		NVT_LOG("fw_name: %s.\n", ts->fw_name);
+
+		name = NULL;
+		of_property_read_string_index(np, "novatek,mp_firmware_names",
+				ts->initial_panel_index, &name);
+		if (name)
+			ts->mp_fw_name = name;
+		else
+			ts->mp_fw_name = MP_UPDATE_FIRMWARE_NAME;
+		NVT_LOG("mp_fw_name: %s.\n", ts->mp_fw_name);
+	}
+
 	return 0;
 }
 #elif defined(CONFIG_ARCH_QCOM) || defined(CONFIG_ARCH_MSM)
@@ -2886,7 +2925,7 @@ static int32_t nvt_ts_resume(struct device *dev)
 #if NVT_TOUCH_SUPPORT_HW_RST
 	gpio_set_value(ts->reset_gpio, 1);
 #endif
-	if (nvt_update_firmware(BOOT_UPDATE_FIRMWARE_NAME, 0)) {
+	if (nvt_update_firmware(get_fw_name(), 0)) {
 		NVT_ERR("download firmware failed, ignore check fw state\n");
 	} else {
 		nvt_check_fw_reset_state(RESET_STATE_REK);
