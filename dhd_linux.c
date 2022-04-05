@@ -147,6 +147,8 @@
 #include <802.1d.h>
 #endif /* AMPDU_VO_ENABLE */
 
+#include <net/ndisc.h>
+
 #if defined(DHDTCPACK_SUPPRESS) || defined(DHDTCPSYNC_FLOOD_BLK)
 #include <dhd_ip.h>
 #endif /* DHDTCPACK_SUPPRESS || DHDTCPSYNC_FLOOD_BLK */
