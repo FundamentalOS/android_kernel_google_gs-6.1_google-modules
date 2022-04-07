@@ -25,6 +25,7 @@
 #if NVT_TOUCH_EXT_API
 #define GET_CALIBRATION_ADDR              0x2B31A
 #define GET_GRIP_LEVEL_ADDR               0x2B31B
+#define GET_HM_TOUCH_TH_ADDR              0x2B31C
 #define DTTW_TOUCH_AREA_MIN_ADDR          0x2B36A
 #define DTTW_TOUCH_AREA_MAX_ADDR          0x2B36C
 #define DTTW_CONTACT_DURATION_MIN_ADDR    0x2B36E
@@ -58,6 +59,11 @@
 #define GRIP_LEVEL_CMD_TEST_BIT           BIT(13)
 #define SET_CANCEL_CMD_TEST_BIT           BIT(14)
 #define PLAYBACK_MODE_CMD_TEST_BIT        BIT(15)
+
+#define TOUCH_HEATMAP_TH_LVL_SCALE 4
+#define TOUCH_HEATMAP_TH_MIN 32
+#define TOUCH_HEATMAP_TH_MAX 92
+#define TOUCH_HEATMAP_TH_BASE TOUCH_HEATMAP_TH_MIN
 
 enum {
 	CMD_DISABLE = 0,
@@ -399,6 +405,75 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 
 	ts->heatmap_en = (mode == CMD_DISABLE ? 0 : 1);
 	NVT_LOG("--\n");
+	return count;
+}
+
+static ssize_t nvt_heatmap_touch_threshold_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	uint8_t spi_buf[2] = {0};
+	int32_t ret = 0;
+
+	NVT_LOG("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_set_page(GET_HM_TOUCH_TH_ADDR);
+	spi_buf[0] = GET_HM_TOUCH_TH_ADDR & 0x7F;
+	CTP_SPI_READ(ts->client, spi_buf, sizeof(spi_buf));
+	ret += scnprintf(buf, PAGE_SIZE, "%d\n", spi_buf[1]);
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_heatmap_touch_threshold_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, 0};
+	uint8_t hm_touch_th = 0, hm_touch_th_lvl = 0;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou8(buf, 10, &hm_touch_th) ||
+		hm_touch_th < TOUCH_HEATMAP_TH_MIN ||
+		hm_touch_th > TOUCH_HEATMAP_TH_MAX) {
+		NVT_ERR("unsupported input(%d), should be from %d to %d!\n",
+		hm_touch_th, TOUCH_HEATMAP_TH_MIN, TOUCH_HEATMAP_TH_MAX);
+		return -EINVAL;
+	}
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	/*
+	 * FW can't support precise value as threshold setting, but
+	 * could support level(0~15) base adjustment that starts from
+	 * the threshold(TOUCH_HEATMAP_TH_BASE: 32). And, for every
+	 * level up will add 4 threshold correspondingly.
+	 */
+	hm_touch_th_lvl = ((hm_touch_th - TOUCH_HEATMAP_TH_BASE) /
+			TOUCH_HEATMAP_TH_LVL_SCALE) & 0x0F;
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	spi_buf[2] = 0x70 | hm_touch_th_lvl;
+	CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
+	msleep(20);
+
+	nvt_set_page(GET_HM_TOUCH_TH_ADDR);
+	spi_buf[0] = GET_HM_TOUCH_TH_ADDR & 0x7F;
+	CTP_SPI_READ(ts->client, spi_buf, 2);
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("request %d as threshold, FW adjust to %d(lvl: %d) by design.\n",
+		hm_touch_th, spi_buf[1], hm_touch_th_lvl);
+	NVT_LOG("--\n");
+
 	return count;
 }
 
@@ -1906,6 +1981,7 @@ static DEVICE_ATTR_WO(nvt_force_calibration);
 static DEVICE_ATTR_RO(nvt_get_calibration);
 static DEVICE_ATTR_RO(nvt_verify_calibration);
 static DEVICE_ATTR_WO(nvt_heatmap_mode);
+static DEVICE_ATTR_RW(nvt_heatmap_touch_threshold);
 static DEVICE_ATTR_RW(nvt_cancel_mode);
 static DEVICE_ATTR_RW(nvt_grip_level);
 static DEVICE_ATTR_RW(nvt_playback_mode);
@@ -1937,6 +2013,7 @@ static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_sw_reset.attr,
 	&dev_attr_nvt_sensing.attr,
 	&dev_attr_nvt_heatmap_mode.attr,
+	&dev_attr_nvt_heatmap_touch_threshold.attr,
 	&dev_attr_nvt_freq_hopping.attr,
 	&dev_attr_nvt_force_calibration.attr,
 	&dev_attr_nvt_get_calibration.attr,
