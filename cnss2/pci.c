@@ -555,6 +555,8 @@ static struct cnss_misc_reg syspm_reg_access_seq[] = {
 
 #if IS_ENABLED(CONFIG_WCN_GOOGLE)
 extern void crash_info_handler(u8 *info);
+extern int exynos_pci_prevent_l1(struct device *dev);
+extern void exynos_pci_allow_l1(struct device *dev);
 #endif //CONFIG_WCN_GOOGLE
 
 #if IS_ENABLED(CONFIG_MHI_BUS_MISC)
@@ -3057,8 +3059,8 @@ static int cnss_pci_suspend(struct device *dev)
 		}
 	}
 
-#if CONFIG_WCN_GOOGLE
-	//exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI, GOOGLE_RC_ID);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	exynos_pci_prevent_l1(dev);
 #endif
 
 	set_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state);
@@ -3084,8 +3086,8 @@ resume_driver:
 clear_flag:
 	pci_priv->drv_connected_last = 0;
 	clear_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state);
-#if CONFIG_WCN_GOOGLE
-	//exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI, GOOGLE_RC_ID);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	exynos_pci_allow_l1(dev);
 #endif	
 out:
 	return ret;
@@ -3121,8 +3123,8 @@ static int cnss_pci_resume(struct device *dev)
 
 	pci_priv->drv_connected_last = 0;
 	clear_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state);
-#if CONFIG_WCN_GOOGLE
-	//exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI, GOOGLE_RC_ID);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	exynos_pci_allow_l1(dev);
 #endif
 
 out:
@@ -5443,9 +5445,6 @@ static int cnss_pci_probe(struct pci_dev *pci_dev,
 
 	cnss_pr_dbg("PCI is probing, vendor ID: 0x%x, device ID: 0x%x\n",
 		    id->vendor, pci_dev->device);
-#if CONFIG_WCN_GOOGLE
-	//exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI, GOOGLE_RC_ID);
-#endif
 
 	pci_priv = devm_kzalloc(dev, sizeof(*pci_priv), GFP_KERNEL);
 	if (!pci_priv) {
