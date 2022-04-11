@@ -2492,7 +2492,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->bTouchIsAwake = true;
 	ts->pen_format_id = 0xFF;
 
-	register_panel_bridge(ts);
 	NVT_LOG("end\n");
 
 	nvt_irq_enable(true);
