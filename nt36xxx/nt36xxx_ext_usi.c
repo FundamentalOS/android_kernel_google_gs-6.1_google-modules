@@ -480,6 +480,9 @@ static uint8_t USI_report_descriptor_v2_0[] = {
 
 #define HID_PEN_INFO_ADDR		0x2FE9E
 
+#define HID_STYLUS_STYLE_NO_REFERENCE	6
+#define USI_STYLUS_STYLE_NO_REFERENCE	255
+
 /* SPI GET COMMANDS */
 enum {
 	SPI_INDEX_DIAGNOSTIC	= 0,
@@ -647,6 +650,11 @@ static int32_t get_hid_feature_report(uint8_t *hid_buf, int32_t buf_size,
 			memcpy(hid_buf + 2, spi_buf + 1, 2);
 			ret = rpt_info->size;
 		}
+
+		/* USI to HID conversion for No Preference */
+		if (rpt_info->id == HID_REPORTID_GETSET_STYLE &&
+		    hid_buf[2] == USI_STYLUS_STYLE_NO_REFERENCE)
+			hid_buf[2] = HID_STYLUS_STYLE_NO_REFERENCE;
 		break;
 	case HID_REPORTID_DIAGNOSE:
 		ret = get_usi_data_diag(spi_buf, hid_buf);
@@ -670,15 +678,15 @@ static int32_t get_hid_feature_report(uint8_t *hid_buf, int32_t buf_size,
 			/* Transducer Serial Number: 64bits */
 			memcpy(hid_buf + 2, spi_buf + 1, 8);
 			/* Transducer Serial Number part 2: 32bits */
-			memcpy(hid_buf + 6, spi_buf + 5, 4);
+			memcpy(hid_buf + 10, spi_buf + 5, 4);
 			/* Vendor ID: 16bits */
-			memcpy(hid_buf + 10, spi_buf + 9, 2);
+			memcpy(hid_buf + 14, spi_buf + 9, 2);
 			/* Product ID: 16bits */
-			memcpy(hid_buf + 12, spi_buf + 11, 2);
+			memcpy(hid_buf + 16, spi_buf + 11, 2);
 			/* Major version: 8bits */
-			memcpy(hid_buf + 14, spi_buf + 13, 1);
-			/* minor version: 8bits */
-			memcpy(hid_buf + 15, spi_buf + 14, 1);
+			memcpy(hid_buf + 18, spi_buf + 13, 1);
+			/* Minor version: 8bits */
+			memcpy(hid_buf + 19, spi_buf + 14, 1);
 			ret = rpt_info->size;
 		}
 		break;
@@ -698,6 +706,8 @@ static int32_t get_hid_feature_report(uint8_t *hid_buf, int32_t buf_size,
 		break;
 	}
 
+	msleep(20);
+
 	return ret;
 }
 
@@ -712,6 +722,7 @@ static int32_t set_hid_feature_report(uint8_t *buf, int32_t buf_size,
 	spi_buf[2] = (uint8_t)rpt_info->vendor_set_cmd;
 	memcpy(spi_buf + 3, buf + 2, buf_size - 2);
 
+	/* HID to USI conversion */
 	if (rpt_info->id == HID_REPORTID_GETSET_BUTTONS) {
 		for (i = 3; i < 6; i++) {
 			if (spi_buf[i] < 1 || spi_buf[i] > 5) {
@@ -721,6 +732,9 @@ static int32_t set_hid_feature_report(uint8_t *buf, int32_t buf_size,
 
 			spi_buf[i] -= 1;
 		}
+	} else if (rpt_info->id == HID_REPORTID_GETSET_STYLE) {
+		if (spi_buf[3] == HID_STYLUS_STYLE_NO_REFERENCE)
+			spi_buf[3] = USI_STYLUS_STYLE_NO_REFERENCE;
 	}
 
 	mutex_lock(&ts->lock);
@@ -730,6 +744,8 @@ static int32_t set_hid_feature_report(uint8_t *buf, int32_t buf_size,
 
 	if (res < 0)
 		NVT_ERR("SPI error: cannot set feature report\n");
+
+	msleep(20);
 
 	return res;
 }
