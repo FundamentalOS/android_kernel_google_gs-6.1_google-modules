@@ -1149,6 +1149,7 @@ osl_dma_alloc_consistent(osl_t *osh, uint size, uint16 align_bits, uint *alloced
 void
 osl_dma_free_consistent(osl_t *osh, void *va, uint size, dmaaddr_t pa)
 {
+	struct pci_dev *pdev = osh->pdev;
 #ifdef BCMDMA64OSL
 	dma_addr_t paddr;
 #endif /* BCMDMA64OSL */
@@ -1159,9 +1160,9 @@ osl_dma_free_consistent(osl_t *osh, void *va, uint size, dmaaddr_t pa)
 #else
 #ifdef BCMDMA64OSL
 	PHYSADDRTOULONG(pa, paddr);
-	pci_free_consistent(osh->pdev, size, va, paddr);
+	dma_free_coherent(&pdev->dev, size, va, paddr);
 #else
-	pci_free_consistent(osh->pdev, size, va, (dma_addr_t)pa);
+	dma_free_coherent(&pdev->dev, size, va, (dma_addr_t)pa);
 #endif /* BCMDMA64OSL */
 #endif /* __ARM_ARCH_7A__ && !DHD_USE_COHERENT_MEM_FOR_RING */
 }
@@ -1184,6 +1185,7 @@ dmaaddr_t
 BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p,
 	hnddma_seg_map_t *dmah)
 {
+	struct pci_dev *pdev = osh->pdev;
 	dmaaddr_t ret_addr;
 	dma_addr_t map_addr;
 	int ret;
@@ -1192,9 +1194,9 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 
 	ASSERT((osh && (osh->magic == OS_HANDLE_MAGIC)));
 
-	map_addr = pci_map_single(osh->pdev, va, size, direction);
+	map_addr = dma_map_single(&pdev->dev, va, size, direction);
 
-	ret = pci_dma_mapping_error(osh->pdev, map_addr);
+	ret = dma_mapping_error(&pdev->dev, map_addr);
 
 	if (ret) {
 		printk("%s: Failed to map memory\n", __FUNCTION__);
@@ -1217,6 +1219,7 @@ BCMFASTPATH(osl_dma_map)(osl_t *osh, void *va, uint size, int direction, void *p
 void
 BCMFASTPATH(osl_dma_unmap)(osl_t *osh, dmaaddr_t pa, uint size, int direction)
 {
+	struct pci_dev *pdev = osh->pdev;
 #ifdef BCMDMA64OSL
 	dma_addr_t paddr;
 #endif /* BCMDMA64OSL */
@@ -1231,9 +1234,9 @@ BCMFASTPATH(osl_dma_unmap)(osl_t *osh, dmaaddr_t pa, uint size, int direction)
 
 #ifdef BCMDMA64OSL
 	PHYSADDRTOULONG(pa, paddr);
-	pci_unmap_single(osh->pdev, paddr, size, direction);
+	dma_unmap_single(&pdev->dev, paddr, size, direction);
 #else /* BCMDMA64OSL */
-	pci_unmap_single(osh->pdev, (uint32)pa, size, direction);
+	dma_unmap_single(&pdev->dev, (uint32)pa, size, direction);
 #endif /* BCMDMA64OSL */
 
 	DMA_UNLOCK(osh);
