@@ -168,6 +168,9 @@ enum {
 #define HEATMAP_HOST_CMD_TOUCH_BASELINE      0x94
 #endif
 
+/* PEN */
+#define PEN_HASH_SECTION_ID_ADDR 0x2B31D
+
 /* FW History */
 #define NVT_HISTORY_BUF_LEN		(65 * 4)
 
@@ -243,6 +246,9 @@ struct nvt_ts_data {
 	uint16_t dttw_motion_tolerance;
 	uint16_t dttw_detection_window_edge;
 	uint8_t heatmap_data_type;
+	uint16_t pen_hash_id;
+	uint16_t pen_section_id;
+	uint8_t pen_freq_seed;
 #endif
 
 	const char *fw_name;

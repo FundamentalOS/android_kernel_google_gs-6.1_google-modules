@@ -2862,6 +2862,21 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	reinit_completion(&ts->bus_resumed);
 	ts->bTouchIsAwake = false;
 
+	/* Backup fast-pairing configuration. */
+	if (ts->pen_support) {
+		uint8_t buf[6];
+
+		nvt_set_page(PEN_HASH_SECTION_ID_ADDR);
+		buf[0] = PEN_HASH_SECTION_ID_ADDR & (0x7F);
+		CTP_SPI_READ(ts->client, buf, sizeof(buf));
+		ts->pen_hash_id = (uint16_t)((buf[2] << 8) + buf[1]);
+		ts->pen_section_id = (uint16_t)((buf[4] << 8) + buf[3]);
+		ts->pen_freq_seed = buf[5];
+		NVT_LOG("fast-pairing: hash_id: %04X, section_id: %04X, freq_seed: %02X.\n",
+				ts->pen_hash_id, ts->pen_section_id, ts->pen_freq_seed);
+	}
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
 	/* release all touches */
 	goog_input_lock(ts->gti);
 	goog_input_set_timestamp(ts->gti, ts->input_dev, KTIME_RELEASE_ALL);
@@ -2989,6 +3004,23 @@ static int32_t nvt_ts_resume(struct device *dev)
 	queue_delayed_work(nvt_esd_check_wq, &nvt_esd_check_work,
 			   msecs_to_jiffies(NVT_TOUCH_ESD_CHECK_PERIOD));
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+	/* Restore fast-pairing configuration. */
+	if (ts->pen_support) {
+		uint8_t buf[8];
+
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x70;
+		buf[2] = 0x81;
+		buf[3] = ts->pen_hash_id & 0xFF;
+		buf[4] = (ts->pen_hash_id >> 8) & 0xFF;
+		buf[5] = ts->pen_section_id & 0xFF;
+		buf[6] = (ts->pen_section_id >> 8) & 0xFF;
+		buf[7] = ts->pen_freq_seed;
+		CTP_SPI_WRITE(ts->client, buf, sizeof(buf));
+		NVT_LOG("fast-pairing: hash_id: %04X, section_id: %04X, freq_seed: %02X.\n",
+				ts->pen_hash_id, ts->pen_section_id, ts->pen_freq_seed);
+	}
 
 	ts->bTouchIsAwake = true;
 	complete_all(&ts->bus_resumed);
