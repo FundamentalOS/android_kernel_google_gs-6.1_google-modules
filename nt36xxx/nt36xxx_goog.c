@@ -26,6 +26,18 @@ void nvt_heatmap_decode(
 	u16 prev_word = 0;
 	u16 repetition = 0;
 
+	if (!out || !out_sz) {
+		NVT_ERR("invalid out pointer(%p) or size(%d)\n", out, out_sz);
+		return;
+	}
+
+	if (!in || !in_sz) {
+		NVT_ERR("invalid in pointer(%p) or size(%d)\n", in, in_sz);
+		/* Zero out the output if any invalid input. */
+		memset((void *)out, 0, out_sz);
+		return;
+	}
+
 	for (i = 0; i < in_array_size; i++) {
 		u16 curr_word = in_array[i];
 
@@ -59,67 +71,80 @@ int nvt_get_channel_data(void *private_data,
 {
 	int ret = 0;
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
-	uint32_t page_addr = HM_TOUCH_DIFF_ADDR;
-	uint8_t *spi_buf = ts->heatmap_spi_buf;
-	uint32_t spi_buf_size = ts->heatmap_spi_buf_size;
+	uint8_t *spi_buf = NULL;
+	uint32_t spi_buf_size = 0;
+	uint32_t spi_read_size = 0;
 
-	if (!spi_buf || !spi_buf_size) {
-		NVT_ERR("buffer is not ready for heatmap!\n");
-		return -ENODATA;
-	}
-
-	/* Only support mutual data currently. */
-	if (!(type & TOUCH_SCAN_TYPE_MUTUAL))
-		return -ENODATA;
-
-	/* Only support strength currently. */
-	switch (type & ~TOUCH_SCAN_TYPE_MUTUAL) {
-	case TOUCH_DATA_TYPE_RAW:
-		ret = -ENODATA;
-		page_addr = HM_RAWDATA_ADDR;
+	switch (ts->heatmap_data_type) {
+	case HEATMAP_DATA_TYPE_TOUCH_RAWDATA:
+	case HEATMAP_DATA_TYPE_TOUCH_BASELINE:
 		spi_buf = ts->extra_spi_buf;
 		spi_buf_size = ts->extra_spi_buf_size;
+		spi_read_size = spi_buf_size;
 		break;
-	case TOUCH_DATA_TYPE_BASELINE:
-		ret = -ENODATA;
-		page_addr = HM_BASELINE_ADDR;
-		spi_buf = ts->extra_spi_buf;
-		spi_buf_size = ts->extra_spi_buf_size;
-		break;
-	case TOUCH_DATA_TYPE_STRENGTH:
-		if (ts->heatmap_en && ts->heatmap_addr)
-			page_addr = ts->heatmap_addr;
-		else
-			page_addr = HM_TOUCH_DIFF_ADDR;
+	case HEATMAP_DATA_TYPE_TOUCH_STRENGTH:
 		spi_buf = ts->heatmap_spi_buf;
 		spi_buf_size = ts->heatmap_spi_buf_size;
+		spi_read_size = spi_buf_size;
+		break;
+	case HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP:
+		spi_buf = ts->heatmap_spi_buf;
+		spi_buf_size = ts->heatmap_spi_buf_size;
+		/* Need to read extra 1 byte for SPI header. */
+		spi_read_size = ts->touch_heatmap_comp_len + 1;
 		break;
 	default:
-		ret = -ENODATA;
 		break;
 	}
 
-	if (ret)
-		return ret;
+	if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP &&
+		ts->touch_heatmap_comp_len == NVT_HEATMAP_COMP_NOT_READY_SIZE) {
+		NVT_DBG("Heatmap compression is not ready!\n");
+		return -ENODATA;
+	}
 
-	/* Extra 1 byte for SPI header. */
-	if (page_addr == HM_TOUCH_DIFF_ADDR && ts->touch_heatmap_comp_len)
-		spi_buf_size = ts->touch_heatmap_comp_len + 1;
+	if (!spi_buf || !spi_buf_size || spi_read_size > spi_buf_size) {
+		NVT_ERR("buffer is not ready for heatmap(type %d, size %d)!\n",
+			ts->heatmap_data_type, spi_read_size);
+		return -ENODATA;
+	}
 
-	nvt_set_page(page_addr);
-	spi_buf[0] = page_addr & 0x7F;
-	CTP_SPI_READ(ts->client, spi_buf, spi_buf_size);
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-
-	if (page_addr == HM_TOUCH_DIFF_ADDR && ts->touch_heatmap_comp_len) {
-		/* Skip 1 byte header to the data start. */
-		nvt_heatmap_decode(spi_buf + 1, ts->touch_heatmap_comp_len,
-				ts->heatmap_out_buf, ts->heatmap_out_buf_size);
-		*ptr = ts->heatmap_out_buf;
-		*size = ts->heatmap_out_buf_size;
+	/* Only support mutual strength data currently. */
+	if (type & TOUCH_SCAN_TYPE_MUTUAL) {
+		if (type & TOUCH_DATA_TYPE_STRENGTH)
+			nvt_set_heatmap_host_cmd(ts);
+		else
+			ret = -ENODATA;
 	} else {
-		*ptr = spi_buf + 1;
-		*size = ts->x_num * ts->y_num * 2;
+		ret = -ENODATA;
+	}
+
+	if (ret) {
+		NVT_DBG("unsupported data request(type 0x%x)!\n", type);
+		return ret;
+	}
+
+	if (spi_read_size) {
+		/* Skip 1 byte header to the data start. */
+		uint8_t *data = spi_buf + 1;
+		uint32_t data_size = spi_read_size - 1;
+
+		nvt_set_page(ts->heatmap_host_cmd_addr);
+		spi_buf[0] = ts->heatmap_host_cmd_addr & 0x7F;
+		CTP_SPI_READ(ts->client, spi_buf, spi_read_size);
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
+		if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP) {
+			nvt_heatmap_decode(data, data_size,
+					ts->heatmap_out_buf, ts->heatmap_out_buf_size);
+			*ptr = ts->heatmap_out_buf;
+			*size = ts->heatmap_out_buf_size;
+		} else {
+			*ptr = data;
+			*size = data_size;
+		}
+	} else {
+		NVT_ERR("invalid size for SPI read(type: %d)!\n", ts->heatmap_data_type);
 	}
 
 	return ret;

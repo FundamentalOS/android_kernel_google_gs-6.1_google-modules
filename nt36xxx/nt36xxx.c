@@ -175,6 +175,43 @@ const char *get_mp_fw_name(void)
 		return MP_UPDATE_FIRMWARE_NAME;
 }
 
+void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts)
+{
+	uint8_t cmd_type = 0;
+	uint8_t cmd_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, 0};
+
+	if (!ts || ts->heatmap_data_type == HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP)
+		return;
+
+	switch (ts->heatmap_data_type) {
+	case HEATMAP_DATA_TYPE_TOUCH_RAWDATA:
+		cmd_type = HEATMAP_HOST_CMD_TOUCH_RAWDATA;
+		break;
+	case HEATMAP_DATA_TYPE_TOUCH_BASELINE:
+		cmd_type = HEATMAP_HOST_CMD_TOUCH_BASELINE;
+		break;
+	case HEATMAP_DATA_TYPE_TOUCH_STRENGTH:
+		cmd_type = HEATMAP_HOST_CMD_TOUCH_STRENGTH;
+		break;
+	case HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP:
+		cmd_type = HEATMAP_HOST_CMD_TOUCH_STRENGTH_COMP;
+		break;
+	case HEATMAP_DATA_TYPE_DISABLE:
+		cmd_type = HEATMAP_HOST_CMD_DISABLE;
+		break;
+	default:
+		NVT_ERR("unexpected heatmap type %d!", ts->heatmap_data_type);
+		break;
+	}
+
+	if (ts->heatmap_host_cmd != cmd_type) {
+		NVT_LOG("new host cmd(%#x) for heatmap type(%d)\n",
+			cmd_type, ts->heatmap_data_type);
+		cmd_buf[2] = cmd_type;
+		CTP_SPI_WRITE(ts->client, cmd_buf, sizeof(cmd_buf));
+		ts->heatmap_host_cmd = cmd_type;
+	}
+}
 
 /*******************************************************
 Description:
@@ -777,8 +814,8 @@ info_retry:
 
 	/* Allocate buffer for SPI heatmap(delta) data. */
 	if (!ts->heatmap_spi_buf) {
-		ts->heatmap_en = true;
-		ts->heatmap_addr = HM_TOUCH_DIFF_ADDR;
+		ts->heatmap_data_type = HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP;
+		ts->heatmap_host_cmd_addr = HEATMAP_TOUCH_ADDR;
 		/* Need one stuffing byte for I/O transfer. */
 		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
 		ts->heatmap_spi_buf = devm_kzalloc(&ts->client->dev,
@@ -800,6 +837,9 @@ info_retry:
 			return -ENOMEM;
 		}
 	}
+
+	/* Initialize heatmap mode. */
+	nvt_set_heatmap_host_cmd(ts);
 
 	ret = 0;
 out:
@@ -1746,49 +1786,58 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	goog_input_sync(ts->gti, ts->input_dev);
 	goog_input_unlock(ts->gti);
 
-#if (NVT_HEATMAP_COMP && !TOUCH_KEY_NUM)
 	/* Replace button status with heatmap compression length. */
-	if (finger_cnt) {
+	if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP) {
 		ts->touch_heatmap_comp_len = (((point_data[62] & 0x0F) << 8) + point_data[61]) * 2;
+		NVT_DBG("heatmap_comp_len: %d\n", ts->touch_heatmap_comp_len);
 		if (ts->touch_heatmap_comp_len + 1 > ts->heatmap_spi_buf_size) {
-			if (ts->touch_heatmap_comp_len != NVT_HEATMAP_COMP_NOT_READY_SIZE) {
-				NVT_ERR("invalid heatmap comp size %d!\n",
-						ts->touch_heatmap_comp_len);
-			}
+			NVT_ERR("invalid heatmap comp size %d!\n", ts->touch_heatmap_comp_len);
 			ts->touch_heatmap_comp_len = 0;
 		}
+	} else {
+		ts->touch_heatmap_comp_len = 0;
 	}
-#endif
 
 #ifndef GOOG_TOUCH_INTERFACE
-	if (ts->heatmap_en && finger_cnt) {
-		uint8_t *spi_buf;
-		uint32_t spi_buf_size;
+	if (ts->heatmap_data_type && finger_cnt) {
+		uint8_t *spi_buf = NULL;
+		uint32_t spi_buf_size = 0;
+		uint32_t spi_read_size = 0;
 
-		switch (ts->heatmap_addr) {
-		case HM_TOUCH_DIFF_ADDR:
+		/* Set heatmap type by host cmd. */
+		nvt_set_heatmap_host_cmd(ts);
+
+		switch (ts->heatmap_data_type) {
+		case HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP:
 			spi_buf = ts->heatmap_spi_buf;
+			spi_buf_size = ts->heatmap_spi_buf_size;
 			/* Extra 1 byte for SPI header. */
-			if (ts->touch_heatmap_comp_len)
-				spi_buf_size = ts->touch_heatmap_comp_len + 1;
-			else
-				spi_buf_size = ts->heatmap_spi_buf_size;
+			spi_read_size = ts->touch_heatmap_comp_len + 1;
+			break;
+		case HEATMAP_DATA_TYPE_TOUCH_STRENGTH:
+			spi_buf = ts->heatmap_spi_buf;
+			spi_buf_size = ts->heatmap_spi_buf_size;
+			spi_read_size = spi_buf_size;
 			break;
 		default:
 			spi_buf = ts->extra_spi_buf;
 			spi_buf_size = ts->extra_spi_buf_size;
+			spi_read_size = spi_buf_size;
 			break;
 		}
 
-		nvt_set_page(ts->heatmap_addr);
-		spi_buf[0] = ts->heatmap_addr & 0x7F;
-		CTP_SPI_READ(ts->client, spi_buf, spi_buf_size);
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-
-		if (ts->touch_heatmap_comp_len) {
-			/* Skip 1 byte header to the data start. */
-			nvt_heatmap_decode(spi_buf + 1, ts->touch_heatmap_comp_len,
-					ts->heatmap_out_buf, ts->heatmap_out_buf_size);
+		if (!spi_buf || !spi_buf_size || !spi_read_size) {
+			NVT_ERR("buffer is not ready for heatmap or invalid size!\n");
+		} else {
+			nvt_set_page(ts->heatmap_host_cmd_addr);
+			spi_buf[0] = ts->heatmap_host_cmd_addr & 0x7F;
+			CTP_SPI_READ(ts->client, spi_buf, spi_read_size);
+			nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+			if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP) {
+				/* Skip 1 byte header to the data start. */
+				nvt_heatmap_decode(spi_buf + 1, ts->touch_heatmap_comp_len,
+						ts->heatmap_out_buf, ts->heatmap_out_buf_size);
+			}
 		}
 	}
 #endif	/* !GOOG_TOUCH_INTERFACE */
@@ -2804,6 +2853,8 @@ static int32_t nvt_ts_suspend(struct device *dev)
 	mutex_lock(&ts->lock);
 
 	NVT_LOG("start\n");
+	/* Initialize heatmap_host_cmd to force sending again after resume. */
+	ts->heatmap_host_cmd = HEATMAP_HOST_CMD_DISABLE;
 
 	if (!ts->wkg_flag)
 		nvt_irq_enable(false);

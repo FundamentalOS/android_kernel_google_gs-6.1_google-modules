@@ -23,6 +23,7 @@
 #include "nt36xxx.h"
 
 #if NVT_TOUCH_EXT_API
+#define PLAYBACK_RAWDATA_ADDR             0x26238
 #define GET_CALIBRATION_ADDR              0x2B31A
 #define GET_GRIP_LEVEL_ADDR               0x2B31B
 #define GET_HM_TOUCH_TH_ADDR              0x2B31C
@@ -36,7 +37,6 @@
 #define DTTW_MOTION_TOLERANCE_ADDR        0x2B378
 #define DTTW_DETECTION_WINDOW_EDGE_ADDR   0x2B37A
 #define GET_MODE_HISTORY_ADDR             0x2B32A
-#define HEATMAP_ADDR                      0x2FE20
 #define TOUCH_CMD_STATUS_ADDR             0x2FE5C
 #define PLAYBACK_DIFFDATA_ADDR            0x373E8
 #define TOUCH_MODE_ADDR                   0x38D33
@@ -366,16 +366,45 @@ static ssize_t nvt_touch_idle_mode_store(struct device *dev,
 	}
 }
 
-static ssize_t nvt_heatmap_mode_store(struct device *dev,
-				      struct device_attribute *attr,
-				      const char *buf, size_t count)
+static ssize_t nvt_heatmap_data_type_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
 {
-	uint8_t mode;
+	int32_t ret = 0;
 
 	NVT_LOG("++\n");
 
-	if (kstrtou8(buf, 10, &mode) || mode > HM_TOUCH_DIFF_MODE)
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret += scnprintf(buf, PAGE_SIZE, "type: %d, host_cmd: %x, host_cmd_addr: %x.\n",
+		ts->heatmap_data_type, ts->heatmap_host_cmd, ts->heatmap_host_cmd_addr);
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOG("--\n");
+	return ret;
+}
+
+static ssize_t nvt_heatmap_data_type_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	uint8_t type;
+
+	NVT_LOG("++\n");
+
+	if (kstrtou8(buf, 10, &type) || type >= HEATMAP_DATA_TYPE_UNSUPPORTED)
 		return -EINVAL;
+
+	if (type == HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP) {
+		/*
+		 * TODO(b/219658467):
+		 * Need to check with vendor for pen strength compression support
+		 * in the future.
+		 */
+		NVT_ERR("heatmap does not support pen strength comp!\n");
+		return -EINVAL;
+	}
 
 	if (!ts->heatmap_spi_buf) {
 		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
@@ -385,25 +414,15 @@ static ssize_t nvt_heatmap_mode_store(struct device *dev,
 			return count;
 	}
 
-	switch (mode) {
-	case CMD_DISABLE:
-		NVT_LOG("Disable Heatmap Mode\n");
-		break;
-	case HM_TOUCH_RAW_MODE:
-		NVT_LOG("Enter Heatmap Rawdata Mode\n");
-		ts->heatmap_addr = HM_RAWDATA_ADDR;
-		break;
-	case HM_TOUCH_BASELINE_MODE:
-		NVT_LOG("Enter Heatmap Baseline Mode\n");
-		ts->heatmap_addr = HM_BASELINE_ADDR;
-		break;
-	case HM_TOUCH_DIFF_MODE:
-		NVT_LOG("Enter Heatmap Diff Mode\n");
-		ts->heatmap_addr = HM_TOUCH_DIFF_ADDR;
-		break;
+	NVT_LOG("switch type to %d.\n", type);
+	if (type == HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP) {
+		ts->heatmap_host_cmd_addr = HEATMAP_PEN_ADDR;
+	} else {
+		ts->heatmap_host_cmd_addr = HEATMAP_TOUCH_ADDR;
+		nvt_set_heatmap_host_cmd(ts);
 	}
 
-	ts->heatmap_en = (mode == CMD_DISABLE ? 0 : 1);
+	ts->heatmap_data_type = type;
 	NVT_LOG("--\n");
 	return count;
 }
@@ -1285,7 +1304,7 @@ static ssize_t nvt_playback_mode_store(struct device *dev, struct device_attribu
 		break;
 	case MODE_1:
 		NVT_LOG("Playback Raw Data Mode\n");
-		playback_addr = HM_RAWDATA_ADDR;
+		playback_addr = PLAYBACK_RAWDATA_ADDR;
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
 		spi_buf[1] = 0x70;
 		spi_buf[2] = 0x61;
@@ -1980,7 +1999,7 @@ static DEVICE_ATTR_RW(nvt_touch_idle_mode);
 static DEVICE_ATTR_WO(nvt_force_calibration);
 static DEVICE_ATTR_RO(nvt_get_calibration);
 static DEVICE_ATTR_RO(nvt_verify_calibration);
-static DEVICE_ATTR_WO(nvt_heatmap_mode);
+static DEVICE_ATTR_RW(nvt_heatmap_data_type);
 static DEVICE_ATTR_RW(nvt_heatmap_touch_threshold);
 static DEVICE_ATTR_RW(nvt_cancel_mode);
 static DEVICE_ATTR_RW(nvt_grip_level);
@@ -2012,7 +2031,7 @@ static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_water_mode.attr,
 	&dev_attr_nvt_sw_reset.attr,
 	&dev_attr_nvt_sensing.attr,
-	&dev_attr_nvt_heatmap_mode.attr,
+	&dev_attr_nvt_heatmap_data_type.attr,
 	&dev_attr_nvt_heatmap_touch_threshold.attr,
 	&dev_attr_nvt_freq_hopping.attr,
 	&dev_attr_nvt_force_calibration.attr,
@@ -2113,18 +2132,29 @@ static int32_t c_show_heatmap(struct seq_file *m, void *v)
 	uint8_t *buf = ts->heatmap_spi_buf;
 	uint32_t buf_size = ts->heatmap_spi_buf_size;
 
-	switch (ts->heatmap_addr) {
-	case HM_TOUCH_DIFF_ADDR:
-		buf = ts->heatmap_spi_buf;
-		if (ts->touch_heatmap_comp_len) {
-			start = 0;
-			buf = ts->heatmap_out_buf;
-			buf_size = ts->heatmap_out_buf_size;
-		} else {
-			buf = ts->heatmap_spi_buf;
-			buf_size = ts->heatmap_spi_buf_size;
-		}
+	if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_DISABLE)
+		return 0;
+
+	switch (ts->heatmap_data_type) {
+	case HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP:
+		/*
+		 * TODO(b/219658467):
+		 * Need to check with vendor for pen diff compression support
+		 * in the future.
+		 */
+		buf_size = 0;
 		break;
+	case HEATMAP_DATA_TYPE_TOUCH_STRENGTH:
+		buf = ts->heatmap_spi_buf;
+		buf_size = ts->heatmap_spi_buf_size;
+		break;
+	case HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP:
+		start = 0;
+		buf = ts->heatmap_out_buf;
+		buf_size = ts->heatmap_out_buf_size;
+		break;
+	case HEATMAP_DATA_TYPE_TOUCH_RAWDATA:
+	case HEATMAP_DATA_TYPE_TOUCH_BASELINE:
 	default:
 		buf = ts->extra_spi_buf;
 		buf_size = ts->extra_spi_buf_size;
@@ -2141,6 +2171,22 @@ static int32_t c_show_heatmap(struct seq_file *m, void *v)
 			seq_puts(m, " ");
 	}
 
+	if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP) {
+		seq_puts(m, "\n\nTouch Compressed data:\n");
+		start = 1;
+		buf = ts->heatmap_spi_buf;
+		buf_size = ts->touch_heatmap_comp_len;
+		for (i = start; i < buf_size; i += 2, count++) {
+			seq_printf(m, "%5x",
+				(u16)((buf[i + 1] << 8) + buf[i]));
+			if ((count + 1) % ts->x_num == 0)
+				seq_puts(m, "\n");
+			else
+				seq_puts(m, " ");
+		}
+	}
+
+	seq_puts(m, "\n");
 	return 0;
 }
 
@@ -2193,8 +2239,8 @@ const struct seq_operations nvt_cc_uniformity_seq_ops = {
 
 static int32_t nvt_heatmap_open(struct inode *inode, struct file *file)
 {
-	if (!ts->heatmap_en) {
-		NVT_ERR("heatmap_mode is not enabled\n");
+	if (!ts->heatmap_data_type) {
+		NVT_ERR("heatmap is not enabled!\n");
 		return -EINVAL;
 	}
 

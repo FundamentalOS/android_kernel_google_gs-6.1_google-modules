@@ -119,7 +119,6 @@ extern const uint16_t gesture_key_array[];
 #define MP_UPDATE_FIRMWARE_NAME   "novatek_ts_mp.bin"
 #define POINT_DATA_CHECKSUM 0
 #define POINT_DATA_CHECKSUM_LEN 65
-#define NVT_HEATMAP_COMP 1
 #define NVT_HEATMAP_COMP_NOT_READY_SIZE (0xFFF << 1)
 
 //---ESD Protect.---
@@ -148,14 +147,25 @@ extern const uint16_t gesture_key_array[];
 
 // HEATMAP
 #if NVT_TOUCH_EXT_API
-#define HM_RAWDATA_ADDR 0x26238
-#define HM_BASELINE_ADDR 0x36510
-#define HM_TOUCH_DIFF_ADDR 0x373E8
-#define HM_PEN_DIFF_ADDR 0x2A50A
-#define HM_TOUCH_RAW_MODE 1
-#define HM_TOUCH_BASELINE_MODE 2
-#define HM_TOUCH_DIFF_MODE 3
-#define HM_PEN_DIFF_MODE 4
+#define HEATMAP_TOUCH_ADDR 0x23200
+#define HEATMAP_PEN_ADDR 0x2A50A
+enum {
+	HEATMAP_DATA_TYPE_DISABLE = 0,
+	HEATMAP_DATA_TYPE_TOUCH_RAWDATA = 1,
+	HEATMAP_DATA_TYPE_TOUCH_RAWDATA_UNCOMP = HEATMAP_DATA_TYPE_TOUCH_RAWDATA,
+	HEATMAP_DATA_TYPE_TOUCH_BASELINE = 2,
+	HEATMAP_DATA_TYPE_TOUCH_BASELINE_UNCOMP = HEATMAP_DATA_TYPE_TOUCH_BASELINE,
+	HEATMAP_DATA_TYPE_TOUCH_STRENGTH = 3,
+	HEATMAP_DATA_TYPE_TOUCH_STRENGTH_UNCOMP = HEATMAP_DATA_TYPE_TOUCH_STRENGTH,
+	HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP = 4,
+	HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP = 5,
+	HEATMAP_DATA_TYPE_UNSUPPORTED,
+};
+#define HEATMAP_HOST_CMD_DISABLE             0x90
+#define HEATMAP_HOST_CMD_TOUCH_STRENGTH      0x91
+#define HEATMAP_HOST_CMD_TOUCH_STRENGTH_COMP 0x92
+#define HEATMAP_HOST_CMD_TOUCH_RAWDATA       0x93
+#define HEATMAP_HOST_CMD_TOUCH_BASELINE      0x94
 #endif
 
 /* FW History */
@@ -232,7 +242,7 @@ struct nvt_ts_data {
 	uint16_t dttw_tap_gap_duration_min;
 	uint16_t dttw_motion_tolerance;
 	uint16_t dttw_detection_window_edge;
-	uint8_t heatmap_en;
+	uint8_t heatmap_data_type;
 #endif
 
 	const char *fw_name;
@@ -274,7 +284,8 @@ struct nvt_ts_data {
 	 * Used for google touch interface.
 	 */
 	struct goog_touch_interface *gti;
-	uint32_t heatmap_addr;
+	uint8_t heatmap_host_cmd;
+	uint32_t heatmap_host_cmd_addr;
 	uint32_t heatmap_out_buf_size;
 	uint8_t *heatmap_out_buf;
 	uint32_t heatmap_spi_buf_size;
@@ -364,4 +375,5 @@ extern void nvt_esd_check_enable(uint8_t enable);
 inline const char *get_fw_name(void);
 inline const char *get_mp_fw_name(void);
 
+void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts);
 #endif /* _LINUX_NVT_TOUCH_H */
