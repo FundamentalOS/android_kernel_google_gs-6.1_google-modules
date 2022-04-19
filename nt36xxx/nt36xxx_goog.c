@@ -63,6 +63,11 @@ int nvt_get_channel_data(void *private_data,
 	uint8_t *spi_buf = ts->heatmap_spi_buf;
 	uint32_t spi_buf_size = ts->heatmap_spi_buf_size;
 
+	if (!spi_buf || !spi_buf_size) {
+		NVT_ERR("buffer is not ready for heatmap!\n");
+		return -ENODATA;
+	}
+
 	/* Only support mutual data currently. */
 	if (!(type & TOUCH_SCAN_TYPE_MUTUAL))
 		return -ENODATA;
