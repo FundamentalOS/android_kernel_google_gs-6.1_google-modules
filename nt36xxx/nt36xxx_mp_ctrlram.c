@@ -1685,12 +1685,17 @@ static int32_t c_show_selftest(struct seq_file *m, void *v)
 						      RawData_PenRingY_DiffMin, ts->x_gang_num,
 						      ts->y_num);
 			}
-			if (TestResult_Pen_Rx_Max == -1) {
-				nvt_mp_seq_printf(m, "Pen Rx Max");
-				print_selftest_result(m, TestResult_Pen_Rx_Max,
-					RecordResult_Pen_Rx_Max, RawData_Pen_Rx_Max,
-					PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
-			}
+		}
+
+		nvt_mp_seq_printf(m, "Pen Detect Test");
+		if (TestResult_Pen_Rx_Max == 0 || TestResult_Pen_Rx_Max == 1) {
+			print_selftest_result(m, TestResult_Pen_Rx_Max, RecordResult_Pen_Rx_Max,
+					RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
+		} else {
+			nvt_mp_seq_printf(m, " FAIL!\n");
+			nvt_mp_seq_printf(m, "Pen Detect Rx Max");
+			print_selftest_result(m, TestResult_Pen_Rx_Max, RecordResult_Pen_Rx_Max,
+					RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
 		}
 	} /* if (ts->pen_support) */
 
@@ -2022,8 +2027,7 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 			    (TestResult_PenRingX_DiffMax == -1) ||
 			    (TestResult_PenRingX_DiffMin == -1) ||
 			    (TestResult_PenRingY_DiffMax == -1) ||
-			    (TestResult_PenRingY_DiffMin == -1) ||
-				(TestResult_Pen_Rx_Max == -1))
+			    (TestResult_PenRingY_DiffMin == -1))
 				TestResult_Pen_Noise = -1;
 			else
 				TestResult_Pen_Noise = 0;
