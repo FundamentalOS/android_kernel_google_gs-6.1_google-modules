@@ -1491,6 +1491,7 @@ static int32_t nvt_ts_point_data_checksum(uint8_t *buf, uint8_t length)
 static enum power_supply_property pen_battery_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_SCOPE,
 };
@@ -1498,14 +1499,42 @@ static enum power_supply_property pen_battery_props[] = {
 static int pen_get_battery_property(struct power_supply *psy,
 		enum power_supply_property prop, union power_supply_propval *val)
 {
+	int low, capacity;
+
+	low = ts->pen_bat_capa & 0x80;
+	capacity = ts->pen_bat_capa & 0x7f;
+
 	switch (prop) {
 	case POWER_SUPPLY_PROP_PRESENT:
 		val->intval = 1;
 		break;
 
 	case POWER_SUPPLY_PROP_CAPACITY:
-		val->intval = (100 * (ts->pen_bat_capa - PEN_BATTERY_MIN) /
-			(PEN_BATTERY_MAX - PEN_BATTERY_MIN));
+		/* stylus doesn't support fuel gauge */
+		if (capacity == 127) {
+			if (low) /* low battery flag */
+				val->intval = 1;
+			else /* no low battery flag */
+				val->intval = 100;
+		} else { /* 1 ~ 100 */
+			val->intval = capacity;
+		}
+		break;
+
+	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+		/* battery capacity is never updated */
+		if (capacity == 0) {
+			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
+			break;
+		}
+
+		if (low)
+			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
+		else if (capacity != 100) /* 127, 1 ~ 99 */
+			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
+		else /* 100 */
+			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_FULL;
+
 		break;
 
 	case POWER_SUPPLY_PROP_STATUS:
