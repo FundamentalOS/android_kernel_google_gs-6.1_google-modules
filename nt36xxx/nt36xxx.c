@@ -1790,10 +1790,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP) {
 		ts->touch_heatmap_comp_len = (((point_data[62] & 0x0F) << 8) + point_data[61]) * 2;
 		NVT_DBG("heatmap_comp_len: %d\n", ts->touch_heatmap_comp_len);
-		if (ts->touch_heatmap_comp_len + 1 > ts->heatmap_spi_buf_size) {
-			NVT_ERR("invalid heatmap comp size %d!\n", ts->touch_heatmap_comp_len);
-			ts->touch_heatmap_comp_len = 0;
-		}
 	} else {
 		ts->touch_heatmap_comp_len = 0;
 	}
@@ -1826,8 +1822,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			break;
 		}
 
-		if (!spi_buf || !spi_buf_size || !spi_read_size) {
-			NVT_ERR("buffer is not ready for heatmap or invalid size!\n");
+		if (!spi_buf || !spi_buf_size || !spi_read_size ||
+			spi_read_size > spi_buf_size) {
+			NVT_ERR("buffer is not ready for heatmap(%d) or invalid size(%d > %d)!\n",
+				ts->heatmap_data_type, spi_read_size, spi_buf_size);
 		} else {
 			nvt_set_page(ts->heatmap_host_cmd_addr);
 			spi_buf[0] = ts->heatmap_host_cmd_addr & 0x7F;

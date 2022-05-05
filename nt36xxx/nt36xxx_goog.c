@@ -104,8 +104,8 @@ int nvt_get_channel_data(void *private_data,
 	}
 
 	if (!spi_buf || !spi_buf_size || spi_read_size > spi_buf_size) {
-		NVT_ERR("buffer is not ready for heatmap(type %d, size %d)!\n",
-			ts->heatmap_data_type, spi_read_size);
+		NVT_ERR("buffer is not ready for heatmap(%d) or invalid size(%d > %d)!\n",
+			ts->heatmap_data_type, spi_read_size, spi_buf_size);
 		return -ENODATA;
 	}
 
