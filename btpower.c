@@ -249,6 +249,59 @@ static void btpower_uart_transport_locked(struct btpower_platform_data *drvdata,
 	exynos_update_ip_idle_status(drvdata->uart_idle_index, !locked);
 }
 
+static irqreturn_t btpower_host_wake_isr(int irq, void *data)
+{
+	struct btpower_platform_data *drvdata = data;
+	int host_waking = gpio_get_value(drvdata->bt_gpio_host_wake);
+	struct kernel_siginfo siginfo;
+	int rc = 0;
+
+	drvdata->hostwake_count += host_waking;
+	pr_debug("%s: IRQ(%d -> %d) count(%u)\n", __func__,
+		drvdata->hostwake_state, host_waking, drvdata->hostwake_count);
+
+	if (drvdata->reftask_obs == NULL) {
+		pr_info("%s: ignore IRQ(%d) count(%u)\n", __func__, host_waking,
+			drvdata->hostwake_count);
+		return IRQ_HANDLED;
+	}
+
+	if (drvdata->hostwake_state == 2) {
+		pr_debug("%s: IRQ(%d) count(%u) after flipped\n", __func__,
+			host_waking, drvdata->hostwake_count);
+		drvdata->hostwake_state = 0;
+	}
+
+	if (drvdata->hostwake_state != host_waking) {
+		drvdata->hostwake_state = host_waking;
+		if (host_waking == 1)
+			btpower_uart_transport_locked(drvdata, true);
+	} else {
+		pr_warn("%s: IRQ(%d) count(%u) is flipping\n", __func__,
+			host_waking, drvdata->hostwake_count);
+		if (host_waking == 1)
+			/* HIGH --> LOW --> HIGH because of incoming packets timing
+			 * Ignore this IRQ since nothing is changing
+			 */
+			return IRQ_HANDLED;
+		/* FW timer too short but LOW --> HIGH --> LOW too soon */
+		drvdata->hostwake_state = 2;
+		btpower_uart_transport_locked(drvdata, true);
+	}
+
+	/* Sending signal to HAL layer */
+	memset(&siginfo, 0, sizeof(siginfo));
+	siginfo.si_signo = SIGIO;
+	siginfo.si_code = SI_QUEUE;
+	siginfo.si_int = drvdata->hostwake_state;
+	rc = send_sig_info(siginfo.si_signo, &siginfo, drvdata->reftask_obs);
+	if (rc < 0) {
+		pr_err("%s: failed (%d) to send SIG to HAL(%d)\n", __func__,
+			rc, drvdata->reftask_obs->pid);
+	}
+	return IRQ_HANDLED;
+}
+
 static int bt_vreg_enable(struct bt_power_vreg_data *vreg)
 {
 	int rc = 0;
@@ -491,6 +544,45 @@ static int btpower_gpio_acquire_input(int gpio, const char *label)
 	return rc;
 }
 
+static void bt_configure_wakeup_gpios(struct btpower_platform_data *drvdata, bool on)
+{
+	int bt_gpio_dev_wake = drvdata->bt_gpio_dev_wake;
+	int bt_host_wake_gpio = drvdata->bt_gpio_host_wake;
+	int rc;
+
+	if (!on) {
+		if (gpio_is_valid(bt_host_wake_gpio)) {
+			pr_debug("%s: BT-OFF bt-hostwake-gpio(%d) IRQ(%d) value(%d)\n",
+				 __func__, bt_host_wake_gpio, drvdata->irq,
+				 gpio_get_value(bt_host_wake_gpio));
+			free_irq(drvdata->irq, drvdata);
+		}
+
+		if (gpio_is_valid(bt_gpio_dev_wake))
+			gpio_set_value(bt_gpio_dev_wake, 0);
+		return;
+	}
+
+	if (gpio_is_valid(bt_gpio_dev_wake)) {
+		gpio_set_value(bt_gpio_dev_wake, 1);
+		pr_debug("%s: BT-ON asserting BT_WAKE(%d)\n", __func__,
+			 bt_gpio_dev_wake);
+	}
+
+	if (gpio_is_valid(bt_host_wake_gpio)) {
+		pr_debug("%s: BT-ON bt-host_wake-gpio(%d) IRQ(%d)\n",
+			__func__, bt_host_wake_gpio, drvdata->irq);
+		rc = request_irq(drvdata->irq, btpower_host_wake_isr,
+				 IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
+				 "btpower_hostwake_isr", drvdata);
+		if (rc)
+			pr_err("%s: unable to request IRQ %d (%d)\n", __func__,
+				bt_host_wake_gpio, rc);
+		drvdata->hostwake_state = -1;
+		drvdata->hostwake_count = 0;
+	}
+}
+
 static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 {
 	int rc = 0;
@@ -502,6 +594,9 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 	pr_info("%s: BT_RESET_GPIO(%d) value(%d) enabling: %s\n", __func__,
 		bt_reset_gpio, gpio_get_value(bt_reset_gpio),
 		(on ? "True" : "False"));
+
+	if (!on)
+		bt_configure_wakeup_gpios(drvdata, on);
 
 	/* always reset the controller no metter ON or OFF */
 	SET_GPIO_SOURCE_STATE(drvdata, bt_reset_gpio, BT_RESET_GPIO, 0);
@@ -536,6 +631,8 @@ static int bt_configure_gpios(struct btpower_platform_data *drvdata, bool on)
 	}
 
 	msleep(50);
+
+	bt_configure_wakeup_gpios(drvdata, on);
 
 	/* Check if SW_CTRL is asserted */
 	SYNC_GPIO_SOURCE_CURRENT(drvdata, bt_sw_ctrl_gpio, BT_SW_CTRL_GPIO);
@@ -690,10 +787,12 @@ static void btpower_rfkill_remove(struct platform_device *pdev)
 }
 
 static int btpower_open(struct inode *inode, struct file *filp);
+static int btpower_release(struct inode *inode, struct file *filp);
 static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 static const struct file_operations bt_dev_fops = {
 	.owner = THIS_MODULE,
 	.open = btpower_open,
+	.release = btpower_release,
 	.unlocked_ioctl = btpower_ioctl,
 	.compat_ioctl = btpower_ioctl,
 };
@@ -944,6 +1043,13 @@ static int btpower_gpios_source_initialize(struct btpower_platform_data *drvdata
 			pr_warn("%s: failed to set default pinctrl state rc=%d\n",
 				 __func__, rc);
 	}
+	if (!IS_ERR_OR_NULL(drvdata->pinctrl_supply_state)) {
+		rc = pinctrl_select_state(drvdata->pinctrls,
+					drvdata->pinctrl_supply_state);
+		if (unlikely(rc))
+			pr_warn("%s: failed to set supply pinctrl state rc=%d\n",
+				 __func__, rc);
+	}
 
 	rc = btpower_gpio_acquire_output(drvdata->bt_gpio_sys_rst,
 					"bt_sys_rst_n", 0);
@@ -1014,9 +1120,14 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 	} else {
 		drvdata->pinctrl_default_state =
 			pinctrl_lookup_state(drvdata->pinctrls, "default");
+		drvdata->pinctrl_supply_state =
+			pinctrl_lookup_state(drvdata->pinctrls, "supply");
 	}
 	if (IS_ERR(drvdata->pinctrl_default_state))
 		pr_warn("%s: default pinctrl state not provided in device tree\n",
+			__func__);
+	if (IS_ERR(drvdata->pinctrl_supply_state))
+		pr_warn("%s: supply pinctrl state not provided in device tree\n",
 			__func__);
 
 	drvdata->bt_gpio_sys_rst =
@@ -1033,14 +1144,27 @@ static int bt_power_populate_dt_pinfo(struct platform_device *pdev,
 		pr_info("%s: wl-reset-gpio not provided in device tree\n",
 			__func__);
 
+	drvdata->bt_gpio_dev_wake =
+		of_get_named_gpio(pdev->dev.of_node, "qcom,btwake_gpio", 0);
+	if (!gpio_is_valid(drvdata->bt_gpio_dev_wake))
+		pr_warn("%s: btwake-gpio not provided in device tree\n", __func__);
+
+	drvdata->bt_gpio_host_wake =
+		of_get_named_gpio(pdev->dev.of_node, "qcom,bthostwake_gpio", 0);
+	if (!gpio_is_valid(drvdata->bt_gpio_host_wake))
+		pr_warn("%s: bthostwake_gpio not provided in device tree\n",
+			__func__);
+	else
+		drvdata->irq = gpio_to_irq(drvdata->bt_gpio_host_wake);
+
 	drvdata->bt_gpio_sw_ctrl =
-		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-sw-ctrl-gpio",  0);
+		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-sw-ctrl-gpio", 0);
 	if (!gpio_is_valid(drvdata->bt_gpio_sw_ctrl))
 		pr_info("%s: bt-sw-ctrl-gpio not provided in device tree\n",
 			__func__);
 
 	drvdata->bt_gpio_debug =
-		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-debug-gpio",  0);
+		of_get_named_gpio(pdev->dev.of_node, "qcom,bt-debug-gpio", 0);
 	if (!gpio_is_valid(drvdata->bt_gpio_debug))
 		pr_info("%s: bt-debug-gpio not provided in device tree\n",
 			__func__);
@@ -1092,7 +1216,6 @@ static int bt_power_probe(struct platform_device *pdev)
 		/* Optional data set to default if not provided */
 		if (!pdata->bt_power_setup)
 			pdata->bt_power_setup = bluetooth_power;
-
 		memcpy(drvdata, pdata, sizeof(*drvdata));
 	} else {
 		pr_err("%s: Failed to get platform data\n", __func__);
@@ -1198,10 +1321,27 @@ static int btpower_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+static int btpower_release(struct inode *inode, struct file *filp)
+{
+	struct btpower_platform_data *drvdata = filp->private_data;
+
+	pr_debug("%s: filp %pK\n", __func__, filp);
+
+	/* delete the task if the caller is clossing the control node */
+	if (filp == drvdata->reffilp_obs) {
+		pr_debug("%s: OBS tid %d node released\n", __func__,
+			drvdata->reftask_obs->pid);
+		drvdata->reffilp_obs = NULL;
+		drvdata->reftask_obs = NULL;
+	}
+	return 0;
+}
+
 static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct btpower_platform_data *drvdata = file->private_data;
 	int ret = 0, pwr_cntrl = 0;
+	enum btpower_obs_param clk_cntrl;
 	int chipset_version = 0;
 	int itr, num_vregs;
 	const struct bt_power_vreg_data *vreg_info = NULL;
@@ -1212,6 +1352,46 @@ static long btpower_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	}
 
 	switch (cmd) {
+	case BT_CMD_OBS_SIGNAL_TASK:
+		drvdata->reffilp_obs = file;
+		drvdata->reftask_obs = get_current();
+		drvdata->hostwake_state = -1;
+		drvdata->hostwake_count = 0;
+		pr_info("%s: BT_CMD_OBS_SIGNAL_TASK tid %d filp %pK\n",
+			__func__, drvdata->reftask_obs->pid, file);
+		break;
+	case BT_CMD_OBS_VOTE_CLOCK:
+		if (!gpio_is_valid(drvdata->bt_gpio_dev_wake)) {
+			pr_warn("%s: BT_CMD_OBS_VOTE_CLOCK bt_dev_wake_n(%d) not configured\n",
+				__func__, drvdata->bt_gpio_dev_wake);
+			return -EIO;
+		}
+		clk_cntrl = (enum btpower_obs_param)arg;
+		switch (clk_cntrl) {
+		case BTPOWER_OBS_CLK_OFF:
+			btpower_uart_transport_locked(drvdata, false);
+			ret = 0;
+			break;
+		case BTPOWER_OBS_CLK_ON:
+			btpower_uart_transport_locked(drvdata, true);
+			ret = 0;
+			break;
+		case BTPOWER_OBS_DEV_OFF:
+			gpio_set_value(drvdata->bt_gpio_dev_wake, 0);
+			ret = 0;
+			break;
+		case BTPOWER_OBS_DEV_ON:
+			gpio_set_value(drvdata->bt_gpio_dev_wake, 1);
+			ret = 0;
+			break;
+		default:
+			pr_warn("%s: BT_CMD_OBS_VOTE_CLOCK cntrl(%d) unknown\n",
+				__func__, clk_cntrl);
+			return -EINVAL;
+		}
+		pr_debug("%s: BT_CMD_OBS_VOTE_CLOCK cntrl(%d) %s\n", __func__, clk_cntrl,
+			gpio_get_value(drvdata->bt_gpio_dev_wake) ? "Assert" : "Deassert");
+		break;
 	case BT_CMD_SLIM_TEST:
 #if IS_ENABLED(CONFIG_BT_SLIM_QCA6390) || \
 	IS_ENABLED(CONFIG_BT_SLIM_QCA6490) || \
