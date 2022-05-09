@@ -151,14 +151,15 @@ int nvt_get_channel_data(void *private_data,
 }
 
 int nvt_callback(void *private_data,
-		u32 cmd, u32 sub_cmd, u8 **buffer, u32 *size)
+		enum gti_cmd_type cmd_type, struct gti_union_cmd_data *cmd)
 {
 	int ret = -EOPNOTSUPP;
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
 
-	switch (cmd) {
+	switch (cmd_type) {
 	case GTI_CMD_GET_SENSOR_DATA:
-		ret = nvt_get_channel_data(ts, sub_cmd, buffer, size);
+		ret = nvt_get_channel_data(ts, cmd->sensor_data_cmd.type,
+				&cmd->sensor_data_cmd.buffer, &cmd->sensor_data_cmd.size);
 		break;
 	case GTI_CMD_SET_GRIP: {
 		#define GRIP_ENABLE  0x41
@@ -166,7 +167,7 @@ int nvt_callback(void *private_data,
 		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, GRIP_DISABLE};
 		uint8_t fw_cmd = GRIP_DISABLE;
 
-		if (sub_cmd == GTI_SUB_CMD_ENABLE)
+		if (cmd->grip_cmd.setting == GTI_GRIP_ENABLE)
 			fw_cmd = GRIP_ENABLE;
 		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 		spi_buf[2] = fw_cmd;
@@ -181,7 +182,7 @@ int nvt_callback(void *private_data,
 		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, PALM_DISABLE, 0};
 		uint8_t fw_cmd = PALM_DISABLE;
 
-		if (sub_cmd == GTI_SUB_CMD_ENABLE)
+		if (cmd->palm_cmd.setting == GTI_PALM_ENABLE)
 			fw_cmd = PALM_ENABLE;
 		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 		spi_buf[1] = fw_cmd;
@@ -196,29 +197,29 @@ int nvt_callback(void *private_data,
 		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, CONTINUOUS_DISABLE};
 		uint8_t fw_cmd = CONTINUOUS_DISABLE;
 
-		if (sub_cmd == GTI_SUB_CMD_ENABLE)
+		if (cmd->continuous_report_cmd.setting == GTI_CONTINUOUS_REPORT_ENABLE)
 			fw_cmd = CONTINUOUS_ENABLE;
 		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 		spi_buf[2] = fw_cmd;
 		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
 		ret = 0;
 		NVT_DBG("continuous report %s.\n",
-				(fw_cmd == GTI_SUB_CMD_ENABLE) ? "enable" : "disable");
+				(fw_cmd == CONTINUOUS_ENABLE) ? "enable" : "disable");
 	}
 		break;
 	case GTI_CMD_NOTIFY_DISPLAY_STATE:
-		if (sub_cmd == GTI_SUB_CMD_DISPLAY_STATE_OFF)
+		if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_OFF)
 			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, false);
-		else if (sub_cmd == GTI_SUB_CMD_DISPLAY_STATE_ON)
+		else if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_ON)
 			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, true);
 		else
-			NVT_ERR("invalid sub_cmd %d!\n", sub_cmd);
+			NVT_ERR("invalid setting %d!\n", cmd->display_state_cmd.setting);
 		break;
 	case GTI_CMD_NOTIFY_DISPLAY_VREFRESH:
 		ret = 0;
 		break;
 	default:
-		NVT_ERR("unsupport request cmd %#x!\n", cmd);
+		NVT_ERR("unsupport request cmd_type %#x!\n", cmd_type);
 		ret = -EOPNOTSUPP;
 		break;
 	}

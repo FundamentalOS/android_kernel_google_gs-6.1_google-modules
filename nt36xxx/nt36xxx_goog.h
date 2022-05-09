@@ -26,7 +26,7 @@ void nvt_heatmap_decode(
 int nvt_get_channel_data(void *private_data,
 		u32 type, u8 **buffer, u32 *size);
 int nvt_callback(void *private_data,
-		u32 cmd, u32 sub_cmd, u8 **buffer, u32 *size);
+		enum gti_cmd_type cmd_type, struct gti_union_cmd_data *cmd);
 #else
 static inline int nvt_get_channel_data(void *private_data,
 		u32 type, u8 **buffer, u32 *size)
@@ -34,7 +34,7 @@ static inline int nvt_get_channel_data(void *private_data,
 	return -ENODATA;
 }
 static inline int nvt_callback(void *private_data,
-		u32 cmd, u32 sub_cmd, u8 **buffer, u32 *size)
+		enum gti_cmd_type cmd_type, struct gti_union_cmd_data *cmd)
 {
 	return -ENODATA;
 }

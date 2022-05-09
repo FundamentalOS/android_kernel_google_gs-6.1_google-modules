@@ -2389,7 +2389,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	/* probe google touch interface. */
 	ts->gti = goog_touch_interface_probe(ts, &ts->client->dev,
-					ts->input_dev, nvt_callback);
+					ts->input_dev, nvt_callback, NULL);
 	if (ts->gti == NULL) {
 		NVT_ERR("offload probe failed. ret=%d!\n", ret);
 		goto err_goog_touch_interface;
