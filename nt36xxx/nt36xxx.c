@@ -3034,6 +3034,7 @@ static void nvt_ts_suspend_work(struct work_struct *work)
 	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, suspend_work.work);
 
 	nvt_ts_suspend(&ts->client->dev);
+	goog_notify_vendor_dev_pm_state_done(ts->gti, GTI_VENDOR_DEV_SUSPEND);
 }
 
 static void nvt_ts_resume_work(struct work_struct *work)
@@ -3041,6 +3042,7 @@ static void nvt_ts_resume_work(struct work_struct *work)
 	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, resume_work.work);
 
 	nvt_ts_resume(&ts->client->dev);
+	goog_notify_vendor_dev_pm_state_done(ts->gti, GTI_VENDOR_DEV_RESUME);
 }
 #endif
 
