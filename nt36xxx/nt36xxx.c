@@ -838,7 +838,8 @@ info_retry:
 		}
 	}
 
-	/* Initialize heatmap mode. */
+	/* Initialize heatmap_host_cmd. */
+	ts->heatmap_host_cmd = HEATMAP_HOST_CMD_DISABLE;
 	nvt_set_heatmap_host_cmd(ts);
 
 	ret = 0;
