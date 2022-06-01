@@ -155,42 +155,87 @@ int nvt_callback(void *private_data,
 {
 	int ret = -EOPNOTSUPP;
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
+	static bool grip_enabled;
+	static bool palm_enabled;
+	static bool sensing_enabled = true;
+
 
 	switch (cmd_type) {
+	case GTI_CMD_PING:
+		if (cmd->ping_cmd.setting == GTI_PING_ENABLE) {
+			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_FORCE_ACTIVE, true);
+			ret |= nvt_ts_set_bus_ref(ts, NVT_BUS_REF_FORCE_ACTIVE, false);
+		} else {
+			ret = 0;
+		}
+		break;
+
+	case GTI_CMD_RESET:
+		ret = nvt_update_firmware(get_fw_name(), 1);
+		break;
+
+	case GTI_CMD_SELFTEST: {
+		int buf_idx = 0;
+		char *buf = cmd->selftest_cmd.buffer;
+		size_t size = sizeof(cmd->selftest_cmd.buffer);
+
+		cmd->selftest_cmd.result = GTI_SELFTEST_RESULT_SHELL_CMDS_REDIRECT;
+		buf_idx += scnprintf(buf + buf_idx, size,
+			"cat /proc/nvt_selftest\n");
+		ret = 0;
+	}
+		break;
+
+	case GTI_CMD_GET_FW_VERSION: {
+		int buf_idx = 0;
+		char *buf = cmd->fw_version_cmd.buffer;
+		size_t size = sizeof(cmd->fw_version_cmd.buffer);
+
+		buf_idx += scnprintf(buf + buf_idx, size, "\n");
+		buf_idx += scnprintf(buf + buf_idx, size,
+			"fw_ver=%d, x_num=%d, y_num=%d, button_num=%d\n",
+			ts->fw_ver, ts->x_num, ts->y_num, ts->max_button_num);
+		buf_idx += scnprintf(buf + buf_idx, size,
+			"id= 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
+			ts->trim_table->id[0], ts->trim_table->id[1],
+			ts->trim_table->id[2], ts->trim_table->id[3],
+			ts->trim_table->id[4], ts->trim_table->id[5]);
+		buf_idx += scnprintf(buf + buf_idx, size, "mp_fw_name= %s\n", get_mp_fw_name());
+		buf_idx += scnprintf(buf + buf_idx, size, "fw_name= %s\n", get_fw_name());
+		ret = 0;
+		NVT_LOG("GTI_CMD_GET_FW_VERSION.\n");
+	}
+		break;
+
+	case GTI_CMD_GET_GRIP_MODE:
+		cmd->grip_cmd.setting = (grip_enabled) ?
+				GTI_GRIP_ENABLE : GTI_GRIP_DISABLE;
+		ret = 0;
+		break;
+
+	case GTI_CMD_GET_IRQ_MODE:
+		cmd->irq_cmd.setting = (ts->irq_enabled) ?
+				GTI_IRQ_MODE_ENABLE : GTI_IRQ_MODE_DISABLE;
+		ret = 0;
+		break;
+
+	case GTI_CMD_GET_PALM_MODE:
+		cmd->palm_cmd.setting = (palm_enabled) ?
+				GTI_PALM_ENABLE : GTI_PALM_DISABLE;
+		ret = 0;
+		break;
+
+	case GTI_CMD_GET_SENSING_MODE:
+		cmd->sensing_cmd.setting = (sensing_enabled) ?
+				GTI_SENSING_MODE_ENABLE : GTI_SENSING_MODE_DISABLE;
+		ret = 0;
+		break;
+
 	case GTI_CMD_GET_SENSOR_DATA:
 		ret = nvt_get_channel_data(ts, cmd->sensor_data_cmd.type,
 				&cmd->sensor_data_cmd.buffer, &cmd->sensor_data_cmd.size);
 		break;
-	case GTI_CMD_SET_GRIP_MODE: {
-		#define GRIP_ENABLE  0x41
-		#define GRIP_DISABLE 0x40
-		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, GRIP_DISABLE};
-		uint8_t fw_cmd = GRIP_DISABLE;
 
-		if (cmd->grip_cmd.setting == GTI_GRIP_ENABLE)
-			fw_cmd = GRIP_ENABLE;
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-		spi_buf[2] = fw_cmd;
-		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
-		ret = 0;
-		NVT_LOG("grip %s.\n", (fw_cmd == GRIP_ENABLE) ? "enable" : "disable");
-	}
-		break;
-	case GTI_CMD_SET_PALM_MODE: {
-		#define PALM_ENABLE  0xB3
-		#define PALM_DISABLE 0xB4
-		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, PALM_DISABLE, 0};
-		uint8_t fw_cmd = PALM_DISABLE;
-
-		if (cmd->palm_cmd.setting == GTI_PALM_ENABLE)
-			fw_cmd = PALM_ENABLE;
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-		spi_buf[1] = fw_cmd;
-		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
-		ret = 0;
-		NVT_LOG("palm %s.\n", (fw_cmd == PALM_ENABLE) ? "enable" : "disable");
-	}
-		break;
 	case GTI_CMD_SET_CONTINUOUS_REPORT: {
 		#define CONTINUOUS_ENABLE  0x01
 		#define CONTINUOUS_DISABLE 0x00
@@ -207,6 +252,77 @@ int nvt_callback(void *private_data,
 				(fw_cmd == CONTINUOUS_ENABLE) ? "enable" : "disable");
 	}
 		break;
+
+	case GTI_CMD_SET_GRIP_MODE: {
+		#define GRIP_ENABLE  0x41
+		#define GRIP_DISABLE 0x40
+		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, GRIP_DISABLE};
+		uint8_t fw_cmd = GRIP_DISABLE;
+
+		if (cmd->grip_cmd.setting == GTI_GRIP_ENABLE) {
+			fw_cmd = GRIP_ENABLE;
+			grip_enabled = true;
+		} else {
+			grip_enabled = false;
+		}
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		spi_buf[2] = fw_cmd;
+		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
+		ret = 0;
+		NVT_LOG("grip %s.\n", (fw_cmd == GRIP_ENABLE) ? "enable" : "disable");
+	}
+		break;
+
+	case GTI_CMD_SET_IRQ_MODE:
+		if (cmd->irq_cmd.setting == GTI_IRQ_MODE_DISABLE)
+			nvt_irq_enable(false);
+		else
+			nvt_irq_enable(true);
+		ret = 0;
+		break;
+
+	case GTI_CMD_SET_PALM_MODE: {
+		#define PALM_ENABLE  0xB3
+		#define PALM_DISABLE 0xB4
+		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, PALM_DISABLE, 0};
+		uint8_t fw_cmd = PALM_DISABLE;
+
+		if (cmd->palm_cmd.setting == GTI_PALM_ENABLE) {
+			fw_cmd = PALM_ENABLE;
+			palm_enabled = true;
+		} else {
+			palm_enabled = false;
+		}
+		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+		spi_buf[1] = fw_cmd;
+		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
+		ret = 0;
+		NVT_LOG("palm %s.\n", (fw_cmd == PALM_ENABLE) ? "enable" : "disable");
+	}
+		break;
+
+	case GTI_CMD_SET_SENSING_MODE:
+		if (cmd->sensing_cmd.setting == GTI_SENSING_MODE_DISABLE) {
+			uint8_t spi_buf[3] = {0};
+
+			ret = 0;
+			if (sensing_enabled) {
+				spi_buf[0] = EVENT_MAP_HOST_CMD;
+				spi_buf[1] = 0x12;
+				CTP_SPI_WRITE(ts->client, spi_buf, 3);
+				msleep(20);
+				spi_buf[0] = EVENT_MAP_HOST_CMD;
+				spi_buf[1] = 0xFF;
+				CTP_SPI_READ(ts->client, spi_buf, 3);
+				ret = (spi_buf[1] == 0) ? 0 : -EIO;
+				sensing_enabled = false;
+			}
+		} else {
+			ret = nvt_update_firmware(get_fw_name(), 1);
+			sensing_enabled = true;
+		}
+		break;
+
 	case GTI_CMD_NOTIFY_DISPLAY_STATE:
 		if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_OFF)
 			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, false);
@@ -215,9 +331,11 @@ int nvt_callback(void *private_data,
 		else
 			NVT_ERR("invalid setting %d!\n", cmd->display_state_cmd.setting);
 		break;
+
 	case GTI_CMD_NOTIFY_DISPLAY_VREFRESH:
 		ret = 0;
 		break;
+
 	default:
 		NVT_ERR("unsupport request cmd_type %#x!\n", cmd_type);
 		ret = -EOPNOTSUPP;
