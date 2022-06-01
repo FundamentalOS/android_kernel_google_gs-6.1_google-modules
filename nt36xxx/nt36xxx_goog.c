@@ -161,7 +161,7 @@ int nvt_callback(void *private_data,
 		ret = nvt_get_channel_data(ts, cmd->sensor_data_cmd.type,
 				&cmd->sensor_data_cmd.buffer, &cmd->sensor_data_cmd.size);
 		break;
-	case GTI_CMD_SET_GRIP: {
+	case GTI_CMD_SET_GRIP_MODE: {
 		#define GRIP_ENABLE  0x41
 		#define GRIP_DISABLE 0x40
 		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, GRIP_DISABLE};
@@ -176,7 +176,7 @@ int nvt_callback(void *private_data,
 		NVT_LOG("grip %s.\n", (fw_cmd == GRIP_ENABLE) ? "enable" : "disable");
 	}
 		break;
-	case GTI_CMD_SET_PALM: {
+	case GTI_CMD_SET_PALM_MODE: {
 		#define PALM_ENABLE  0xB3
 		#define PALM_DISABLE 0xB4
 		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, PALM_DISABLE, 0};
