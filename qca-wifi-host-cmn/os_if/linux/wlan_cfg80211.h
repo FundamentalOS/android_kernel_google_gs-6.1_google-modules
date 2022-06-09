@@ -31,6 +31,7 @@
 #include <qca_vendor.h>
 #include <qdf_nbuf.h>
 #include "qal_devcfg.h"
+#include "wlan_osif_features.h"
 
 #define osif_alert(params...) \
 	QDF_TRACE_FATAL(QDF_MODULE_ID_OS_IF, params)
@@ -471,4 +472,33 @@ wlan_cfg80211_nla_strscpy(char *dst, const struct nlattr *nla, size_t dstsize)
 	return nla_strscpy(dst, nla, dstsize);
 }
 #endif
+
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+#ifdef CFG80211_RU_PUNCT_NOTIFY
+static inline
+void wlan_cfg80211_ch_switch_notify(struct net_device *dev,
+				    struct cfg80211_chan_def *chandef,
+				    unsigned int link_id)
+{
+	cfg80211_ch_switch_notify(dev, chandef, link_id, 0);
+}
+#else
+static inline
+void wlan_cfg80211_ch_switch_notify(struct net_device *dev,
+				    struct cfg80211_chan_def *chandef,
+				    unsigned int link_id)
+{
+	cfg80211_ch_switch_notify(dev, chandef, link_id);
+}
+#endif
+#else
+static inline
+void wlan_cfg80211_ch_switch_notify(struct net_device *dev,
+				    struct cfg80211_chan_def *chandef,
+				    unsigned int link_id)
+{
+	cfg80211_ch_switch_notify(dev, chandef);
+}
+#endif
+
 #endif
