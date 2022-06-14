@@ -1622,7 +1622,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_x = 0;
 	uint32_t pen_y = 0;
 	uint32_t pen_pressure = 0;
+#ifdef PEN_DISTANCE_SUPPORT
 	uint32_t pen_distance = 0;
+#endif
 	int8_t pen_tilt_x = 0;
 	int8_t pen_tilt_y = 0;
 	uint32_t pen_btn1 = 0;
@@ -1736,6 +1738,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_w = (uint32_t)(point_data[position + 4]);
 			if (input_w == 0)
 				input_w = 1;
+#ifdef TOUCH_FORCE_NUM
 			if (i < 2) {
 				input_p = (uint32_t)(point_data[position + 5]) + (uint32_t)(
 						  point_data[i + 63] << 8);
@@ -1744,6 +1747,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			} else {
 				input_p = (uint32_t)(point_data[position + 5]);
 			}
+#else
+                        input_p = (uint32_t)(point_data[position + 5]);
+#endif
 			if (input_p == 0)
 				input_p = 1;
 
@@ -1896,8 +1902,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 						       point_data[72]);
 				pen_tilt_x = (int32_t)point_data[73];
 				pen_tilt_y = (int32_t)point_data[74];
+#ifdef PEN_DISTANCE_SUPPORT
 				pen_distance = (uint32_t)(point_data[75] << 8) + (uint32_t)(
 						       point_data[76]);
+#endif
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
 				if (ts->pen_bat_capa != (uint32_t)point_data[78]) {
@@ -1913,7 +1921,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_TOUCH, !!pen_pressure);
 				input_report_abs(ts->pen_input_dev, ABS_TILT_X, pen_tilt_x);
 				input_report_abs(ts->pen_input_dev, ABS_TILT_Y, pen_tilt_y);
+#ifdef PEN_DISTANCE_SUPPORT
 				input_report_abs(ts->pen_input_dev, ABS_DISTANCE, pen_distance);
+#endif
 				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
@@ -1929,7 +1939,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
 			input_report_abs(ts->pen_input_dev, ABS_TILT_X, 0);
 			input_report_abs(ts->pen_input_dev, ABS_TILT_Y, 0);
-			input_report_abs(ts->pen_input_dev, ABS_DISTANCE, 0);
+#ifdef PEN_DISTANCE_SUPPORT
+			input_report_abs(ts->pen_input_dev, ABS_DISTANCE, PEN_DISTANCE_MAX);
+#endif
 			input_report_key(ts->pen_input_dev, BTN_TOUCH, 0);
 			input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
@@ -2295,7 +2307,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		input_mt_init_slots(ts->input_dev, ts->max_touch_num, 0);
 
 	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE, 0,
-			TOUCH_FORCE_NUM, 0, 0);    //pressure = TOUCH_FORCE_NUM
+			MT_PRESSURE_MAX, 0, 0);
 
 #if NVT_MT_CUSTOM
 	input_set_abs_params(ts->input_dev, ABS_MT_CUSTOM, 0, 0x8, 0, 0);
@@ -2385,8 +2397,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 		input_set_abs_params(ts->pen_input_dev, ABS_PRESSURE, 0, PEN_PRESSURE_MAX,
 				     0, 0);
+#ifdef PEN_DISTANCE_SUPPORT
 		input_set_abs_params(ts->pen_input_dev, ABS_DISTANCE, 0, PEN_DISTANCE_MAX,
 				     0, 0);
+#endif
 		input_set_abs_params(ts->pen_input_dev, ABS_TILT_X, PEN_TILT_MIN,
 				     PEN_TILT_MAX, 0, 0);
 		input_set_abs_params(ts->pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN,
@@ -2931,7 +2945,9 @@ static int32_t nvt_ts_suspend(struct device *dev)
 		input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
 		input_report_abs(ts->pen_input_dev, ABS_TILT_X, 0);
 		input_report_abs(ts->pen_input_dev, ABS_TILT_Y, 0);
-		input_report_abs(ts->pen_input_dev, ABS_DISTANCE, 0);
+#ifdef PEN_DISTANCE_SUPPORT
+		input_report_abs(ts->pen_input_dev, ABS_DISTANCE, PEN_DISTANCE_MAX);
+#endif
 		input_report_key(ts->pen_input_dev, BTN_TOUCH, 0);
 		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);

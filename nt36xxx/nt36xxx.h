@@ -91,8 +91,14 @@
 #if TOUCH_KEY_NUM > 0
 extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #endif
-#define TOUCH_FORCE_NUM 1000
+//#define TOUCH_FORCE_NUM 1000
+#ifdef TOUCH_FORCE_NUM
+#define MT_PRESSURE_MAX TOUCH_FORCE_NUM
+#else
+#define MT_PRESSURE_MAX 256
+#endif
 //---for Pen---
+//#define PEN_DISTANCE_SUPPORT
 #define PEN_PRESSURE_MAX (4095)
 #define PEN_DISTANCE_MAX (1)
 #define PEN_TILT_MIN (-60)
