@@ -1915,6 +1915,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 //				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
 //						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
 
+				input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 				input_report_abs(ts->pen_input_dev, ABS_X, pen_x);
 				input_report_abs(ts->pen_input_dev, ABS_Y, pen_y);
 				input_report_abs(ts->pen_input_dev, ABS_PRESSURE, pen_pressure);
@@ -1934,6 +1935,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				goto XFER_ERROR;
 			}
 		} else { // pen_format_id = 0xFF, i.e. no pen present
+			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 			input_report_abs(ts->pen_input_dev, ABS_X, 0);
 			input_report_abs(ts->pen_input_dev, ABS_Y, 0);
 			input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
@@ -2940,6 +2942,7 @@ static int32_t nvt_ts_suspend(struct device *dev)
 
 	/* release pen event */
 	if (ts->pen_support) {
+		input_set_timestamp(ts->pen_input_dev, ktime_get());
 		input_report_abs(ts->pen_input_dev, ABS_X, 0);
 		input_report_abs(ts->pen_input_dev, ABS_Y, 0);
 		input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
