@@ -251,7 +251,7 @@ Description:
 return:
 	n.a.
 *******************************************************/
-static void nvt_irq_enable(bool enable)
+void nvt_irq_enable(bool enable)
 {
 	struct irq_desc *desc;
 
