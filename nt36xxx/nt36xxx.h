@@ -283,12 +283,7 @@ struct nvt_ts_data {
 	struct workqueue_struct *event_wq;
 	struct pm_qos_request pm_qos_req;
 
-	/*
-	 * Used for bus refernece.
-	 */
-	u32 bus_refmask;
 	struct mutex bus_mutex;
-
 	ktime_t bugreport_ktime_start;
 	u8 force_release_fw;
 
@@ -387,6 +382,8 @@ extern void nvt_esd_check_enable(uint8_t enable);
 void nvt_irq_enable(bool enable);
 inline const char *get_fw_name(void);
 inline const char *get_mp_fw_name(void);
+int nvt_ts_resume(struct device *dev);
+int nvt_ts_suspend(struct device *dev);
 
 void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts);
 #endif /* _LINUX_NVT_TOUCH_H */

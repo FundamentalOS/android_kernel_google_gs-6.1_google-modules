@@ -54,6 +54,9 @@
 static void nvt_ts_suspend_work(struct work_struct *work);
 static void nvt_ts_resume_work(struct work_struct *work);
 #endif
+#ifdef GOOG_TOUCH_INTERFACE
+static const struct dev_pm_ops goog_pm_ops;
+#endif
 
 #if NVT_TOUCH_ESD_PROTECT
 static struct delayed_work nvt_esd_check_work;
@@ -2440,6 +2443,13 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		NVT_ERR("offload probe failed. ret=%d!\n", ret);
 		goto err_goog_touch_interface;
 	}
+#ifdef GOOG_TOUCH_INTERFACE
+	ret = goog_pm_register_notification(ts->gti, &goog_pm_ops);
+	if (ret) {
+		NVT_ERR("pm register failed. ret=%d!\n", ret);
+		goto err_goog_pm_register;
+	}
+#endif
 
 	/* init pm_qos. */
 	cpu_latency_qos_add_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
@@ -2578,8 +2588,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #if defined(CONFIG_SOC_GOOGLE)
 	if (device_init_wakeup(&ts->client->dev, true))
 		NVT_ERR("failed to init wakeup dev!\n");
-	/* Assume screen is on throughout probe */
-	ts->bus_refmask = NVT_BUS_REF_SCREEN_ON;
 #endif
 
 	ts->bTouchIsAwake = true;
@@ -2644,6 +2652,10 @@ err_create_nvt_fwu_wq_failed:
 	free_irq(client->irq, ts);
 err_int_request_failed:
 	cpu_latency_qos_remove_request(&ts->pm_qos_req);
+#ifdef GOOG_TOUCH_INTERFACE
+	goog_pm_unregister_notification(ts->gti);
+err_goog_pm_register:
+#endif
 	goog_touch_interface_remove(ts->gti);
 err_goog_touch_interface:
 	pen_clean_battery(ts->pen_bat_psy);
@@ -2764,6 +2776,9 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 	nvt_irq_enable(false);
 	free_irq(client->irq, ts);
 
+#ifdef GOOG_TOUCH_INTERFACE
+	goog_pm_unregister_notification(ts->gti);
+#endif
 	goog_touch_interface_remove(ts->gti);
 	cpu_latency_qos_remove_request(&ts->pm_qos_req);
 
@@ -2878,7 +2893,7 @@ Description:
 return:
 	Executive outcomes. 0---succeed.
 *******************************************************/
-static int32_t nvt_ts_suspend(struct device *dev)
+int nvt_ts_suspend(struct device *dev)
 {
 	uint8_t buf[4] = {0};
 	uint32_t i = 0;
@@ -3018,7 +3033,7 @@ Description:
 return:
 	Executive outcomes. 0---succeed.
 *******************************************************/
-static int32_t nvt_ts_resume(struct device *dev)
+int nvt_ts_resume(struct device *dev)
 {
 	if (ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already resume\n");
@@ -3083,7 +3098,6 @@ static void nvt_ts_suspend_work(struct work_struct *work)
 	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, suspend_work.work);
 
 	nvt_ts_suspend(&ts->client->dev);
-	goog_notify_vendor_dev_pm_state_done(ts->gti, GTI_VENDOR_DEV_SUSPEND);
 }
 
 static void nvt_ts_resume_work(struct work_struct *work)
@@ -3091,7 +3105,6 @@ static void nvt_ts_resume_work(struct work_struct *work)
 	struct nvt_ts_data *ts = container_of(work, struct nvt_ts_data, resume_work.work);
 
 	nvt_ts_resume(&ts->client->dev);
-	goog_notify_vendor_dev_pm_state_done(ts->gti, GTI_VENDOR_DEV_RESUME);
 }
 #endif
 
@@ -3228,6 +3241,12 @@ static struct of_device_id nvt_match_table[] = {
 static const struct dev_pm_ops nvt_ts_dev_pm_ops = {
 	.suspend = nvt_ts_pm_suspend,
 	.resume = nvt_ts_pm_resume,
+};
+#endif
+#ifdef GOOG_TOUCH_INTERFACE
+static const struct dev_pm_ops goog_pm_ops = {
+	.suspend = nvt_ts_suspend,
+	.resume = nvt_ts_resume,
 };
 #endif
 
