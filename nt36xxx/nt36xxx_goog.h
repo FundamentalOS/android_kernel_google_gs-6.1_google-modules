@@ -54,8 +54,6 @@ static inline void unregister_panel_bridge(struct drm_bridge *bridge)
 #endif /* defined(CONFIG_SOC_GOOGLE) && defined(NVT_TS_PANEL_BRIDGE) */
 
 #if defined(CONFIG_SOC_GOOGLE)
-void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts);
-int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable);
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
 ssize_t force_touch_active_store(struct device *dev,
@@ -69,13 +67,6 @@ ssize_t force_release_fw_store(struct device *dev,
 int nvt_ts_pm_suspend(struct device *dev);
 int nvt_ts_pm_resume(struct device *dev);
 #else
-static inline void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts)
-{
-}
-static inline int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
-{
-	return 0;
-}
 static inline ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -120,13 +111,5 @@ static inline int nvt_ts_pm_resume(struct device *dev)
 
 #define NVT_V4L2_DEFAULT_WIDTH		32
 #define NVT_V4L2_DEFAULT_HEIGHT		50
-
-enum {
-	NVT_BUS_REF_SCREEN_ON		= 0x0001,
-	NVT_BUS_REF_IRQ			= 0x0002,
-	NVT_BUS_REF_FW_UPDATE		= 0x0004,
-	NVT_BUS_REF_FORCE_ACTIVE	= 0x0008,
-	NVT_BUS_REF_BUGREPORT		= 0x8000
-};
 
 #endif /* _NT36XXX_GOOG_H_ */

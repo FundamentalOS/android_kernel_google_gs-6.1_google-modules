@@ -8,7 +8,6 @@
 #include <linux/input/mt.h>
 #include <samsung/exynos_drm_connector.h> /* to_exynos_connector_state() */
 
-
 void nvt_heatmap_decode(
 		const uint8_t *in, const uint32_t in_sz,
 		const uint8_t *out, const uint32_t out_sz)
@@ -162,12 +161,7 @@ int nvt_callback(void *private_data,
 
 	switch (cmd_type) {
 	case GTI_CMD_PING:
-		if (cmd->ping_cmd.setting == GTI_PING_ENABLE) {
-			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_FORCE_ACTIVE, true);
-			ret |= nvt_ts_set_bus_ref(ts, NVT_BUS_REF_FORCE_ACTIVE, false);
-		} else {
-			ret = 0;
-		}
+		ret = -EOPNOTSUPP;
 		break;
 
 	case GTI_CMD_RESET:
@@ -324,12 +318,33 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_NOTIFY_DISPLAY_STATE:
-		if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_OFF)
-			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, false);
-		else if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_ON)
-			ret = nvt_ts_set_bus_ref(ts, NVT_BUS_REF_SCREEN_ON, true);
-		else
+		if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_OFF) {
+			/*
+			 * Need to have post-delay for touch FW to complete before return
+			 * to display driver after GTI scheduled the suspend workqueue.
+			 */
+			if (ts->bTouchIsAwake)
+				msleep(NVT_SUSPEND_POST_MS_DELAY);
+			NVT_LOG("GTI_DISPLAY_STATE_OFF\n");
+		} else if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_ON) {
+			u32 locks = goog_pm_wake_get_locks(ts->gti);
+
+			/*
+			 * If driver skipped to suspend to keep bus active, needs to reenable
+			 * driver for touch functionality because display will power
+			 * off during suspend.
+			 */
+			if (ts->bTouchIsAwake &&
+				((locks & GTI_PM_WAKELOCK_TYPE_FORCE_ACTIVE) ||
+				 (locks & GTI_PM_WAKELOCK_TYPE_BUGREPORT))) {
+				NVT_LOG("reenable touch for locks %#x.", locks);
+				nvt_ts_suspend(&ts->client->dev);
+				nvt_ts_resume(&ts->client->dev);
+			}
+			NVT_LOG("GTI_DISPLAY_STATE_ON");
+		} else {
 			NVT_ERR("invalid setting %d!\n", cmd->display_state_cmd.setting);
+		}
 		break;
 
 	case GTI_CMD_NOTIFY_DISPLAY_VREFRESH:
@@ -337,7 +352,7 @@ int nvt_callback(void *private_data,
 		break;
 
 	default:
-		NVT_ERR("unsupport request cmd_type %#x!\n", cmd_type);
+		NVT_DBG("unsupported request cmd_type %#x!\n", cmd_type);
 		ret = -EOPNOTSUPP;
 		break;
 	}
@@ -348,79 +363,6 @@ int nvt_callback(void *private_data,
 #endif /* GOOG_TOUCH_INTERFACE */
 
 #if defined(CONFIG_SOC_GOOGLE)
-void nvt_ts_aggregate_bus_state(struct nvt_ts_data *ts)
-{
-	/* Complete or cancel any outstanding transitions */
-	cancel_delayed_work_sync(&ts->suspend_work);
-	cancel_delayed_work_sync(&ts->resume_work);
-
-	if ((ts->bus_refmask == 0 && ts->bTouchIsAwake == false) ||
-	    (ts->bus_refmask && ts->bTouchIsAwake))
-		return;
-
-	if (ts->bus_refmask == 0) {
-		queue_delayed_work(ts->event_wq, &ts->suspend_work,
-				msecs_to_jiffies(NVT_SUSPEND_WORK_MS_DELAY));
-		msleep(NVT_SUSPEND_POST_MS_DELAY);
-	} else {
-		queue_delayed_work(ts->event_wq, &ts->resume_work,
-				msecs_to_jiffies(NVT_RESUME_WORK_MS_DELAY));
-	}
-}
-
-int nvt_ts_set_bus_ref(struct nvt_ts_data *ts, u32 ref, bool enable)
-{
-	int result = 0;
-
-	mutex_lock(&ts->bus_mutex);
-
-	NVT_DBG("bus_refmask=0x%04X, ref=0x%04X, enable=%d\n",
-		ts->bus_refmask, ref, enable);
-
-	if ((enable && (ts->bus_refmask & ref)) ||
-	    (!enable && !(ts->bus_refmask & ref))) {
-		NVT_LOG("unexpected ref: bus_refmask=0x%04X, ref=0x%04X, enable=%d\n",
-		ts->bus_refmask, ref, enable);
-		mutex_unlock(&ts->bus_mutex);
-		return -EINVAL;
-	}
-
-	if (enable) {
-		/*
-		 * IRQs can only keep the bus active. IRQs received while the
-		 * bus is transferred to AOC should be ignored.
-		 */
-		if (ref == NVT_BUS_REF_IRQ && ts->bus_refmask == 0)
-			result = -EAGAIN;
-		else
-			ts->bus_refmask |= ref;
-	} else
-		ts->bus_refmask &= ~ref;
-	nvt_ts_aggregate_bus_state(ts);
-
-	mutex_unlock(&ts->bus_mutex);
-
-	/*
-	 * When triggering a wake, wait up to one second to resume. SCREEN_ON
-	 * and IRQ references do not need to wait.
-	 */
-	if (enable &&
-	    ref != NVT_BUS_REF_SCREEN_ON && ref != NVT_BUS_REF_IRQ) {
-		if (!ts->bTouchIsAwake &&
-			!completion_done(&ts->bus_resumed)) {
-			NVT_LOG("Wait for bus resume.\n");
-			wait_for_completion_timeout(&ts->bus_resumed,
-				msecs_to_jiffies(MSEC_PER_SEC));
-		}
-		if (!ts->bTouchIsAwake) {
-			NVT_ERR("Failed to wake the touch bus.\n");
-			result = -ETIMEDOUT;
-		}
-	}
-
-	return result;
-}
-
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -428,7 +370,10 @@ ssize_t force_touch_active_show(struct device *dev,
 
 	NVT_LOG("++\n");
 
-	ret = scnprintf(buf, PAGE_SIZE, "bus_refmask %#x\n", ts->bus_refmask);
+#ifdef GOOG_TOUCH_INTERFACE
+	ret = scnprintf(buf, PAGE_SIZE, "locks %#x\n",
+		goog_pm_wake_get_locks(ts->gti));
+#endif
 
 	NVT_LOG("--\n");
 	return ret;
@@ -441,7 +386,7 @@ ssize_t force_touch_active_store(struct device *dev,
 	u8 mode;
 	int ret;
 	bool active;
-	u32 ref = 0;
+	u32 lock = 0;
 
 	NVT_LOG("++\n");
 
@@ -450,34 +395,35 @@ ssize_t force_touch_active_store(struct device *dev,
 		return -EINVAL;
 	}
 
+#ifdef GOOG_TOUCH_INTERFACE
 	switch (mode) {
 	case 0x10:
-		ref = NVT_BUS_REF_FORCE_ACTIVE;
+		lock = GTI_PM_WAKELOCK_TYPE_FORCE_ACTIVE;
 		active = false;
 		break;
 	case 0x11:
-		ref = NVT_BUS_REF_FORCE_ACTIVE;
+		lock = GTI_PM_WAKELOCK_TYPE_FORCE_ACTIVE;
 		active = true;
 		break;
 	case 0x20:
-		ref = NVT_BUS_REF_BUGREPORT;
+		lock = GTI_PM_WAKELOCK_TYPE_BUGREPORT;
 		active = false;
 		ts->bugreport_ktime_start = 0;
 		break;
 	case 0x21:
-		ref = NVT_BUS_REF_BUGREPORT;
+		lock = GTI_PM_WAKELOCK_TYPE_BUGREPORT;
 		active = true;
 		ts->bugreport_ktime_start = ktime_get();
 		break;
 	}
 
-	if (ref == 0) {
+	if (lock == 0) {
 		NVT_ERR("invalid input %#x.\n", mode);
 		return -EINVAL;
 	}
 
-	NVT_LOG("%s ref %#x\n",
-		(active) ? "enable" : "disable", ref);
+	NVT_LOG("%s lock %#x\n",
+		(active) ? "enable" : "disable", lock);
 
 	if (active) {
 		if (!ts->bTouchIsAwake) {
@@ -495,10 +441,15 @@ ssize_t force_touch_active_store(struct device *dev,
 	if (!ts->bTouchIsAwake)
 		msleep(NVT_FORCE_ACTIVE_MS_DELAY);
 
-	ret = nvt_ts_set_bus_ref(ts, ref, active);
-
+	if (active)
+		ret = goog_pm_wake_lock(ts->gti, lock, false);
+	else
+		ret = goog_pm_wake_unlock(ts->gti, lock);
 	if (ret)
-		NVT_ERR("failed, ret %d bus_ref %#x!\n", ret, ts->bus_refmask);
+		NVT_ERR("failed to %s %#x(ret %d), current locks %#x!\n",
+			(active) ? "lock" : "unlock",
+			lock, ret, goog_pm_wake_get_locks(ts->gti));
+#endif
 
 	NVT_LOG("--\n");
 	return count;
@@ -541,20 +492,19 @@ ssize_t force_release_fw_store(struct device *dev,
 int nvt_ts_pm_suspend(struct device *dev)
 {
 	struct nvt_ts_data *ts = dev_get_drvdata(dev);
+	enum gti_pm_wakelock_type locks = 0;
 
-	NVT_LOG("bus_refmask %#x\n", ts->bus_refmask);
-
-	/* Flush work in case a suspend is in progress */
-	flush_workqueue(ts->event_wq);
+	locks = goog_pm_wake_get_locks(ts->gti);
+	NVT_LOG("locks %#x\n", locks);
 
 	if (ts->bTouchIsAwake) {
-		NVT_ERR("can't suspend because touch bus is in use, bus_refmask %#x!\n",
-			ts->bus_refmask);
-		if (ts->bus_refmask & NVT_BUS_REF_BUGREPORT) {
+		NVT_ERR("can't suspend because touch bus is in use, locks %#x!\n",
+			locks);
+		if (locks & GTI_PM_WAKELOCK_TYPE_BUGREPORT) {
 			s64 delta_ms = ktime_ms_delta(ktime_get(),
 							ts->bugreport_ktime_start);
 			if (delta_ms > 30 * MSEC_PER_SEC) {
-				nvt_ts_set_bus_ref(ts, NVT_BUS_REF_BUGREPORT, false);
+				goog_pm_wake_unlock(ts->gti, GTI_PM_WAKELOCK_TYPE_BUGREPORT);
 				pm_relax(&ts->client->dev);
 				ts->bugreport_ktime_start = 0;
 				NVT_ERR("force release NVT_BUS_REF_BUGREPORT(delta: %lld)!\n",
