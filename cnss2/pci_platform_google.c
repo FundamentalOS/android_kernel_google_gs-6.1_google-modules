@@ -23,7 +23,7 @@ static DEFINE_SPINLOCK(pci_link_down_lock);
 
 static struct cnss_msi_config msi_config = {
 	.total_vectors = 16,
-	.total_users = 4,
+	.total_users = MSI_USERS,
 	.users = (struct cnss_msi_user[]) {
 		{ .name = "MHI", .num_vectors = 3, .base_vector = 0 },
 		{ .name = "CE", .num_vectors = 5, .base_vector = 3 },
