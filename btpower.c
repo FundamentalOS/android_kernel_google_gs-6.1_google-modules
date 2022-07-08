@@ -579,7 +579,7 @@ static void bt_configure_wakeup_gpios(struct btpower_platform_data *drvdata, boo
 	int rc;
 
 	if (!on) {
-		if (gpio_is_valid(bt_host_wake_gpio)) {
+		if (gpio_is_valid(bt_host_wake_gpio) && drvdata->pwr_state != BT_POWER_DISABLE) {
 			LOGD(drvdata, "BT-OFF bt-hostwake-gpio(%d) IRQ(%d) value(%d)",
 				bt_host_wake_gpio, drvdata->irq,
 				gpio_get_value(bt_host_wake_gpio));
@@ -596,7 +596,7 @@ static void bt_configure_wakeup_gpios(struct btpower_platform_data *drvdata, boo
 		LOGD(drvdata, "BT-ON asserting BT_WAKE(%d)", bt_gpio_dev_wake);
 	}
 
-	if (gpio_is_valid(bt_host_wake_gpio)) {
+	if (gpio_is_valid(bt_host_wake_gpio) && drvdata->pwr_state == BT_POWER_DISABLE) {
 		LOGD(drvdata, "BT-ON bt-host_wake-gpio(%d) IRQ(%d)",
 			bt_host_wake_gpio, drvdata->irq);
 		rc = request_irq(drvdata->irq, btpower_host_wake_isr,
