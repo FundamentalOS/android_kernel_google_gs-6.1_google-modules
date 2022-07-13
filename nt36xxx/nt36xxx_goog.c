@@ -366,7 +366,7 @@ int nvt_callback(void *private_data,
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	int32_t ret;
+	int32_t ret = 0;
 
 	NVT_LOG("++\n");
 
@@ -384,9 +384,11 @@ ssize_t force_touch_active_store(struct device *dev,
 				const char *buf, size_t count)
 {
 	u8 mode;
+#ifdef GOOG_TOUCH_INTERFACE
 	int ret;
 	bool active;
 	u32 lock = 0;
+#endif
 
 	NVT_LOG("++\n");
 
@@ -492,14 +494,17 @@ ssize_t force_release_fw_store(struct device *dev,
 int nvt_ts_pm_suspend(struct device *dev)
 {
 	struct nvt_ts_data *ts = dev_get_drvdata(dev);
-	enum gti_pm_wakelock_type locks = 0;
+	u32 locks = 0;
 
+#ifdef GOOG_TOUCH_INTERFACE
 	locks = goog_pm_wake_get_locks(ts->gti);
 	NVT_LOG("locks %#x\n", locks);
+#endif
 
 	if (ts->bTouchIsAwake) {
 		NVT_ERR("can't suspend because touch bus is in use, locks %#x!\n",
 			locks);
+#ifdef GOOG_TOUCH_INTERFACE
 		if (locks & GTI_PM_WAKELOCK_TYPE_BUGREPORT) {
 			s64 delta_ms = ktime_ms_delta(ktime_get(),
 							ts->bugreport_ktime_start);
@@ -511,6 +516,7 @@ int nvt_ts_pm_suspend(struct device *dev)
 					delta_ms);
 			}
 		}
+#endif
 		return -EBUSY;
 	}
 
