@@ -1248,6 +1248,7 @@ static int bt_power_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto free_pdata;
 
+	drvdata->uart_idle_index = exynos_get_idle_ip_index("bluetooth");
 	ret = btpower_rfkill_probe(pdev, drvdata);
 	if (ret < 0)
 		goto free_gpio;
@@ -1259,8 +1260,6 @@ static int bt_power_probe(struct platform_device *pdev)
 	}
 
 	btpower_aop_mbox_init(drvdata);
-
-	drvdata->uart_idle_index = exynos_get_idle_ip_index("bluetooth");
 
 	platform_set_drvdata(pdev, drvdata);
 
