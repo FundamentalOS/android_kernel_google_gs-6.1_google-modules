@@ -48,7 +48,7 @@
 
 #include "nt36xxx_goog.h"
 
-#define NVT_DEBUG 1
+#define NVT_MP_DEBUG 0
 
 #if defined(CONFIG_SOC_GOOGLE)
 #undef CONFIG_FB
