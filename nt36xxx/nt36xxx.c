@@ -1911,7 +1911,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-				if (ts->pen_bat_capa != (uint32_t)point_data[78]) {
+				if (point_data[78] && ts->pen_bat_capa != (uint32_t)point_data[78]) {
 					ts->pen_bat_capa = (uint32_t)point_data[78];
 					power_supply_changed(ts->pen_bat_psy);
 				}
