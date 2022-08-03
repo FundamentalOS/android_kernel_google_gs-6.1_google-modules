@@ -1632,6 +1632,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	int8_t pen_tilt_y = 0;
 	uint32_t pen_btn1 = 0;
 	uint32_t pen_btn2 = 0;
+	uint8_t touch_freq_index;
+	uint8_t pen_freq_index;
 
 	cpu_latency_qos_update_request(&ts->pm_qos_req, 100 /* usec */);
 
@@ -1959,6 +1961,22 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 	/* google input process at the end of IRQ. */
 	goog_input_process(ts->gti);
+
+	/* Check any sensing freq hopping for touch or stylus. */
+#if (TOUCH_KEY_NUM == 0)
+	touch_freq_index = (point_data[62] & 0x70) >> 4;
+	pen_freq_index = (point_data[62] & 0x80) >> 7;
+	if (ts->touch_freq_index != touch_freq_index) {
+		NVT_LOG("Touch freq hopping from %d to %d!\n",
+			ts->touch_freq_index, touch_freq_index);
+		ts->touch_freq_index = touch_freq_index;
+	}
+	if (ts->pen_freq_index != pen_freq_index) {
+		NVT_LOG("Pen freq hopping from %d to %d!\n",
+			ts->pen_freq_index, pen_freq_index);
+		ts->pen_freq_index = pen_freq_index;
+	}
+#endif
 
 XFER_ERROR:
 
