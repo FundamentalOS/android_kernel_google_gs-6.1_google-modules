@@ -780,6 +780,7 @@ static void nvt_print_criteria(void)
 
 static void nvt_print_rawdata(int32_t *rawdata, uint8_t x_ch, uint8_t y_ch)
 {
+#if NVT_MP_DEBUG
 	uint32_t y;
 
 	pr_info("%s:++\n", __func__);
@@ -790,6 +791,7 @@ static void nvt_print_rawdata(int32_t *rawdata, uint8_t x_ch, uint8_t y_ch)
 	}
 
 	pr_info("%s:--\n", __func__);
+#endif
 }
 
 static int32_t nvt_polling_hand_shake_status(void)
@@ -2115,7 +2117,7 @@ int32_t nvt_mp_parse_ain(struct device_node *np, const char *name,
 		for (i = 0; i < len; i++)
 			array[i] = tmp[i];
 
-#if NVT_DEBUG
+#if NVT_MP_DEBUG
 		pr_info("[NVT-ts] %s = ", name);
 		nvt_print_result_log_in_one_line(array, len);
 		pr_info("\n");
@@ -2142,9 +2144,7 @@ int32_t nvt_mp_parse_u32(struct device_node *np, const char *name,
 		NVT_ERR("error reading %s. ret=%d\n", name, ret);
 		return -EPERM;
 	} else {
-#if NVT_DEBUG
 		NVT_LOG("%s=%d\n", name, *para);
-#endif
 	}
 
 	return 0;
@@ -2163,7 +2163,7 @@ int32_t nvt_mp_parse_array(struct device_node *np, const char *name,
 {
 	struct property *data;
 	int32_t len, ret;
-#if NVT_DEBUG
+#if NVT_MP_DEBUG
 	int32_t j = 0;
 #endif
 
@@ -2180,7 +2180,7 @@ int32_t nvt_mp_parse_array(struct device_node *np, const char *name,
 			return -EPERM;
 		}
 
-#if NVT_DEBUG
+#if NVT_MP_DEBUG
 		NVT_LOG("%s =\n", name);
 		for (j = 0; j < Y_Channel; j++) {
 			nvt_print_data_log_in_one_line(array + j * X_Channel, X_Channel);
@@ -2209,7 +2209,7 @@ int32_t nvt_mp_parse_pen_array(struct device_node *np, const char *name,
 {
 	struct property *data;
 	int32_t len, ret;
-#if NVT_DEBUG
+#if NVT_MP_DEBUG
 	int32_t j = 0;
 #endif
 	uint32_t size;
@@ -2228,7 +2228,7 @@ int32_t nvt_mp_parse_pen_array(struct device_node *np, const char *name,
 			return -EPERM;
 		}
 
-#if NVT_DEBUG
+#if NVT_MP_DEBUG
 		NVT_LOG("%s =\n", name);
 		for (j = 0; j < y_num; j++) {
 			nvt_print_data_log_in_one_line(array + j * x_num, x_num);
