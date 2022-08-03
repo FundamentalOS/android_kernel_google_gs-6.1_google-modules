@@ -206,6 +206,8 @@ struct nvt_ts_data {
 	uint16_t abs_y_max;		/* abs report start from 0 to 'height-1' */
 	uint8_t max_touch_num;
 	uint8_t max_button_num;
+	uint8_t touch_freq_index;
+	uint8_t pen_freq_index;
 	uint32_t int_trigger_type;
 	int32_t irq_gpio;
 	uint32_t irq_flags;
