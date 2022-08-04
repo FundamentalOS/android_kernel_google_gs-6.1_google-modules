@@ -151,13 +151,53 @@ int cnss_set_pci_link(struct cnss_pci_data *pci_priv, bool link_up)
 
 int cnss_pci_prevent_l1(struct device *dev)
 {
-	return 0;
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
+	int ret;
+
+	if (!pci_priv) {
+		cnss_pr_err("pci_priv is NULL\n");
+		return -ENODEV;
+	}
+
+	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
+		cnss_pr_err("PCIe link is in suspend state\n");
+		return -EIO;
+	}
+
+	if (pci_priv->pci_link_down_ind) {
+		cnss_pr_err("PCIe link is down\n");
+		return -EIO;
+	}
+
+	ret = exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
+	cnss_pr_dbg("disable PCIe rc L1ss, ret=%d\n", ret);
+	return ret;
 }
 EXPORT_SYMBOL(cnss_pci_prevent_l1);
 
 void cnss_pci_allow_l1(struct device *dev)
 {
-	return;
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
+
+	if (!pci_priv) {
+		cnss_pr_err("pci_priv is NULL\n");
+		return;
+	}
+
+	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
+		cnss_pr_dbg("PCIe link is in suspend state\n");
+		return;
+	}
+
+	if (pci_priv->pci_link_down_ind) {
+		cnss_pr_err("PCIe link is down\n");
+		return;
+	}
+
+	cnss_pr_dbg("enable PCIe rc L1ss\n");
+	exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
 }
 EXPORT_SYMBOL(cnss_pci_allow_l1);
 
@@ -268,52 +308,4 @@ void crash_info_handler(u8 *info)
 		return;
 	strncpy(crash_info, info, string_len);
 	crash_info[string_len] = '\0';
-}
-
-int exynos_pci_prevent_l1(struct device *dev)
-{
-	struct pci_dev *pci_dev = to_pci_dev(dev);
-	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
-	int ret;
-
-	if (!pci_priv) {
-		cnss_pr_err("pci_priv is NULL\n");
-		return -ENODEV;
-	}
-
-	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
-		cnss_pr_err("PCIe link is in suspend state\n");
-		return -EIO;
-	}
-
-	if (pci_priv->pci_link_down_ind) {
-		cnss_pr_err("PCIe link is down\n");
-		return -EIO;
-	}
-
-	ret = exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
-	return ret;
-}
-
-void exynos_pci_allow_l1(struct device *dev)
-{
-	struct pci_dev *pci_dev = to_pci_dev(dev);
-	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
-
-	if (!pci_priv) {
-		cnss_pr_err("pci_priv is NULL\n");
-		return;
-	}
-
-	if (pci_priv->pci_link_state == PCI_LINK_DOWN) {
-		cnss_pr_dbg("PCIe link is in suspend state\n");
-		return;
-	}
-
-	if (pci_priv->pci_link_down_ind) {
-		cnss_pr_err("PCIe link is down\n");
-		return;
-	}
-
-	exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
 }

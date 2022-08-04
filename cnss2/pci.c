@@ -560,8 +560,6 @@ static struct cnss_print_optimize print_optimize;
 
 #if IS_ENABLED(CONFIG_WCN_GOOGLE)
 extern void crash_info_handler(u8 *info);
-extern int exynos_pci_prevent_l1(struct device *dev);
-extern void exynos_pci_allow_l1(struct device *dev);
 #endif //CONFIG_WCN_GOOGLE
 
 #if IS_ENABLED(CONFIG_MHI_BUS_MISC)
@@ -1692,7 +1690,13 @@ retry_mhi_suspend:
 			ret = cnss_mhi_pm_fast_resume(pci_priv, true);
 			cnss_pci_allow_l1(&pci_priv->pci_dev->dev);
 		} else {
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+			cnss_pci_prevent_l1(&pci_priv->pci_dev->dev);
+#endif
 			ret = mhi_pm_resume(pci_priv->mhi_ctrl);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+			cnss_pci_allow_l1(&pci_priv->pci_dev->dev);
+#endif
 		}
 		mutex_unlock(&pci_priv->mhi_ctrl->pm_mutex);
 		break;
@@ -3127,10 +3131,6 @@ static int cnss_pci_suspend(struct device *dev)
 		}
 	}
 
-#if IS_ENABLED(CONFIG_WCN_GOOGLE)
-	exynos_pci_prevent_l1(dev);
-#endif
-
 	set_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state);
 
 	ret = cnss_pci_suspend_driver(pci_priv);
@@ -3154,9 +3154,6 @@ resume_driver:
 clear_flag:
 	pci_priv->drv_connected_last = 0;
 	clear_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state);
-#if IS_ENABLED(CONFIG_WCN_GOOGLE)
-	exynos_pci_allow_l1(dev);
-#endif	
 out:
 	return ret;
 }
@@ -3191,9 +3188,6 @@ static int cnss_pci_resume(struct device *dev)
 
 	pci_priv->drv_connected_last = 0;
 	clear_bit(CNSS_IN_SUSPEND_RESUME, &plat_priv->driver_state);
-#if IS_ENABLED(CONFIG_WCN_GOOGLE)
-	exynos_pci_allow_l1(dev);
-#endif
 
 out:
 	return ret;
