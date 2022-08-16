@@ -226,8 +226,10 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_GET_SENSOR_DATA:
-		ret = nvt_get_channel_data(ts, cmd->sensor_data_cmd.type,
+		if (cmd->sensor_data_cmd.type & TOUCH_SENSOR_DATA_READ_METHOD_INT) {
+			ret = nvt_get_channel_data(ts, cmd->sensor_data_cmd.type,
 				&cmd->sensor_data_cmd.buffer, &cmd->sensor_data_cmd.size);
+		}
 		break;
 
 	case GTI_CMD_SET_CONTINUOUS_REPORT: {
