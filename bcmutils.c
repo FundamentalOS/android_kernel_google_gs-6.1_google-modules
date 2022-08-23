@@ -709,7 +709,7 @@ static uint volatile readi = 0;
 #ifdef BCMPERFSTATS
 /* TODO: make the utility configurable (choose between icache, dcache, hits, misses ...)  */
 void
-bcm_perf_enable()
+bcm_perf_enable(void)
 {
 	BCMPERF_ENABLE_INSTRCOUNT();
 	BCMPERF_ENABLE_ICACHE_MISS();

@@ -15868,7 +15868,7 @@ struct __packed cam_cp_noti_info {
 };
 
 int
-wl_cfg80211_send_msg_to_ril()
+wl_cfg80211_send_msg_to_ril(void)
 {
 	int id, buf = 1;
 
@@ -16805,7 +16805,7 @@ void wl_cfg80211_detach(struct bcm_cfg80211 *cfg)
 }
 
 #if defined(CONFIG_WLAN_BEYONDX) || defined(CONFIG_SEC_5GMODEL)
-void wl_cfg80211_register_dev_ril_bridge_event_notifier()
+void wl_cfg80211_register_dev_ril_bridge_event_notifier(void)
 {
 	WL_DBG(("Enter\n"));
 	if (!wl_cfg80211_ril_bridge_notifier_registered) {
@@ -16819,7 +16819,7 @@ void wl_cfg80211_register_dev_ril_bridge_event_notifier()
 	}
 }
 
-void wl_cfg80211_unregister_dev_ril_bridge_event_notifier()
+void wl_cfg80211_unregister_dev_ril_bridge_event_notifier(void)
 {
 	WL_DBG(("Enter\n"));
 	if (wl_cfg80211_ril_bridge_notifier_registered) {
@@ -20101,12 +20101,12 @@ void wl_cfg80211_enable_trace(bool set, u32 level)
 		wl_dbg_level |= (WL_DBG_LEVEL & level);
 }
 
-uint32 wl_cfg80211_get_print_level()
+uint32 wl_cfg80211_get_print_level(void)
 {
 	return wl_dbg_level;
 }
 
-uint32 wl_cfg80211_get_log_level()
+uint32 wl_cfg80211_get_log_level(void)
 {
 	return wl_log_level;
 }

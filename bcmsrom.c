@@ -4962,7 +4962,7 @@ srom_set_sromvars(char *vars)
 		sromh->_srom_vars = vars;
 }
 char *
-srom_get_sromvars()
+srom_get_sromvars(void)
 {
 	if (sromh)
 		return sromh->_srom_vars;
