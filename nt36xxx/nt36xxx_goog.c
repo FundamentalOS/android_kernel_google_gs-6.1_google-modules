@@ -325,8 +325,7 @@ int nvt_callback(void *private_data,
 			 * Need to have post-delay for touch FW to complete before return
 			 * to display driver after GTI scheduled the suspend workqueue.
 			 */
-			if (ts->bTouchIsAwake)
-				msleep(NVT_SUSPEND_POST_MS_DELAY);
+			msleep(NVT_SUSPEND_POST_MS_DELAY);
 			NVT_LOG("GTI_DISPLAY_STATE_OFF\n");
 		} else if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_ON) {
 			u32 locks = goog_pm_wake_get_locks(ts->gti);
