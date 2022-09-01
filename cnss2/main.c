@@ -1916,6 +1916,13 @@ static int cnss_cold_boot_cal_start_hdlr(struct cnss_plat_data *plat_priv)
 		return -EINVAL;
 	}
 
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	// workaround: If COLD_BOOT_CAL starts too early, the MHI powers on failed.
+	// delay 5000 ms to start calibration.
+	msleep(5000);
+	cnss_pr_dbg("Wait for 5 seconds to start calibration\n");
+#endif
+
 	while (retry++ < CNSS_CAL_START_PROBE_WAIT_RETRY_MAX) {
 		if (test_bit(CNSS_PCI_PROBE_DONE, &plat_priv->driver_state))
 			break;

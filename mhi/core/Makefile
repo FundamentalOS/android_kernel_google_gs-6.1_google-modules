@@ -4,4 +4,4 @@ mhi-y := init.o main.o pm.o boot.o
 mhi-$(CONFIG_MHI_BUS_MISC) += misc.o
 mhi-$(CONFIG_MHI_BUS_DEBUG) += debugfs.o
 
-ccflags-y += -DDEBUG -DCONFIG_WCN_GOOGLE
+ccflags-y += -DCONFIG_WCN_GOOGLE
