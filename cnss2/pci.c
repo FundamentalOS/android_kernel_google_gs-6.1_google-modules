@@ -1366,6 +1366,8 @@ static void cnss_pci_dump_bl_sram_mem(struct cnss_pci_data *pci_priv)
 	u32 mem_addr, val, pbl_log_max_size, sbl_log_max_size;
 	u32 pbl_log_sram_start;
 	u32 pbl_stage, sbl_log_start, sbl_log_size;
+	u32 tlmm_od_en, wlan_jtag_id, qfprom_raw_oem;
+	u32 wlan_secure_bootn, tlmm_pbl_boots_status;
 	u32 pbl_wlan_boot_cfg, pbl_bootstrap_status;
 	u32 pbl_bootstrap_status_reg = PBL_BOOTSTRAP_STATUS;
 	u32 sbl_log_def_start = SRAM_START;
@@ -1402,6 +1404,19 @@ static void cnss_pci_dump_bl_sram_mem(struct cnss_pci_data *pci_priv)
 	if (cnss_pci_check_link_status(pci_priv))
 		return;
 
+	if (pci_priv->device_id == QCA6490_DEVICE_ID) {
+		cnss_pci_reg_read(pci_priv, TLMM_OD_EN, &tlmm_od_en);
+		cnss_pci_reg_read(pci_priv, WLAN_JTAG_ID, &wlan_jtag_id);
+		cnss_pci_reg_read(pci_priv, QFPROM_RAW_OEM_SECURE_ROW0_LSB, &qfprom_raw_oem);
+		cnss_pci_reg_read(pci_priv, WLAN_SECURE_BOOTN, &wlan_secure_bootn);
+		cnss_pci_reg_read(pci_priv, TLMM_PBL_BOOTSTRAP_STATUS, &tlmm_pbl_boots_status);
+
+		cnss_pr_dbg("tlmm_od_en: 0x%08x wlan_jtag_id: 0x%08x qfprom_raw_oem: 0x%08x\n",
+			     tlmm_od_en, wlan_jtag_id,qfprom_raw_oem);
+		cnss_pr_dbg("wlan_secure_bootn: 0x%08x tlmm_pbl_boots_status: 0x%08x\n",
+			    wlan_secure_bootn, tlmm_pbl_boots_status);
+
+	}
 	cnss_pci_reg_read(pci_priv, TCSR_PBL_LOGGING_REG, &pbl_stage);
 	cnss_pci_reg_read(pci_priv, PCIE_BHI_ERRDBG2_REG, &sbl_log_start);
 	cnss_pci_reg_read(pci_priv, PCIE_BHI_ERRDBG3_REG, &sbl_log_size);
