@@ -1958,10 +1958,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		input_sync(ts->pen_input_dev);
 	} /* if (ts->pen_support) */
 
-
-	/* google input process at the end of IRQ. */
-	goog_input_process(ts->gti);
-
 	/* Check any sensing freq hopping for touch or stylus. */
 #if (TOUCH_KEY_NUM == 0)
 	touch_freq_index = (point_data[62] & 0x70) >> 4;
