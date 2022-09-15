@@ -1635,8 +1635,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
 
-	cpu_latency_qos_update_request(&ts->pm_qos_req, 100 /* usec */);
-
 	if (ts->wkg_flag && ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5 * MSEC_PER_SEC);
 	else
@@ -1697,7 +1695,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
 		mutex_unlock(&ts->lock);
-		cpu_latency_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 		return IRQ_HANDLED;
 	}
 
@@ -1977,7 +1974,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 XFER_ERROR:
 
 	mutex_unlock(&ts->lock);
-	cpu_latency_qos_update_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	return IRQ_HANDLED;
 }
 
@@ -2465,9 +2461,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 #endif
 
-	/* init pm_qos. */
-	cpu_latency_qos_add_request(&ts->pm_qos_req, PM_QOS_DEFAULT_VALUE);
-
 	//---set int-pin & request irq---
 	client->irq = gpio_to_irq(ts->irq_gpio);
 	if (client->irq) {
@@ -2666,7 +2659,6 @@ err_create_nvt_fwu_wq_failed:
 #endif
 	free_irq(client->irq, ts);
 err_int_request_failed:
-	cpu_latency_qos_remove_request(&ts->pm_qos_req);
 #ifdef GOOG_TOUCH_INTERFACE
 	goog_pm_unregister_notification(ts->gti);
 err_goog_pm_register:
@@ -2795,7 +2787,6 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 	goog_pm_unregister_notification(ts->gti);
 #endif
 	goog_touch_interface_remove(ts->gti);
-	cpu_latency_qos_remove_request(&ts->pm_qos_req);
 
 	mutex_destroy(&ts->bus_mutex);
 	mutex_destroy(&ts->xbuf_lock);
