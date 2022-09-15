@@ -22,7 +22,6 @@
 #include <linux/delay.h>
 #include <linux/input.h>
 #include <linux/of.h>
-#include <linux/pm_qos.h>
 #include <linux/spi/spi.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
@@ -283,7 +282,6 @@ struct nvt_ts_data {
 	struct delayed_work suspend_work;
 	struct delayed_work resume_work;
 	struct workqueue_struct *event_wq;
-	struct pm_qos_request pm_qos_req;
 
 	struct mutex bus_mutex;
 	ktime_t bugreport_ktime_start;
