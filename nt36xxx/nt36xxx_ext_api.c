@@ -1363,23 +1363,13 @@ static uint16_t nvt_get_dttw_para(uint64_t dttw_addr)
 	return ((uint16_t)(spi_buf[2] << 8) + spi_buf[1]);
 }
 
-ssize_t nvt_set_dttw(uint8_t wkg_flag)
+ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result)
 {
 	uint8_t spi_buf[3] = {0};
 	uint16_t cmd_test_bit = DTTW_MODE_CMD_TEST_BIT;
-	int32_t ret;
+	int32_t ret = 0;
 
 	NVT_LOG("++\n");
-
-	ts->dttw_touch_area_max = nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR);
-	ts->dttw_touch_area_min = nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR);
-	ts->dttw_contact_duration_max = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR);
-	ts->dttw_contact_duration_min = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR);
-	ts->dttw_tap_offset = nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR);
-	ts->dttw_tap_gap_duration_max = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR);
-	ts->dttw_tap_gap_duration_min = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR);
-	ts->dttw_motion_tolerance = nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR);
-	ts->dttw_detection_window_edge = nvt_get_dttw_para(DTTW_DETECTION_WINDOW_EDGE_ADDR);
 
 	if (wkg_flag) {
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
@@ -1392,12 +1382,27 @@ ssize_t nvt_set_dttw(uint8_t wkg_flag)
 		spi_buf[2] = 0x30;
 		CTP_SPI_WRITE(ts->client, spi_buf, 3);
 	}
-	msleep(20);
-	ret = nvt_check_api_cmd_result(cmd_test_bit, wkg_flag == 1);
 
-	if (ret) {
-		NVT_ERR("failed, ret = %d\n", ret);
-		return -EINVAL;
+	if (check_result) {
+		msleep(20);
+		ret = nvt_check_api_cmd_result(cmd_test_bit, wkg_flag == 1);
+		if (ret) {
+			NVT_ERR("DTTW conf: failed to setup, ret = %d.\n", ret);
+			return -EINVAL;
+		}
+	}
+
+	if (wkg_flag) {
+		NVT_LOG("DTTW conf: area max/min %d %d, contact max/min %d %d.\n",
+			ts->dttw_touch_area_max, ts->dttw_touch_area_min,
+			ts->dttw_contact_duration_max, ts->dttw_contact_duration_min);
+		NVT_LOG("DTTW conf: tap offset %d, gap max/min %d %d.\n",
+			ts->dttw_tap_offset,
+			ts->dttw_tap_gap_duration_max, ts->dttw_tap_gap_duration_min);
+		NVT_LOG("DTTW conf: motion %d, edge %d.\n",
+			ts->dttw_motion_tolerance, ts->dttw_detection_window_edge);
+	} else {
+		NVT_LOG("DTTW conf: off.\n");
 	}
 
 	NVT_LOG("--\n");
@@ -2339,5 +2344,27 @@ void nvt_extra_api_deinit(void)
 	kfree(rawdata_uniformity_spi_buf);
 	rawdata_uniformity_spi_buf = NULL;
 	NVT_LOG("--\n");
+}
+
+void nvt_get_dttw_conf(void)
+{
+	if (!ts->dttw_touch_area_max)
+		ts->dttw_touch_area_max = nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR);
+	if (!ts->dttw_touch_area_min)
+		ts->dttw_touch_area_min = nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR);
+	if (!ts->dttw_contact_duration_max)
+		ts->dttw_contact_duration_max = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR);
+	if (!ts->dttw_contact_duration_min)
+		ts->dttw_contact_duration_min = nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR);
+	if (!ts->dttw_tap_offset)
+		ts->dttw_tap_offset = nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR);
+	if (!ts->dttw_tap_gap_duration_max)
+		ts->dttw_tap_gap_duration_max = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR);
+	if (!ts->dttw_tap_gap_duration_min)
+		ts->dttw_tap_gap_duration_min = nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR);
+	if (!ts->dttw_motion_tolerance)
+		ts->dttw_motion_tolerance = nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR);
+	if (!ts->dttw_detection_window_edge)
+		ts->dttw_detection_window_edge = nvt_get_dttw_para(DTTW_DETECTION_WINDOW_EDGE_ADDR);
 }
 #endif /* #if NVT_TOUCH_EXT_API */
