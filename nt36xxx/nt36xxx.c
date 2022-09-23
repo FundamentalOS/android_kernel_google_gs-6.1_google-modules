@@ -845,6 +845,11 @@ info_retry:
 	ts->heatmap_host_cmd = HEATMAP_HOST_CMD_DISABLE;
 	nvt_set_heatmap_host_cmd(ts);
 
+#if NVT_TOUCH_EXT_API
+	/* Get DTTW initialized conf. */
+	nvt_get_dttw_conf();
+#endif
+
 	ret = 0;
 out:
 
@@ -2979,27 +2984,8 @@ int nvt_ts_suspend(struct device *dev)
 		input_sync(ts->pen_input_dev);
 	}
 
-#if WAKEUP_GESTURE
-	if (ts->wkg_flag) {
-		switch (nvt_set_dttw(ts->wkg_flag)) {
-		case 1:
-			NVT_LOG("DTTW conf: area max/min %d %d, contact max/min %d %d.\n",
-				ts->dttw_touch_area_max, ts->dttw_touch_area_min,
-				ts->dttw_contact_duration_max, ts->dttw_contact_duration_min);
-			NVT_LOG("DTTW conf: tap offset %d, gap max/min %d %d.\n",
-				ts->dttw_tap_offset,
-				ts->dttw_tap_gap_duration_max, ts->dttw_tap_gap_duration_min);
-			NVT_LOG("DTTW conf: motion %d, edge %d.\n",
-				ts->dttw_motion_tolerance, ts->dttw_detection_window_edge);
-			break;
-		case 0:
-			NVT_LOG("DTTW conf: off.\n");
-			break;
-		default:
-			NVT_ERR("DTTW conf: failed to setup.\n");
-			break;
-		}
-	}
+#if (WAKEUP_GESTURE) && (NVT_TOUCH_EXT_API)
+	nvt_set_dttw(ts->wkg_flag, false);
 #endif
 
 	if (ts->wkg_flag) {
