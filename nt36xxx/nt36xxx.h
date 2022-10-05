@@ -368,7 +368,8 @@ extern void nvt_read_fw_history(uint32_t addr);
 #if NVT_TOUCH_EXT_API
 extern int32_t nvt_extra_api_init(void);
 extern void nvt_extra_api_deinit(void);
-extern ssize_t nvt_set_dttw(uint8_t wkg_flag);
+extern void nvt_get_dttw_conf(void);
+extern ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result);
 #endif
 #if NVT_TOUCH_EXT_USI
 extern int32_t nvt_extra_usi_init(void);
