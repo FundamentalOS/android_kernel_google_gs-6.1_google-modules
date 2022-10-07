@@ -157,7 +157,7 @@ int nvt_callback(void *private_data,
 	static bool grip_enabled;
 	static bool palm_enabled;
 	static bool sensing_enabled = true;
-
+	static bool display_state_on = true;
 
 	switch (cmd_type) {
 	case GTI_CMD_PING:
@@ -325,8 +325,10 @@ int nvt_callback(void *private_data,
 			 * Need to have post-delay for touch FW to complete before return
 			 * to display driver after GTI scheduled the suspend workqueue.
 			 */
-			msleep(NVT_SUSPEND_POST_MS_DELAY);
+			if (display_state_on)
+				msleep(NVT_SUSPEND_POST_MS_DELAY);
 			NVT_LOG("GTI_DISPLAY_STATE_OFF\n");
+			display_state_on = false;
 		} else if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_ON) {
 			u32 locks = goog_pm_wake_get_locks(ts->gti);
 
@@ -341,8 +343,10 @@ int nvt_callback(void *private_data,
 				NVT_LOG("reenable touch for locks %#x.", locks);
 				nvt_ts_suspend(&ts->client->dev);
 				nvt_ts_resume(&ts->client->dev);
+				sensing_enabled = true;
 			}
 			NVT_LOG("GTI_DISPLAY_STATE_ON");
+			display_state_on = true;
 		} else {
 			NVT_ERR("invalid setting %d!\n", cmd->display_state_cmd.setting);
 		}

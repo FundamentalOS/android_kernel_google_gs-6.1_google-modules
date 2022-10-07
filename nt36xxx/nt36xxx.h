@@ -117,7 +117,6 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
 #define WAKEUP_GESTURE 1
-extern const uint16_t gesture_key_array[];
 #define BOOT_UPDATE_FIRMWARE 1
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 100
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
@@ -178,6 +177,23 @@ enum {
 
 /* FW History */
 #define NVT_HISTORY_BUF_LEN		(65 * 4)
+
+enum gesture_id : u8 {
+	GESTURE_WORD_C = 12,
+	GESTURE_WORD_W = 13,
+	GESTURE_SINGLE_TAP = 14,
+	GESTURE_DOUBLE_TAP = 15,
+	GESTURE_WORD_Z = 16,
+	GESTURE_WORD_M = 17,
+	GESTURE_WORD_O = 18,
+	GESTURE_WORD_e = 19,
+	GESTURE_WORD_S = 20,
+	GESTURE_SLIDE_UP = 21,
+	GESTURE_SLIDE_DOWN = 22,
+	GESTURE_SLIDE_LEFT = 23,
+	GESTURE_SLIDE_RIGHT = 24,
+	GESTURE_ID_MAX,
+};
 
 struct nvt_ts_data {
 	struct spi_device *client;

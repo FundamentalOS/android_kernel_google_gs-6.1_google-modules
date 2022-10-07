@@ -111,24 +111,43 @@ const uint16_t touch_key_array[TOUCH_KEY_NUM] = {
 };
 #endif
 
-const uint16_t gesture_key_array[] = {
-	KEY_POWER,  //GESTURE_WORD_C
-	KEY_POWER,  //GESTURE_WORD_W
-	KEY_POWER,  //GESTURE_WORD_V
 #if defined(CONFIG_SOC_GOOGLE)
-	KEY_WAKEUP,  //GESTURE_DOUBLE_CLICK
+const unsigned int gesture_keycode[GESTURE_ID_MAX] = {
+	[GESTURE_SINGLE_TAP] = KEY_WAKEUP,
+	[GESTURE_DOUBLE_TAP] = KEY_WAKEUP,
+};
 #else
-	KEY_POWER,  //GESTURE_DOUBLE_CLICK
+const unsigned int gesture_keycode[GESTURE_ID_MAX] = {
+	[GESTURE_WORD_C] = KEY_POWER,
+	[GESTURE_WORD_W] = KEY_POWER,
+	[GESTURE_SINGLE_TAP] = KEY_POWER,
+	[GESTURE_DOUBLE_TAP] = KEY_POWER,
+	[GESTURE_WORD_Z] = KEY_POWER,
+	[GESTURE_WORD_M] = KEY_POWER,
+	[GESTURE_WORD_O] = KEY_POWER,
+	[GESTURE_WORD_e] = KEY_POWER,
+	[GESTURE_WORD_S] = KEY_POWER,
+	[GESTURE_SLIDE_UP] = KEY_POWER,
+	[GESTURE_SLIDE_DOWN] = KEY_POWER,
+	[GESTURE_SLIDE_LEFT] = KEY_POWER,
+	[GESTURE_SLIDE_RIGHT] = KEY_POWER,
+};
 #endif
-	KEY_POWER,  //GESTURE_WORD_Z
-	KEY_POWER,  //GESTURE_WORD_M
-	KEY_POWER,  //GESTURE_WORD_O
-	KEY_POWER,  //GESTURE_WORD_e
-	KEY_POWER,  //GESTURE_WORD_S
-	KEY_POWER,  //GESTURE_SLIDE_UP
-	KEY_POWER,  //GESTURE_SLIDE_DOWN
-	KEY_POWER,  //GESTURE_SLIDE_LEFT
-	KEY_POWER,  //GESTURE_SLIDE_RIGHT
+
+const char *gesture_string[GESTURE_ID_MAX] = {
+	[GESTURE_WORD_C] = "Word-C",
+	[GESTURE_WORD_W] = "Word-W",
+	[GESTURE_SINGLE_TAP] = "Single Tap",
+	[GESTURE_DOUBLE_TAP] = "Double Tap",
+	[GESTURE_WORD_Z] = "Word-Z",
+	[GESTURE_WORD_M] = "Word-M",
+	[GESTURE_WORD_O] = "Word-O",
+	[GESTURE_WORD_e] = "Word-e",
+	[GESTURE_WORD_S] = "Word-S",
+	[GESTURE_SLIDE_UP] = "Slide UP",
+	[GESTURE_SLIDE_DOWN] = "Slide DOWN",
+	[GESTURE_SLIDE_LEFT] = "Slide LEFT",
+	[GESTURE_SLIDE_RIGHT] = "Slide UP",
 };
 
 #ifdef CONFIG_MTK_SPI
@@ -1069,19 +1088,6 @@ static void nvt_flash_proc_deinit(void)
 }
 #endif
 
-#define GESTURE_WORD_C          12
-#define GESTURE_WORD_W          13
-#define GESTURE_WORD_V          14
-#define GESTURE_DOUBLE_CLICK    15
-#define GESTURE_WORD_Z          16
-#define GESTURE_WORD_M          17
-#define GESTURE_WORD_O          18
-#define GESTURE_WORD_e          19
-#define GESTURE_WORD_S          20
-#define GESTURE_SLIDE_UP        21
-#define GESTURE_SLIDE_DOWN      22
-#define GESTURE_SLIDE_LEFT      23
-#define GESTURE_SLIDE_RIGHT     24
 /* customized gesture id */
 #define DATA_PROTOCOL           30
 
@@ -1097,83 +1103,29 @@ return:
 *******************************************************/
 void nvt_ts_wakeup_gesture_report(uint8_t gesture_id, uint8_t *data)
 {
-	uint32_t keycode = 0;
+	unsigned int keycode = 0;
 	uint8_t func_type = data[2];
 	uint8_t func_id = data[3];
 
-	/* support fw specifal data protocol */
+	/* support fw special data protocol */
 	if ((gesture_id == DATA_PROTOCOL) && (func_type == FUNCPAGE_GESTURE)) {
 		gesture_id = func_id;
-	} else if (gesture_id > DATA_PROTOCOL) {
-		NVT_ERR("gesture_id %d is invalid, func_type=%d, func_id=%d\n", gesture_id,
+	} else if (gesture_id > DATA_PROTOCOL || gesture_id >= GESTURE_ID_MAX) {
+		NVT_ERR("gesture_id %d is invalid, func_type %d, func_id %d\n", gesture_id,
 			func_type, func_id);
 		return;
 	}
 
-	NVT_LOG("gesture_id = %d\n", gesture_id);
-
-	switch (gesture_id) {
-	case GESTURE_WORD_C:
-		NVT_LOG("Gesture : Word-C.\n");
-		keycode = gesture_key_array[0];
-		break;
-	case GESTURE_WORD_W:
-		NVT_LOG("Gesture : Word-W.\n");
-		keycode = gesture_key_array[1];
-		break;
-	case GESTURE_WORD_V:
-		NVT_LOG("Gesture : Word-V.\n");
-		keycode = gesture_key_array[2];
-		break;
-	case GESTURE_DOUBLE_CLICK:
-		NVT_LOG("Gesture : Double Click.\n");
-		keycode = gesture_key_array[3];
-		break;
-	case GESTURE_WORD_Z:
-		NVT_LOG("Gesture : Word-Z.\n");
-		keycode = gesture_key_array[4];
-		break;
-	case GESTURE_WORD_M:
-		NVT_LOG("Gesture : Word-M.\n");
-		keycode = gesture_key_array[5];
-		break;
-	case GESTURE_WORD_O:
-		NVT_LOG("Gesture : Word-O.\n");
-		keycode = gesture_key_array[6];
-		break;
-	case GESTURE_WORD_e:
-		NVT_LOG("Gesture : Word-e.\n");
-		keycode = gesture_key_array[7];
-		break;
-	case GESTURE_WORD_S:
-		NVT_LOG("Gesture : Word-S.\n");
-		keycode = gesture_key_array[8];
-		break;
-	case GESTURE_SLIDE_UP:
-		NVT_LOG("Gesture : Slide UP.\n");
-		keycode = gesture_key_array[9];
-		break;
-	case GESTURE_SLIDE_DOWN:
-		NVT_LOG("Gesture : Slide DOWN.\n");
-		keycode = gesture_key_array[10];
-		break;
-	case GESTURE_SLIDE_LEFT:
-		NVT_LOG("Gesture : Slide LEFT.\n");
-		keycode = gesture_key_array[11];
-		break;
-	case GESTURE_SLIDE_RIGHT:
-		NVT_LOG("Gesture : Slide RIGHT.\n");
-		keycode = gesture_key_array[12];
-		break;
-	default:
-		break;
-	}
-
-	if (keycode > 0) {
+	keycode = gesture_keycode[gesture_id];
+	if (keycode) {
+		NVT_LOG("Gesture: %s(%d) triggered and report keycode(%d).\n",
+			gesture_string[gesture_id], gesture_id, keycode);
 		input_report_key(ts->input_dev, keycode, 1);
 		input_sync(ts->input_dev);
 		input_report_key(ts->input_dev, keycode, 0);
 		input_sync(ts->input_dev);
+	} else {
+		NVT_ERR("invalid gesture_id %d!\n", gesture_id);
 	}
 }
 
@@ -2360,12 +2312,11 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 #if WAKEUP_GESTURE
 	for (retry = 0;
-	     retry < (sizeof(gesture_key_array) / sizeof(gesture_key_array[0]));
+	     retry < ARRAY_SIZE(gesture_keycode);
 	     retry++) {
-		input_set_capability(ts->input_dev, EV_KEY, gesture_key_array[retry]);
+		if (gesture_keycode[retry])
+			input_set_capability(ts->input_dev, EV_KEY, gesture_keycode[retry]);
 	}
-#elif defined(CONFIG_SOC_GOOGLE)
-	input_set_capability(ts->input_dev, EV_KEY, KEY_WAKEUP);
 #endif
 
 	snprintf(ts->phys, sizeof(ts->phys), "input/ts");
