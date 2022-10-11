@@ -798,27 +798,6 @@ static int dhd_found = 0;
 static int instance_base = 0; /* Starting instance number */
 module_param(instance_base, int, 0644);
 
-#if defined(DHD_LB_RXP) && defined(PCIE_FULL_DONGLE)
-/*
- * Rx path process budget(dhd_napi_weight) number of packets in one go and hands over
- * the packets to network stack.
- *
- * dhd_dpc tasklet is the producer(packets received from dongle) and dhd_napi_poll()
- * is the consumer. The maximum number of packets that can be received from the dongle
- * at any given point of time are D2HRING_RXCMPLT_MAX_ITEM.
- * Also DHD will always post fresh rx buffers to dongle while processing rx completions.
- *
- * The consumer must consume the packets at equal are better rate than the producer.
- * i.e if dhd_napi_poll() does not process at the same rate as the producer(dhd_dpc),
- * rx_process_queue depth increases, which can even consume the entire system memory.
- * Such situation will be tacken care by rx flow control.
- *
- * Device drivers are strongly advised to not use bigger value than NAPI_POLL_WEIGHT
- */
-static int dhd_napi_weight = NAPI_POLL_WEIGHT;
-module_param(dhd_napi_weight, int, 0644);
-#endif /* DHD_LB_RXP && PCIE_FULL_DONGLE */
-
 #ifdef PCIE_FULL_DONGLE
 extern int h2d_max_txpost;
 module_param(h2d_max_txpost, int, 0644);
@@ -9765,10 +9744,10 @@ dhd_open(struct net_device *net)
 			dhd->rx_napi_netdev = dhd->iflist[ifidx]->net;
 			memset(&dhd->rx_napi_struct, 0, sizeof(struct napi_struct));
 			netif_napi_add(dhd->rx_napi_netdev, &dhd->rx_napi_struct,
-				dhd_napi_poll, dhd_napi_weight);
-			DHD_INFO(("%s napi<%p> enabled ifp->net<%p,%s> dhd_napi_weight: %d\n",
+				dhd_napi_poll);
+			DHD_INFO(("%s napi<%p> enabled ifp->net<%p,%s>\n",
 				__FUNCTION__, &dhd->rx_napi_struct, net,
-				net->name, dhd_napi_weight));
+				net->name));
 			napi_enable(&dhd->rx_napi_struct);
 			DHD_INFO(("%s load balance init rx_napi_struct\n", __FUNCTION__));
 			skb_queue_head_init(&dhd->rx_napi_queue);
