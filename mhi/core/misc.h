@@ -85,6 +85,16 @@
 			       ##__VA_ARGS__); \
 } while (0)
 
+#if defined(CONFIG_WCN_GOOGLE)
+#define MHI_LOG(fmt, ...) do {	\
+	struct mhi_private *mhi_priv = \
+		dev_get_drvdata(&mhi_cntrl->mhi_dev->dev); \
+	dev_info(dev, "[I][%s] " fmt, __func__, ##__VA_ARGS__); \
+	if (mhi_priv && mhi_priv->log_lvl <= MHI_MSG_LVL_INFO) \
+		ipc_log_string(mhi_priv->log_buf, "[I][%s] " fmt, __func__, \
+			       ##__VA_ARGS__); \
+} while (0)
+#else
 #define MHI_LOG(fmt, ...) do {	\
 	struct mhi_private *mhi_priv = \
 		dev_get_drvdata(&mhi_cntrl->mhi_dev->dev); \
@@ -93,6 +103,7 @@
 		ipc_log_string(mhi_priv->log_buf, "[I][%s] " fmt, __func__, \
 			       ##__VA_ARGS__); \
 } while (0)
+#endif
 
 #define MHI_ERR(fmt, ...) do {	\
 	struct mhi_private *mhi_priv = \
