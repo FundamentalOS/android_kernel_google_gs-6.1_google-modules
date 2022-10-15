@@ -1709,10 +1709,12 @@ retry_mhi_suspend:
 			cnss_pci_allow_l1(&pci_priv->pci_dev->dev);
 		} else {
 #if IS_ENABLED(CONFIG_WCN_GOOGLE)
+			cnss_pr_dbg("Disable PCIe L1ss\n");
 			cnss_pci_prevent_l1(&pci_priv->pci_dev->dev);
 #endif
 			ret = mhi_pm_resume(pci_priv->mhi_ctrl);
 #if IS_ENABLED(CONFIG_WCN_GOOGLE)
+			cnss_pr_dbg("Enable PCIe L1ss\n");
 			cnss_pci_allow_l1(&pci_priv->pci_dev->dev);
 #endif
 		}
