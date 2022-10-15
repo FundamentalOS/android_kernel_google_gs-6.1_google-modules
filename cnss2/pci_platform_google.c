@@ -171,7 +171,10 @@ int cnss_pci_prevent_l1(struct device *dev)
 	}
 
 	ret = exynos_pcie_rc_l1ss_ctrl(0, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
-	cnss_pr_dbg("disable PCIe rc L1ss, ret=%d\n", ret);
+	if (ret) {
+		cnss_pr_err("Disable PCIe L1ss failed\n");
+	}
+
 	return ret;
 }
 EXPORT_SYMBOL(cnss_pci_prevent_l1);
@@ -180,6 +183,7 @@ void cnss_pci_allow_l1(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct cnss_pci_data *pci_priv = cnss_get_pci_priv(pci_dev);
+	int ret;
 
 	if (!pci_priv) {
 		cnss_pr_err("pci_priv is NULL\n");
@@ -196,8 +200,11 @@ void cnss_pci_allow_l1(struct device *dev)
 		return;
 	}
 
-	cnss_pr_dbg("enable PCIe rc L1ss\n");
-	exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
+	ret = exynos_pcie_rc_l1ss_ctrl(1, PCIE_L1SS_CTRL_WIFI, pci_priv->plat_priv->rc_num);
+	if (ret) {
+		cnss_pr_err("Enable PCIe L1ss failed\n");
+	}
+
 }
 EXPORT_SYMBOL(cnss_pci_allow_l1);
 
