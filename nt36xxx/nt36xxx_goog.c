@@ -232,6 +232,14 @@ int nvt_callback(void *private_data,
 		}
 		break;
 
+	case GTI_CMD_GET_SENSOR_DATA_MANUAL:
+		if (cmd->manual_sensor_data_cmd.type == GTI_SENSOR_DATA_TYPE_MS_DIFF) {
+			cmd->manual_sensor_data_cmd.buffer = ts->heatmap_out_buf;
+			cmd->manual_sensor_data_cmd.size = ts->heatmap_out_buf_size;
+			ret = 0;
+		}
+		break;
+
 	case GTI_CMD_SET_CONTINUOUS_REPORT: {
 		#define CONTINUOUS_ENABLE  0x01
 		#define CONTINUOUS_DISABLE 0x00
