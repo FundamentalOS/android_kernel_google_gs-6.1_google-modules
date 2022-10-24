@@ -157,7 +157,7 @@ int nvt_callback(void *private_data,
 	static bool grip_enabled;
 	static bool palm_enabled;
 	static bool sensing_enabled = true;
-
+	static bool display_state_on = true;
 
 	switch (cmd_type) {
 	case GTI_CMD_PING:
@@ -178,6 +178,42 @@ int nvt_callback(void *private_data,
 			"cat /proc/nvt_selftest\n");
 		ret = 0;
 	}
+		break;
+
+	case GTI_CMD_GET_CONTEXT_DRIVER:
+		cmd->context_driver_cmd.contents.screen_state = 1;
+		cmd->context_driver_cmd.screen_state =
+				ts->bTouchIsAwake ? 1 : 0;
+#ifdef DYNAMIC_REFRESH_RATE
+		cmd->context_driver_cmd.contents.display_refresh_rate = 1;
+		cmd->context_driver_cmd.display_refresh_rate =
+				ts->display_refresh_rate;
+#endif
+		/* Fixed touch report rate and no update event */
+		cmd->context_driver_cmd.contents.touch_report_rate = 1;
+		cmd->context_driver_cmd.touch_report_rate = 120;
+
+		cmd->context_driver_cmd.contents.offload_timestamp = 1;
+		cmd->context_driver_cmd.offload_timestamp =
+				ts->pen_offload_coord_timestamp;
+		ret = 0;
+		break;
+
+	case GTI_CMD_GET_CONTEXT_STYLUS:
+		cmd->context_stylus_cmd.contents.coords = 1;
+		cmd->context_stylus_cmd.pen_offload_coord =
+				ts->pen_offload_coord;
+
+		cmd->context_stylus_cmd.contents.coords_timestamp = 1;
+		cmd->context_stylus_cmd.pen_offload_coord_timestamp =
+				ts->pen_offload_coord_timestamp;
+
+		cmd->context_stylus_cmd.contents.pen_active = 1;
+		cmd->context_stylus_cmd.pen_active = ts->pen_active;
+
+		/* No useful pen-pairing information available in this driver */
+		cmd->context_stylus_cmd.contents.pen_paired = 0;
+		ret = 0;
 		break;
 
 	case GTI_CMD_GET_FW_VERSION: {
@@ -229,6 +265,14 @@ int nvt_callback(void *private_data,
 		if (cmd->sensor_data_cmd.type & TOUCH_SENSOR_DATA_READ_METHOD_INT) {
 			ret = nvt_get_channel_data(ts, cmd->sensor_data_cmd.type,
 				&cmd->sensor_data_cmd.buffer, &cmd->sensor_data_cmd.size);
+		}
+		break;
+
+	case GTI_CMD_GET_SENSOR_DATA_MANUAL:
+		if (cmd->manual_sensor_data_cmd.type == GTI_SENSOR_DATA_TYPE_MS_DIFF) {
+			cmd->manual_sensor_data_cmd.buffer = ts->heatmap_out_buf;
+			cmd->manual_sensor_data_cmd.size = ts->heatmap_out_buf_size;
+			ret = 0;
 		}
 		break;
 
@@ -325,8 +369,10 @@ int nvt_callback(void *private_data,
 			 * Need to have post-delay for touch FW to complete before return
 			 * to display driver after GTI scheduled the suspend workqueue.
 			 */
-			msleep(NVT_SUSPEND_POST_MS_DELAY);
+			if (display_state_on)
+				msleep(NVT_SUSPEND_POST_MS_DELAY);
 			NVT_LOG("GTI_DISPLAY_STATE_OFF\n");
+			display_state_on = false;
 		} else if (cmd->display_state_cmd.setting == GTI_DISPLAY_STATE_ON) {
 			u32 locks = goog_pm_wake_get_locks(ts->gti);
 
@@ -341,8 +387,10 @@ int nvt_callback(void *private_data,
 				NVT_LOG("reenable touch for locks %#x.", locks);
 				nvt_ts_suspend(&ts->client->dev);
 				nvt_ts_resume(&ts->client->dev);
+				sensing_enabled = true;
 			}
 			NVT_LOG("GTI_DISPLAY_STATE_ON");
+			display_state_on = true;
 		} else {
 			NVT_ERR("invalid setting %d!\n", cmd->display_state_cmd.setting);
 		}

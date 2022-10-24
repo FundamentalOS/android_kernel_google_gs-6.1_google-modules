@@ -117,7 +117,6 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
 #define WAKEUP_GESTURE 1
-extern const uint16_t gesture_key_array[];
 #define BOOT_UPDATE_FIRMWARE 1
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 100
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
@@ -178,6 +177,23 @@ enum {
 
 /* FW History */
 #define NVT_HISTORY_BUF_LEN		(65 * 4)
+
+enum gesture_id : u8 {
+	GESTURE_WORD_C = 12,
+	GESTURE_WORD_W = 13,
+	GESTURE_SINGLE_TAP = 14,
+	GESTURE_DOUBLE_TAP = 15,
+	GESTURE_WORD_Z = 16,
+	GESTURE_WORD_M = 17,
+	GESTURE_WORD_O = 18,
+	GESTURE_WORD_e = 19,
+	GESTURE_WORD_S = 20,
+	GESTURE_SLIDE_UP = 21,
+	GESTURE_SLIDE_DOWN = 22,
+	GESTURE_SLIDE_LEFT = 23,
+	GESTURE_SLIDE_RIGHT = 24,
+	GESTURE_ID_MAX,
+};
 
 struct nvt_ts_data {
 	struct spi_device *client;
@@ -300,6 +316,13 @@ struct nvt_ts_data {
 	uint32_t extra_spi_buf_size;
 	uint8_t *extra_spi_buf;
 	uint32_t touch_heatmap_comp_len;
+
+	/*
+	 * Stylus context used by touch_offload
+	 */
+	struct TouchOffloadCoord pen_offload_coord;
+	ktime_t pen_offload_coord_timestamp;
+	u8 pen_active;
 };
 
 #if NVT_TOUCH_PROC
@@ -368,7 +391,8 @@ extern void nvt_read_fw_history(uint32_t addr);
 #if NVT_TOUCH_EXT_API
 extern int32_t nvt_extra_api_init(void);
 extern void nvt_extra_api_deinit(void);
-extern ssize_t nvt_set_dttw(uint8_t wkg_flag);
+extern void nvt_get_dttw_conf(void);
+extern ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result);
 #endif
 #if NVT_TOUCH_EXT_USI
 extern int32_t nvt_extra_usi_init(void);
