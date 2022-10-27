@@ -784,7 +784,11 @@ void qrtr_ns_init(void)
 		goto err_wq;
 	}
 
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	sock_setsockopt(qrtr_ns.sock, SOL_SOCKET, SO_RCVBUF,
+#else
 	sock_setsockopt(qrtr_ns.sock, SOL_SOCKET, SO_RCVBUFFORCE,
+#endif
 			KERNEL_SOCKPTR((void *)&rx_buf_sz), sizeof(rx_buf_sz));
 
 	qrtr_ns.bcast_sq.sq_family = AF_QIPCRTR;

@@ -5,3 +5,5 @@ qrtr-y := af_qrtr.o ns.o
 qrtr-$(CONFIG_QRTR_DEBUG) += debug.o
 obj-$(CONFIG_QRTR_MHI) += qrtr-mhi.o
 qrtr-mhi-y	:= mhi.o
+
+ccflags-y += -DCONFIG_WCN_GOOGLE
