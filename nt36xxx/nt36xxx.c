@@ -2951,6 +2951,11 @@ int nvt_ts_suspend(struct device *dev)
 		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
 		input_sync(ts->pen_input_dev);
+
+		ts->pen_active = 0;
+		ts->pen_offload_coord_timestamp = ts->timestamp;
+		memset(&ts->pen_offload_coord, 0,
+				sizeof(ts->pen_offload_coord));
 	}
 
 #if (WAKEUP_GESTURE) && (NVT_TOUCH_EXT_API)
