@@ -1596,7 +1596,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
 
-	if (ts->wkg_flag && ts->bTouchIsAwake == false)
+	if (ts->wkg_option != WAKEUP_GESTURE_OFF && ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5 * MSEC_PER_SEC);
 	else
 		pm_wakeup_event(&ts->client->dev, MSEC_PER_SEC);
@@ -1652,7 +1652,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	}
 #endif /* POINT_DATA_CHECKSUM */
 
-	if (ts->wkg_flag && ts->bTouchIsAwake == false) {
+	if (ts->wkg_option != WAKEUP_GESTURE_OFF && ts->bTouchIsAwake == false) {
 		input_id = (uint8_t)(point_data[1] >> 3);
 		nvt_ts_wakeup_gesture_report(input_id, point_data);
 		mutex_unlock(&ts->lock);
@@ -2124,7 +2124,7 @@ return:
 static int32_t nvt_ts_probe(struct spi_device *client)
 {
 	int32_t ret = 0;
-#if (TOUCH_KEY_NUM || WAKEUP_GESTURE)
+#if (TOUCH_KEY_NUM || WAKEUP_GESTURE_DEFAULT)
 	int32_t retry = 0;
 #endif
 #ifdef CONFIG_OF
@@ -2293,8 +2293,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 	ts->input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
 	ts->report_protocol = REPORT_PROTOCOL_B;
-#if WAKEUP_GESTURE
-	ts->wkg_flag = 1;
+#if WAKEUP_GESTURE_DEFAULT
+	ts->wkg_default = WAKEUP_GESTURE_DEFAULT;
+	ts->wkg_option = WAKEUP_GESTURE_DEFAULT;
 #endif
 
 	if (ts->report_protocol == REPORT_PROTOCOL_B)
@@ -2332,7 +2333,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 #endif
 
-#if WAKEUP_GESTURE
+#if WAKEUP_GESTURE_DEFAULT
 	for (retry = 0;
 	     retry < ARRAY_SIZE(gesture_keycode);
 	     retry++) {
@@ -2456,7 +2457,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	}
 
-#if WAKEUP_GESTURE
+#if WAKEUP_GESTURE_DEFAULT
 	device_init_wakeup(&ts->input_dev->dev, 1);
 #endif
 
@@ -2633,7 +2634,7 @@ err_create_nvt_esd_check_wq_failed:
 	}
 err_create_nvt_fwu_wq_failed:
 #endif
-#if WAKEUP_GESTURE
+#if WAKEUP_GESTURE_DEFAULT
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif
 	free_irq(client->irq, ts);
@@ -2755,7 +2756,7 @@ static int32_t nvt_ts_remove(struct spi_device *client)
 		nvt_fwu_wq = NULL;
 	}
 #endif
-#if WAKEUP_GESTURE
+#if WAKEUP_GESTURE_DEFAULT
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif
 
@@ -2865,7 +2866,7 @@ static void nvt_ts_shutdown(struct spi_device *client)
 		nvt_fwu_wq = NULL;
 	}
 #endif
-#if WAKEUP_GESTURE
+#if WAKEUP_GESTURE_DEFAULT
 	device_init_wakeup(&ts->input_dev->dev, 0);
 #endif
 }
@@ -2900,7 +2901,7 @@ int nvt_ts_suspend(struct device *dev)
 	/* Initialize heatmap_host_cmd to force sending again after resume. */
 	ts->heatmap_host_cmd = HEATMAP_HOST_CMD_DISABLE;
 
-	if (!ts->wkg_flag)
+	if (ts->wkg_option == WAKEUP_GESTURE_OFF)
 		nvt_irq_enable(false);
 
 	reinit_completion(&ts->bus_resumed);
@@ -2963,11 +2964,11 @@ int nvt_ts_suspend(struct device *dev)
 				sizeof(ts->pen_offload_coord));
 	}
 
-#if (WAKEUP_GESTURE) && (NVT_TOUCH_EXT_API)
-	nvt_set_dttw(ts->wkg_flag, false);
+#if WAKEUP_GESTURE_DEFAULT
+	nvt_set_dttw(false);
 #endif
 
-	if (ts->wkg_flag) {
+	if (ts->wkg_option != WAKEUP_GESTURE_OFF) {
 		//---write command to enter "wakeup gesture mode"---
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x13;
@@ -2985,7 +2986,7 @@ int nvt_ts_suspend(struct device *dev)
 	mutex_unlock(&ts->lock);
 
 #if defined(CONFIG_SOC_GOOGLE)
-	if (!ts->wkg_flag)
+	if (ts->wkg_option == WAKEUP_GESTURE_OFF)
 		nvt_pinctrl_configure(ts, false);
 #else
 	msleep(50);
@@ -3028,7 +3029,7 @@ int nvt_ts_resume(struct device *dev)
 		nvt_check_fw_reset_state(RESET_STATE_REK);
 	}
 
-	if (!ts->wkg_flag)
+	if (ts->wkg_option == WAKEUP_GESTURE_OFF)
 		nvt_irq_enable(true);
 
 #if NVT_TOUCH_ESD_PROTECT

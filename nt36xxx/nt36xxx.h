@@ -116,7 +116,6 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define REPORT_PROTOCOL_A 1
 #define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
-#define WAKEUP_GESTURE 1
 #define BOOT_UPDATE_FIRMWARE 1
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 100
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
@@ -177,6 +176,12 @@ enum {
 
 /* FW History */
 #define NVT_HISTORY_BUF_LEN		(65 * 4)
+
+/* Gesture */
+#define WAKEUP_GESTURE_OFF  0
+#define WAKEUP_GESTURE_STTW 1
+#define WAKEUP_GESTURE_DTTW 2
+#define WAKEUP_GESTURE_DEFAULT WAKEUP_GESTURE_STTW
 
 enum gesture_id : u8 {
 	GESTURE_WORD_C = 12,
@@ -254,7 +259,8 @@ struct nvt_ts_data {
 	struct mtk_chip_config spi_ctrl;
 #endif
 	uint8_t report_protocol;
-	uint8_t wkg_flag;
+	u8 wkg_option;
+	u8 wkg_default;
 	uint8_t bTouchIsAwake;
 	uint8_t pen_format_id;
 	uint32_t pen_bat_capa;
@@ -393,7 +399,7 @@ extern void nvt_read_fw_history(uint32_t addr);
 extern int32_t nvt_extra_api_init(void);
 extern void nvt_extra_api_deinit(void);
 extern void nvt_get_dttw_conf(void);
-extern ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result);
+extern void nvt_set_dttw(bool check_result);
 #endif
 #if NVT_TOUCH_EXT_USI
 extern int32_t nvt_extra_usi_init(void);
