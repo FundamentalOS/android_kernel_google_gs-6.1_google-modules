@@ -1116,7 +1116,8 @@ void nvt_ts_wakeup_gesture_report(uint8_t gesture_id, uint8_t *data)
 		return;
 	}
 
-	keycode = gesture_keycode[gesture_id];
+	if (gesture_id < GESTURE_ID_MAX)
+		keycode = gesture_keycode[gesture_id];
 	if (keycode) {
 		NVT_LOG("Gesture: %s(%d) triggered and report keycode(%d).\n",
 			gesture_string[gesture_id], gesture_id, keycode);
@@ -1591,6 +1592,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_btn2 = 0;
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
+
+	if (!ts->probe_done)
+		return IRQ_HANDLED;
 
 	if (ts->wkg_flag && ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5 * MSEC_PER_SEC);
@@ -2579,6 +2583,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 	nvt_irq_enable(true);
 
+	ts->probe_done = true;
 	return 0;
 
 #if defined(CONFIG_FB)

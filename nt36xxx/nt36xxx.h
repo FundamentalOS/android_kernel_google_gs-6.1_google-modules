@@ -239,6 +239,7 @@ struct nvt_ts_data {
 	uint8_t *xbuf;
 	char history_buf[NVT_HISTORY_BUF_LEN];
 	struct mutex xbuf_lock;
+	bool probe_done;
 	bool irq_enabled;
 	bool pen_support;
 	bool wgp_stylus;
