@@ -637,6 +637,20 @@ int32_t nvt_usi_get_serial_number(uint32_t *serial_high, uint32_t *serial_low)
 	return 0;
 }
 
+int32_t nvt_usi_get_vid_pid(uint16_t *vid, uint16_t *pid)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_GID_FLAG))
+		return -ENODATA;
+
+	*vid = usi_ctx->stylus_GID[8] | usi_ctx->stylus_GID[9] << 8;
+	*pid = usi_ctx->stylus_GID[10] | usi_ctx->stylus_GID[11] << 8;
+
+	return 0;
+}
+
 int32_t nvt_usi_clear_stylus_read_map(void)
 {
 	if (!usi_ctx)
