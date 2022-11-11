@@ -41,7 +41,7 @@ gxp-objs +=	\
 		gxp-platform.o \
 		gxp-mailbox-impl.o
 
-GMODULE_PATH := $(OUT_DIR)/../google-modules
+GMODULE_PATH := $(OUT_DIR)/../private/google-modules
 EDGETPU_CHIP := janeiro
 
 endif
@@ -53,6 +53,7 @@ gxp-objs += $(GCIP_DIR)/gcip.o
 endif
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
+include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 M ?= $(shell pwd)
 
 # Obtain the current git commit hash for logging on probe
