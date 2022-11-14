@@ -747,8 +747,13 @@ void mhi_pm_st_worker(struct work_struct *work)
 
 	list_for_each_entry_safe(itr, tmp, &head, node) {
 		list_del(&itr->node);
+#if defined(CONFIG_WCN_GOOGLE)
+		MHI_LOG("Handling state transition: %s\n",
+			TO_DEV_STATE_TRANS_STR(itr->state));
+#else
 		MHI_VERB("Handling state transition: %s\n",
 			TO_DEV_STATE_TRANS_STR(itr->state));
+#endif
 
 		switch (itr->state) {
 		case DEV_ST_TRANSITION_PBL:
