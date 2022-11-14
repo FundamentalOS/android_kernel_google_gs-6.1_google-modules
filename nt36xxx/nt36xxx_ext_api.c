@@ -1363,15 +1363,17 @@ static uint16_t nvt_get_dttw_para(uint64_t dttw_addr)
 	return ((uint16_t)(spi_buf[2] << 8) + spi_buf[1]);
 }
 
-ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result)
+void nvt_set_dttw(bool check_result)
 {
 	uint8_t spi_buf[3] = {0};
 	uint16_t cmd_test_bit = DTTW_MODE_CMD_TEST_BIT;
 	int32_t ret = 0;
 
-	NVT_LOG("++\n");
+	if (ts->wkg_default != WAKEUP_GESTURE_DTTW)
+		return;
 
-	if (wkg_flag) {
+	NVT_LOG("++\n");
+	if (ts->wkg_option == WAKEUP_GESTURE_DTTW) {
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
 		spi_buf[1] = 0x70;
 		spi_buf[2] = 0x31;
@@ -1382,17 +1384,18 @@ ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result)
 		spi_buf[2] = 0x30;
 		CTP_SPI_WRITE(ts->client, spi_buf, 3);
 	}
+	msleep(20);
 
 	if (check_result) {
-		msleep(20);
-		ret = nvt_check_api_cmd_result(cmd_test_bit, wkg_flag == 1);
+		ret = nvt_check_api_cmd_result(cmd_test_bit,
+			(ts->wkg_option != WAKEUP_GESTURE_OFF) ? 1 : 0);
 		if (ret) {
 			NVT_ERR("DTTW conf: failed to setup, ret = %d.\n", ret);
-			return -EINVAL;
+			return;
 		}
 	}
 
-	if (wkg_flag) {
+	if (ts->wkg_option == WAKEUP_GESTURE_DTTW) {
 		NVT_LOG("DTTW conf: area max/min %d %d, contact max/min %d %d.\n",
 			ts->dttw_touch_area_max, ts->dttw_touch_area_min,
 			ts->dttw_contact_duration_max, ts->dttw_contact_duration_min);
@@ -1402,11 +1405,10 @@ ssize_t nvt_set_dttw(uint8_t wkg_flag, bool check_result)
 		NVT_LOG("DTTW conf: motion %d, edge %d.\n",
 			ts->dttw_motion_tolerance, ts->dttw_detection_window_edge);
 	} else {
-		NVT_LOG("DTTW conf: off.\n");
+		NVT_LOG("Gesture conf: off.\n");
 	}
 
 	NVT_LOG("--\n");
-	return (wkg_flag == 1);
 }
 
 static ssize_t nvt_dttw_mode_show(struct device *dev,
@@ -1419,7 +1421,7 @@ static ssize_t nvt_dttw_mode_show(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", ts->wkg_flag);
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", ts->wkg_option);
 
 	mutex_unlock(&ts->lock);
 
@@ -1434,7 +1436,7 @@ static ssize_t nvt_dttw_mode_store(struct device *dev, struct device_attribute *
 
 	NVT_LOG("++\n");
 
-	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE || !ts->bTouchIsAwake)
+	if (kstrtou8(buf, 10, &mode) || !ts->bTouchIsAwake)
 		return -EINVAL;
 
 	if (mutex_lock_interruptible(&ts->lock))
@@ -1442,12 +1444,20 @@ static ssize_t nvt_dttw_mode_store(struct device *dev, struct device_attribute *
 
 	switch (mode) {
 	case CMD_DISABLE:
-		NVT_LOG("Disable DTTW Mode\n");
-		ts->wkg_flag = 0;
+		ts->wkg_option = WAKEUP_GESTURE_OFF;
+		NVT_LOG("Disable Gesture.\n");
 		break;
 	case CMD_ENABLE:
-		NVT_LOG("Enable DTTW Mode\n");
-		ts->wkg_flag = 1;
+		ts->wkg_default = WAKEUP_GESTURE_DEFAULT;
+		ts->wkg_option = WAKEUP_GESTURE_DEFAULT;
+		NVT_LOG("Enable Default Gesture(%d).\n", ts->wkg_option);
+		break;
+	default:
+		if (mode >= WAKEUP_GESTURE_OFF || mode <= WAKEUP_GESTURE_DTTW) {
+			ts->wkg_option = mode;
+			ts->wkg_default = mode;
+			NVT_LOG("Enable Gesture(%d) as default.\n", mode);
+		}
 		break;
 	}
 
