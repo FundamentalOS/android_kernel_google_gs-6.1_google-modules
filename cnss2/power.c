@@ -1045,7 +1045,7 @@ int wlan_buck_enable(struct cnss_plat_data *plat_priv)
 		cnss_pr_dbg("Pull up BUCK GPIO successfully\n");
 	}
 	gpio_free(wlan_buck_gpio);
-	msleep(10);
+	msleep(100);
 
 	return ret;
 }
