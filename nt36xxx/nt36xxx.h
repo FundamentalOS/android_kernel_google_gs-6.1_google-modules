@@ -250,8 +250,10 @@ struct nvt_ts_data {
 	bool wgp_stylus;
 	uint8_t x_gang_num;
 	uint8_t y_gang_num;
-	struct input_dev *pen_input_dev;
+	int8_t pen_input_idx;
 	int8_t pen_phys[32];
+	int8_t pen_name[32];
+	struct input_dev *pen_input_dev;
 #ifdef CONFIG_MTK_SPI
 	struct mt_chip_conf spi_ctrl;
 #endif
@@ -269,6 +271,8 @@ struct nvt_ts_data {
 	char battery_serial_number_str[17]; /* 16 hex digits */
 	uint32_t pen_serial_high; /* transducer serial number high 32 bits */
 	uint32_t pen_serial_low;  /* transducer serial number low 32 bits */
+	uint16_t pen_vid;
+	uint16_t pen_pid;
 #endif
 #if NVT_TOUCH_EXT_API
 	uint16_t dttw_touch_area_max;
@@ -416,6 +420,7 @@ extern int32_t nvt_usi_store_fw_version(const uint8_t *buf_fw_ver);
 extern int32_t nvt_usi_store_gid(const uint8_t *buf_gid);
 
 extern int32_t nvt_usi_get_battery(uint8_t *bat);
+extern int32_t nvt_usi_get_vid_pid(uint16_t *vid, uint16_t *pid);
 extern int32_t nvt_usi_get_serial_number(uint32_t *serial_high, uint32_t *serial_low);
 /* Flags for the responses of the USI read commands */
 enum {

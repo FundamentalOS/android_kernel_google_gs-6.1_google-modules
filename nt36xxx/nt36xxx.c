@@ -1527,7 +1527,7 @@ static int pen_get_battery_property(struct power_supply *psy,
 	return 0;
 }
 
-static struct power_supply *pen_setup_battery()
+static struct power_supply *pen_setup_battery(struct device *parent)
 {
 	int error;
 	struct power_supply_desc *psy_desc;
@@ -1545,7 +1545,7 @@ static struct power_supply *pen_setup_battery()
 	psy_desc->num_properties = ARRAY_SIZE(pen_battery_props);
 	psy_desc->get_property = pen_get_battery_property;
 
-	battery = power_supply_register(ts->pen_input_dev->dev.parent, psy_desc, NULL);
+	battery = power_supply_register(parent, psy_desc, NULL);
 	if (IS_ERR(battery)) {
 		error = PTR_ERR(battery);
 		kfree(psy_desc);
@@ -1608,6 +1608,76 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 }
 #endif
 
+static struct input_dev *create_pen_input_device(uint16_t vid, uint16_t pid)
+{
+	struct input_dev *pen_input_dev;
+	int32_t ret = -1;
+
+	//---allocate pen input device---
+	pen_input_dev = input_allocate_device();
+	if (pen_input_dev == NULL) {
+		NVT_ERR("allocate pen input device failed\n");
+		return NULL;
+	}
+
+	//---set pen input device info.---
+	pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
+	pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
+	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(BTN_TOOL_PEN);
+	//pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
+	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
+	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
+	pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
+
+	if (ts->wgp_stylus) {
+		input_set_abs_params(pen_input_dev, ABS_X, 0, ts->touch_width * 2 - 1, 0, 0);
+		input_set_abs_params(pen_input_dev, ABS_Y, 0, ts->touch_height * 2 - 1, 0, 0);
+	} else {
+		input_set_abs_params(pen_input_dev, ABS_X, 0, ts->abs_x_max, 0, 0);
+		input_set_abs_params(pen_input_dev, ABS_Y, 0, ts->abs_y_max, 0, 0);
+	}
+	input_set_abs_params(pen_input_dev, ABS_PRESSURE, 0, PEN_PRESSURE_MAX, 0, 0);
+#ifdef PEN_DISTANCE_SUPPORT
+	input_set_abs_params(pen_input_dev, ABS_DISTANCE, 0, PEN_DISTANCE_MAX, 0, 0);
+#endif
+	input_set_abs_params(pen_input_dev, ABS_TILT_X, PEN_TILT_MIN, PEN_TILT_MAX, 0, 0);
+	input_set_abs_params(pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN, PEN_TILT_MAX, 0, 0);
+
+#if NVT_TOUCH_EXT_USI
+	__set_bit(EV_MSC, pen_input_dev->evbit);
+	__set_bit(MSC_SERIAL, pen_input_dev->mscbit);
+#endif
+	pen_input_dev->name = ts->pen_name;
+	pen_input_dev->uniq = pen_input_dev->name;
+	pen_input_dev->phys = ts->pen_phys;
+	pen_input_dev->dev.parent = &ts->client->dev;
+	pen_input_dev->id.bustype = BUS_SPI;
+	pen_input_dev->id.vendor = vid;
+	pen_input_dev->id.product = pid;
+	pen_input_dev->id.version = NVT_VERSION;
+
+	//---register pen input device---
+	ret = input_register_device(pen_input_dev);
+	if (ret) {
+		NVT_ERR("register pen input device (%s) failed. ret=%d\n",
+			pen_input_dev->name, ret);
+		goto err_pen_input_register_device_failed;
+	}
+
+	ts->pen_input_idx = !ts->pen_input_idx;
+
+	return pen_input_dev;
+
+err_pen_input_register_device_failed:
+	input_free_device(pen_input_dev);
+	return NULL;
+}
+
+static void destroy_pen_input_device(struct input_dev *pen_input_dev)
+{
+	input_unregister_device(pen_input_dev);
+}
+
 static irqreturn_t nvt_ts_isr(int irq, void *handle)
 {
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)handle;
@@ -1652,8 +1722,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint8_t pen_freq_index;
 #if NVT_TOUCH_EXT_USI
 	uint8_t info_buf[INFO_BUF_SIZE] = {0};
-	uint16_t info_buf_flags;
 	uint32_t pen_serial_low;
+	uint16_t info_buf_flags;
+	uint16_t pen_vid;
+	uint16_t pen_pid;
 #endif
 
 	if (!ts->probe_done)
@@ -2016,6 +2088,23 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif
 			input_sync(ts->pen_input_dev);
 #if NVT_TOUCH_EXT_USI
+			if (!nvt_usi_get_vid_pid(&pen_vid, &pen_pid) &&
+			    (ts->pen_vid != pen_vid || ts->pen_pid != pen_pid)) {
+				struct input_dev *new_pen_input_dev;
+
+				ts->pen_vid = pen_vid;
+				ts->pen_pid = pen_pid;
+
+				new_pen_input_dev = create_pen_input_device(pen_vid, pen_pid);
+
+				if (!new_pen_input_dev) {
+					NVT_ERR("create pen input device failed.\n");
+				} else {
+					destroy_pen_input_device(ts->pen_input_dev);
+					ts->pen_input_dev = new_pen_input_dev;
+				}
+			}
+
 			nvt_usi_clear_stylus_read_map();
 #endif
 		}
@@ -2448,71 +2537,25 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 
 	if (ts->pen_support) {
-		//---allocate pen input device---
-		ts->pen_input_dev = input_allocate_device();
-		if (ts->pen_input_dev == NULL) {
-			NVT_ERR("allocate pen input device failed\n");
-			ret = -ENOMEM;
-			goto err_pen_input_dev_alloc_failed;
-		}
-
-		//---set pen input device info.---
-		ts->pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(
-						      EV_KEY) | BIT_MASK(EV_ABS);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(
-					BTN_TOOL_PEN);
-		//ts->pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
-		ts->pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
-
-		if (ts->wgp_stylus) {
-			input_set_abs_params(ts->pen_input_dev, ABS_X, 0,
-				ts->touch_width * 2 - 1, 0, 0);
-			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0,
-				ts->touch_height * 2 - 1, 0, 0);
-		} else {
-			input_set_abs_params(ts->pen_input_dev, ABS_X, 0, ts->abs_x_max, 0, 0);
-			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0, ts->abs_y_max, 0, 0);
-		}
-		input_set_abs_params(ts->pen_input_dev, ABS_PRESSURE, 0, PEN_PRESSURE_MAX,
-				     0, 0);
-#ifdef PEN_DISTANCE_SUPPORT
-		input_set_abs_params(ts->pen_input_dev, ABS_DISTANCE, 0, PEN_DISTANCE_MAX,
-				     0, 0);
-#endif
-		input_set_abs_params(ts->pen_input_dev, ABS_TILT_X, PEN_TILT_MIN,
-				     PEN_TILT_MAX, 0, 0);
-		input_set_abs_params(ts->pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN,
-				     PEN_TILT_MAX, 0, 0);
-
-#if NVT_TOUCH_EXT_USI
-		__set_bit(EV_MSC, ts->pen_input_dev->evbit);
-		__set_bit(MSC_SERIAL, ts->pen_input_dev->mscbit);
-#endif
 		snprintf(ts->pen_phys, sizeof(ts->pen_phys), "input/pen");
-		ts->pen_input_dev->name = NVT_PEN_NAME;
-		ts->pen_input_dev->uniq = ts->pen_input_dev->name;
-		ts->pen_input_dev->phys = ts->pen_phys;
-		ts->pen_input_dev->dev.parent = &client->dev;
-		ts->pen_input_dev->id.bustype = BUS_SPI;
-		ts->pen_input_dev->id.vendor = NVT_VENDOR_ID;
-		ts->pen_input_dev->id.product = NVT_PRODUCT_ID;
-		ts->pen_input_dev->id.version = NVT_VERSION;
+		snprintf(ts->pen_name, sizeof(ts->pen_name), NVT_PEN_NAME);
 
-		//---register pen input device---
-		ret = input_register_device(ts->pen_input_dev);
-		if (ret) {
-			NVT_ERR("register pen input device (%s) failed. ret=%d\n",
-				ts->pen_input_dev->name, ret);
-			goto err_pen_input_register_device_failed;
-		}
-
-		ts->pen_bat_psy = pen_setup_battery();
+		ts->pen_bat_psy = pen_setup_battery(&client->dev);
 		if (ts->pen_bat_psy == NULL) {
 			NVT_ERR("register pen battery failed.\n");
 			goto err_pen_setup_battery_failed;
+		}
+
+		/*
+		 * Use 0xFFFF as the initial VID/PID so we can create new evdev
+		 * for the first stroke after boot.
+		 */
+		ts->pen_vid = 0xFFFF;
+		ts->pen_pid = 0xFFFF;
+		ts->pen_input_dev = create_pen_input_device(ts->pen_vid, ts->pen_pid);
+		if (!ts->pen_input_dev) {
+			NVT_ERR("create pen input device failed.\n");
+			goto err_create_pen_input_device_failed;
 		}
 	} /* if (ts->pen_support) */
 
@@ -2736,19 +2779,12 @@ err_goog_pm_register:
 #endif
 	goog_touch_interface_remove(ts->gti);
 err_goog_touch_interface:
+	destroy_pen_input_device(ts->pen_input_dev);
+	ts->pen_input_dev = NULL;
+err_create_pen_input_device_failed:
 	pen_clean_battery(ts->pen_bat_psy);
 	ts->pen_bat_psy = NULL;
 err_pen_setup_battery_failed:
-	if (ts->pen_support)
-		input_unregister_device(ts->pen_input_dev);
-err_pen_input_register_device_failed:
-	if (ts->pen_support) {
-		if (ts->pen_input_dev) {
-			input_free_device(ts->pen_input_dev);
-			ts->pen_input_dev = NULL;
-		}
-	}
-err_pen_input_dev_alloc_failed:
 	input_unregister_device(ts->input_dev);
 err_input_register_device_failed:
 	if (ts->input_dev) {
