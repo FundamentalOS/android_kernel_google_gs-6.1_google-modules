@@ -31,6 +31,8 @@
 #define NVT_PRODUCT_ID		0x7806
 #define NVT_VERSION		0x0100
 
+#define INFO_BUF_SIZE		(64 + 1)
+
 #if defined(CONFIG_DRM_PANEL)
 #include <drm/drm_panel.h>
 #elif defined(CONFIG_DRM_MSM)
@@ -1453,6 +1455,9 @@ static enum power_supply_property pen_battery_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+#if NVT_TOUCH_EXT_USI
+	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+#endif
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_SCOPE,
 };
@@ -1498,6 +1503,15 @@ static int pen_get_battery_property(struct power_supply *psy,
 
 		break;
 
+#if NVT_TOUCH_EXT_USI
+	case POWER_SUPPLY_PROP_SERIAL_NUMBER:
+		/* the latest serial number */
+		mutex_lock(&ts->lock);
+		val->strval = ts->battery_serial_number_str;
+		mutex_unlock(&ts->lock);
+
+		break;
+#endif
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
 		break;
@@ -1550,6 +1564,50 @@ static void pen_clean_battery(struct power_supply *battery)
 	kfree(psy_desc);
 }
 
+#if NVT_TOUCH_EXT_USI
+static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_buf)
+{
+	uint32_t pen_serial_high;
+	uint32_t pen_serial_low;
+	uint8_t pen_bat_capa;
+
+	if (info_buf_flags & USI_GID_FLAG) {
+		nvt_usi_store_gid(info_buf + USI_GID_OFFSET);
+		nvt_usi_get_serial_number(&pen_serial_high, &pen_serial_low);
+		if (ts->pen_serial_high != pen_serial_high ||
+		    ts->pen_serial_low != pen_serial_low) {
+			int idx = 0;
+			int sz = sizeof(ts->battery_serial_number_str);
+
+			idx += scnprintf(ts->battery_serial_number_str + idx, sz - idx,
+					 "%08X", pen_serial_high);
+			idx += scnprintf(ts->battery_serial_number_str + idx, sz - idx,
+					 "%08X", pen_serial_low);
+
+			ts->pen_serial_high = pen_serial_high;
+			ts->pen_serial_low = pen_serial_low;
+
+			power_supply_changed(ts->pen_bat_psy);
+		}
+	}
+
+	if (info_buf_flags & USI_BATTERY_FLAG) {
+		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
+		nvt_usi_get_battery(&pen_bat_capa);
+		if (ts->pen_bat_capa != pen_bat_capa) {
+			ts->pen_bat_capa = pen_bat_capa;
+			power_supply_changed(ts->pen_bat_psy);
+		}
+	}
+
+	if (info_buf_flags & USI_FW_VERSION_FLAG)
+		nvt_usi_store_fw_version(info_buf + USI_FW_VERSION_OFFSET);
+
+	if (info_buf_flags & USI_CAPABILITY_FLAG)
+		nvt_usi_store_capability(info_buf + USI_CAPABILITY_OFFSET);
+}
+#endif
+
 static irqreturn_t nvt_ts_isr(int irq, void *handle)
 {
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)handle;
@@ -1592,6 +1650,11 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_btn2 = 0;
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
+#if NVT_TOUCH_EXT_USI
+	uint8_t info_buf[INFO_BUF_SIZE] = {0};
+	uint16_t info_buf_flags;
+	uint32_t pen_serial_low;
+#endif
 
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
@@ -1871,10 +1934,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-				if (point_data[78] && ts->pen_bat_capa != (uint32_t)point_data[78]) {
-					ts->pen_bat_capa = (uint32_t)point_data[78];
-					power_supply_changed(ts->pen_bat_psy);
-				}
 //				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
 //						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
 
@@ -1902,13 +1961,35 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
+#if NVT_TOUCH_EXT_USI
+				/*
+				 * Input Subsystem doesn't support 64bits serial number.
+				 * So we only reports the lower 32bit.
+				 */
+				if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
+					input_event(ts->pen_input_dev, EV_MSC,
+						    MSC_SERIAL, pen_serial_low);
+#endif
+				input_sync(ts->pen_input_dev);
+#if NVT_TOUCH_EXT_USI
+				info_buf_flags = point_data[63] + (point_data[64] << 8);
+
+				if (info_buf_flags) {
+					nvt_set_page(ts->mmap->EB_INFO_ADDR);
+					info_buf[0] = ts->mmap->EB_INFO_ADDR & 0x7F;
+					CTP_SPI_READ(ts->client, info_buf, INFO_BUF_SIZE);
+					nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
+					process_usi_responses(info_buf_flags, info_buf);
+				}
+#endif
 			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
 			} else {
 				NVT_ERR("Unknown pen format id!\n");
 				goto XFER_ERROR;
 			}
-		} else { // pen_format_id = 0xFF, i.e. no pen present
+		} else if (ts->pen_active) { // pen_format_id = 0xFF and a pen was reporting
 			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
 			/* Snapshot some stylus context information for offload */
@@ -1929,9 +2010,15 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+#if NVT_TOUCH_EXT_USI
+			if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
+				input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
+#endif
+			input_sync(ts->pen_input_dev);
+#if NVT_TOUCH_EXT_USI
+			nvt_usi_clear_stylus_read_map();
+#endif
 		}
-
-		input_sync(ts->pen_input_dev);
 	} /* if (ts->pen_support) */
 
 	/* Check any sensing freq hopping for touch or stylus. */
@@ -2400,6 +2487,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		input_set_abs_params(ts->pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN,
 				     PEN_TILT_MAX, 0, 0);
 
+#if NVT_TOUCH_EXT_USI
+		__set_bit(EV_MSC, ts->pen_input_dev->evbit);
+		__set_bit(MSC_SERIAL, ts->pen_input_dev->mscbit);
+#endif
 		snprintf(ts->pen_phys, sizeof(ts->pen_phys), "input/pen");
 		ts->pen_input_dev->name = NVT_PEN_NAME;
 		ts->pen_input_dev->uniq = ts->pen_input_dev->name;
@@ -2883,6 +2974,9 @@ int nvt_ts_suspend(struct device *dev)
 {
 	uint8_t buf[4] = {0};
 	uint32_t i = 0;
+#if NVT_TOUCH_EXT_USI
+	uint32_t pen_serial_low;
+#endif
 
 	if (!ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
@@ -2956,12 +3050,19 @@ int nvt_ts_suspend(struct device *dev)
 		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+#if NVT_TOUCH_EXT_USI
+		if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
+			input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
+#endif
 		input_sync(ts->pen_input_dev);
 
 		ts->pen_active = 0;
 		ts->pen_offload_coord_timestamp = ts->timestamp;
 		memset(&ts->pen_offload_coord, 0,
 				sizeof(ts->pen_offload_coord));
+#if NVT_TOUCH_EXT_USI
+		nvt_usi_clear_stylus_read_map();
+#endif
 	}
 
 #if WAKEUP_GESTURE_DEFAULT

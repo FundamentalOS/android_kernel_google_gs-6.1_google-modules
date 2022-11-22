@@ -265,6 +265,11 @@ struct nvt_ts_data {
 	uint8_t pen_format_id;
 	uint32_t pen_bat_capa;
 	struct power_supply *pen_bat_psy;
+#if NVT_TOUCH_EXT_USI
+	char battery_serial_number_str[17]; /* 16 hex digits */
+	uint32_t pen_serial_high; /* transducer serial number high 32 bits */
+	uint32_t pen_serial_low;  /* transducer serial number low 32 bits */
+#endif
 #if NVT_TOUCH_EXT_API
 	uint16_t dttw_touch_area_max;
 	uint16_t dttw_touch_area_min;
@@ -404,6 +409,29 @@ extern void nvt_set_dttw(bool check_result);
 #if NVT_TOUCH_EXT_USI
 extern int32_t nvt_extra_usi_init(void);
 extern void nvt_extra_usi_deinit(void);
+extern int32_t nvt_usi_clear_stylus_read_map(void);
+extern int32_t nvt_usi_store_battery(const uint8_t *buf_bat);
+extern int32_t nvt_usi_store_capability(const uint8_t *buf_cap);
+extern int32_t nvt_usi_store_fw_version(const uint8_t *buf_fw_ver);
+extern int32_t nvt_usi_store_gid(const uint8_t *buf_gid);
+
+extern int32_t nvt_usi_get_battery(uint8_t *bat);
+extern int32_t nvt_usi_get_serial_number(uint32_t *serial_high, uint32_t *serial_low);
+/* Flags for the responses of the USI read commands */
+enum {
+	USI_GID_FLAG		= 1U << 0,	/* C.GetGID() */
+	USI_BATTERY_FLAG	= 1U << 1,	/* C.GetBattery() */
+	USI_CAPABILITY_FLAG	= 1U << 2,	/* C.GetCapacity() */
+	USI_FW_VERSION_FLAG	= 1U << 3,	/* C.GetFirmwareVersion() */
+};
+
+/* location of the data in the response buffer */
+enum {
+	USI_GID_OFFSET		= 1,
+	USI_BATTERY_OFFSET	= 13,
+	USI_FW_VERSION_OFFSET	= 15,
+	USI_CAPABILITY_OFFSET	= 17
+};
 #endif
 
 #if NVT_TOUCH_ESD_PROTECT
