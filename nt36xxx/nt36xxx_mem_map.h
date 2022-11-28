@@ -73,6 +73,7 @@ struct nvt_ts_mem_map {
 	uint32_t DMA_CRC_EN_ADDR;
 	uint32_t BLD_ILM_DLM_CRC_ADDR;
 	uint32_t DMA_CRC_FLAG_ADDR;
+	uint32_t EB_INFO_ADDR;
 };
 
 struct nvt_ts_hw_info {
@@ -81,6 +82,7 @@ struct nvt_ts_hw_info {
 
 static const struct nvt_ts_mem_map NT36523_memory_map = {
 	.EVENT_BUF_ADDR           = 0x2FE00,
+	.EB_INFO_ADDR             = 0x2B32A,
 	.RAW_PIPE0_ADDR           = 0x30FA0,
 	.RAW_PIPE1_ADDR           = 0x30FA0,
 	.BASELINE_ADDR            = 0x36510,
