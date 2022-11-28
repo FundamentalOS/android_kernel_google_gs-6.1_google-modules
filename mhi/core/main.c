@@ -521,7 +521,7 @@ irqreturn_t mhi_intvec_threaded_handler(int irq_number, void *priv)
 
 	state = mhi_get_mhi_state(mhi_cntrl);
 	ee = mhi_get_exec_env(mhi_cntrl);
-	MHI_VERB("local ee:%s state:%s device ee:%s state:%s\n",
+	MHI_LOG("local ee:%s state:%s device ee:%s state:%s\n",
 		TO_MHI_EXEC_STR(mhi_cntrl->ee),
 		TO_MHI_STATE_STR(mhi_cntrl->dev_state),
 		TO_MHI_EXEC_STR(ee), TO_MHI_STATE_STR(state));
