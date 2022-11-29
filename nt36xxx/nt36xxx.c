@@ -2882,7 +2882,9 @@ return:
 int nvt_ts_suspend(struct device *dev)
 {
 	uint8_t buf[4] = {0};
+#ifndef GOOG_TOUCH_INTERFACE
 	uint32_t i = 0;
+#endif
 
 	if (!ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
@@ -2922,9 +2924,10 @@ int nvt_ts_suspend(struct device *dev)
 	}
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
+#ifndef GOOG_TOUCH_INTERFACE
 	/* release all touches */
 	goog_input_lock(ts->gti);
-	goog_input_set_timestamp(ts->gti, ts->input_dev, KTIME_RELEASE_ALL);
+	goog_input_set_timestamp(ts->gti, ts->input_dev, ktime_get());
 	if (ts->report_protocol == REPORT_PROTOCOL_B) {
 		for (i = 0; i < ts->max_touch_num; i++) {
 			goog_input_mt_slot(ts->gti, ts->input_dev, i);
@@ -2940,6 +2943,7 @@ int nvt_ts_suspend(struct device *dev)
 
 	goog_input_sync(ts->gti, ts->input_dev);
 	goog_input_unlock(ts->gti);
+#endif
 
 	/* release pen event */
 	if (ts->pen_support) {
