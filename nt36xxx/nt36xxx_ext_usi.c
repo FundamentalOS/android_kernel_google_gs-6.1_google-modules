@@ -26,6 +26,10 @@
 
 #if NVT_TOUCH_EXT_USI
 
+#define GID_NUM					12
+#define CAP_NUM					12
+#define FW_VER_NUM				2
+
 /*
  * The following HID Report Descriptor is copied from
  * USIv2-HID-Report-Descriptor.h from universalstylus.org.
@@ -465,6 +469,21 @@ static uint8_t USI_report_descriptor_v2_0[] = {
     0xc0                           // END_COLLECTION
 };
 
+struct nvt_usi_context {
+	/*
+	 * Bit Fields:
+	 * A bit represents if the corresponding read command is done or not.
+	 */
+	uint32_t stylus_read_map;
+
+	/* responses from a paired stylus. */
+	uint8_t stylus_cap[CAP_NUM];		/* C.GetCapability() */
+	uint8_t stylus_GID[GID_NUM];		/* C.GetGID() */
+	uint8_t stylus_fw_ver[FW_VER_NUM];	/* C.GetFirmwareVersion() */
+	uint8_t stylus_battery;			/* C.GetBattery() */
+};
+
+static struct nvt_usi_context *usi_ctx;
 
 #define DEFAULT_STYLUS_INDEX		1
 
@@ -534,6 +553,135 @@ static int32_t device_open(struct inode *inode, struct file *file)
 
 static int32_t device_release(struct inode *inode, struct file *file)
 {
+	return 0;
+}
+
+int32_t nvt_usi_store_gid(const uint8_t *buf_gid)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	memcpy(usi_ctx->stylus_GID, buf_gid, sizeof(usi_ctx->stylus_GID));
+	usi_ctx->stylus_read_map |= USI_GID_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_store_fw_version(const uint8_t *buf_fw_ver)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	memcpy(usi_ctx->stylus_fw_ver, buf_fw_ver,
+	       sizeof(usi_ctx->stylus_fw_ver));
+	usi_ctx->stylus_read_map |= USI_FW_VERSION_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_store_capability(const uint8_t *buf_cap)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	memcpy(usi_ctx->stylus_cap, buf_cap, sizeof(usi_ctx->stylus_cap));
+	usi_ctx->stylus_read_map |= USI_CAPABILITY_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_store_battery(const uint8_t *buf_bat)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	usi_ctx->stylus_battery = buf_bat[0];
+	usi_ctx->stylus_read_map |= USI_BATTERY_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_battery(uint8_t *bat)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_BATTERY_FLAG))
+		return -ENODATA;
+
+	*bat = usi_ctx->stylus_battery;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_serial_number(uint32_t *serial_high, uint32_t *serial_low)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_GID_FLAG))
+		return -ENODATA;
+
+	if (serial_low)
+		*serial_low = usi_ctx->stylus_GID[0] |
+				usi_ctx->stylus_GID[1] << 8 |
+				usi_ctx->stylus_GID[2] << 16 |
+				usi_ctx->stylus_GID[3] << 24;
+
+	if (serial_high)
+		*serial_high = usi_ctx->stylus_GID[4] |
+				usi_ctx->stylus_GID[5] << 8 |
+				usi_ctx->stylus_GID[6] << 16 |
+				usi_ctx->stylus_GID[7] << 24;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_vid_pid(uint16_t *vid, uint16_t *pid)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_GID_FLAG))
+		return -ENODATA;
+
+	*vid = usi_ctx->stylus_GID[8] | usi_ctx->stylus_GID[9] << 8;
+	*pid = usi_ctx->stylus_GID[10] | usi_ctx->stylus_GID[11] << 8;
+
+	return 0;
+}
+
+int32_t nvt_usi_clear_stylus_read_map(void)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	usi_ctx->stylus_read_map = 0;
+
+	return 0;
+}
+
+#define USI_HID_FIRMWARE_INFO_READY	(USI_GID_FLAG | USI_FW_VERSION_FLAG)
+static int32_t get_hid_firmware_info(uint8_t *hid_buf)
+{
+	if ((usi_ctx->stylus_read_map & USI_HID_FIRMWARE_INFO_READY) !=
+	    USI_HID_FIRMWARE_INFO_READY)
+		return -ENODATA;
+
+	/* USI 2.0 spec. 7.3.3.1.3 Get Stylus Firmware Info */
+	/* 64bits Transducer Serial Number : GID0 ~ GID3 */
+	memcpy(hid_buf + 2, usi_ctx->stylus_GID, 8);
+
+	/* 32bits Transducer Serial Number Part 2 : GID2 ~ GID3 */
+	memcpy(hid_buf + 10, usi_ctx->stylus_GID + 4, 4);
+
+	/* VID/PID : GID4 ~ GID5 */
+	memcpy(hid_buf + 14, usi_ctx->stylus_GID + 8, 4);
+
+	/* FW version major/minor */
+	hid_buf[18] = usi_ctx->stylus_fw_ver[1];
+	hid_buf[19] = usi_ctx->stylus_fw_ver[0];
+
 	return 0;
 }
 
@@ -673,22 +821,11 @@ static int32_t get_hid_feature_report(uint8_t *hid_buf, int32_t buf_size,
 		}
 		break;
 	case HID_REPORTID_GET_FIRMWARE:
-		ret = get_usi_data(spi_buf, rpt_info->vendor_get_cmd, 14);
-		if (ret > 0) {
-			/* Transducer Serial Number: 64bits */
-			memcpy(hid_buf + 2, spi_buf + 1, 8);
-			/* Transducer Serial Number part 2: 32bits */
-			memcpy(hid_buf + 10, spi_buf + 5, 4);
-			/* Vendor ID: 16bits */
-			memcpy(hid_buf + 14, spi_buf + 9, 2);
-			/* Product ID: 16bits */
-			memcpy(hid_buf + 16, spi_buf + 11, 2);
-			/* Major version: 8bits */
-			memcpy(hid_buf + 18, spi_buf + 13, 1);
-			/* Minor version: 8bits */
-			memcpy(hid_buf + 19, spi_buf + 14, 1);
+		ret = get_hid_firmware_info(hid_buf);
+		if (!ret)
 			ret = rpt_info->size;
-		}
+		else /* data is not ready yet */
+			ret = 0;
 		break;
 	case HID_REPORTID_GET_PROTOCOL:
 		hid_buf[2] = 2;
@@ -893,12 +1030,24 @@ int32_t nvt_extra_usi_init(void)
 	int32_t ret;
 
 	NVT_LOG("++\n");
+
+	usi_ctx = kzalloc(sizeof(*usi_ctx), GFP_KERNEL);
+	if (!usi_ctx)
+		return -ENOMEM;
+
 	ret = misc_register(&nvt_hid_usi_dev);
 	if (ret < 0) {
 		NVT_ERR("Register %s failed\n", nvt_hid_usi_dev.name);
-		return ret;
+		goto usi_init_error;
 	}
 	NVT_LOG("--\n");
+
+	return ret;
+
+usi_init_error:
+	kfree(usi_ctx);
+	usi_ctx = NULL;
+
 	return ret;
 }
 
@@ -906,6 +1055,8 @@ void nvt_extra_usi_deinit(void)
 {
 	NVT_LOG("++\n");
 	misc_deregister(&nvt_hid_usi_dev);
+	kfree(usi_ctx);
+	usi_ctx = NULL;
 	NVT_LOG("--\n");
 }
 #endif

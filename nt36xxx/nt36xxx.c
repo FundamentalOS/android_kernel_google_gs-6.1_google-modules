@@ -31,6 +31,8 @@
 #define NVT_PRODUCT_ID		0x7806
 #define NVT_VERSION		0x0100
 
+#define INFO_BUF_SIZE		(64 + 1)
+
 #if defined(CONFIG_DRM_PANEL)
 #include <drm/drm_panel.h>
 #elif defined(CONFIG_DRM_MSM)
@@ -1453,6 +1455,9 @@ static enum power_supply_property pen_battery_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+#if NVT_TOUCH_EXT_USI
+	POWER_SUPPLY_PROP_SERIAL_NUMBER,
+#endif
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_SCOPE,
 };
@@ -1498,6 +1503,15 @@ static int pen_get_battery_property(struct power_supply *psy,
 
 		break;
 
+#if NVT_TOUCH_EXT_USI
+	case POWER_SUPPLY_PROP_SERIAL_NUMBER:
+		/* the latest serial number */
+		mutex_lock(&ts->lock);
+		val->strval = ts->battery_serial_number_str;
+		mutex_unlock(&ts->lock);
+
+		break;
+#endif
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
 		break;
@@ -1513,7 +1527,7 @@ static int pen_get_battery_property(struct power_supply *psy,
 	return 0;
 }
 
-static struct power_supply *pen_setup_battery()
+static struct power_supply *pen_setup_battery(struct device *parent)
 {
 	int error;
 	struct power_supply_desc *psy_desc;
@@ -1531,7 +1545,7 @@ static struct power_supply *pen_setup_battery()
 	psy_desc->num_properties = ARRAY_SIZE(pen_battery_props);
 	psy_desc->get_property = pen_get_battery_property;
 
-	battery = power_supply_register(ts->pen_input_dev->dev.parent, psy_desc, NULL);
+	battery = power_supply_register(parent, psy_desc, NULL);
 	if (IS_ERR(battery)) {
 		error = PTR_ERR(battery);
 		kfree(psy_desc);
@@ -1548,6 +1562,120 @@ static void pen_clean_battery(struct power_supply *battery)
 
 	power_supply_unregister(battery);
 	kfree(psy_desc);
+}
+
+#if NVT_TOUCH_EXT_USI
+static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_buf)
+{
+	uint32_t pen_serial_high;
+	uint32_t pen_serial_low;
+	uint8_t pen_bat_capa;
+
+	if (info_buf_flags & USI_GID_FLAG) {
+		nvt_usi_store_gid(info_buf + USI_GID_OFFSET);
+		nvt_usi_get_serial_number(&pen_serial_high, &pen_serial_low);
+		if (ts->pen_serial_high != pen_serial_high ||
+		    ts->pen_serial_low != pen_serial_low) {
+			int idx = 0;
+			int sz = sizeof(ts->battery_serial_number_str);
+
+			idx += scnprintf(ts->battery_serial_number_str + idx, sz - idx,
+					 "%08X", pen_serial_high);
+			idx += scnprintf(ts->battery_serial_number_str + idx, sz - idx,
+					 "%08X", pen_serial_low);
+
+			ts->pen_serial_high = pen_serial_high;
+			ts->pen_serial_low = pen_serial_low;
+
+			power_supply_changed(ts->pen_bat_psy);
+		}
+	}
+
+	if (info_buf_flags & USI_BATTERY_FLAG) {
+		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
+		nvt_usi_get_battery(&pen_bat_capa);
+		if (ts->pen_bat_capa != pen_bat_capa) {
+			ts->pen_bat_capa = pen_bat_capa;
+			power_supply_changed(ts->pen_bat_psy);
+		}
+	}
+
+	if (info_buf_flags & USI_FW_VERSION_FLAG)
+		nvt_usi_store_fw_version(info_buf + USI_FW_VERSION_OFFSET);
+
+	if (info_buf_flags & USI_CAPABILITY_FLAG)
+		nvt_usi_store_capability(info_buf + USI_CAPABILITY_OFFSET);
+}
+#endif
+
+static struct input_dev *create_pen_input_device(uint16_t vid, uint16_t pid)
+{
+	struct input_dev *pen_input_dev;
+	int32_t ret = -1;
+
+	//---allocate pen input device---
+	pen_input_dev = input_allocate_device();
+	if (pen_input_dev == NULL) {
+		NVT_ERR("allocate pen input device failed\n");
+		return NULL;
+	}
+
+	//---set pen input device info.---
+	pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
+	pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
+	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(BTN_TOOL_PEN);
+	//pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
+	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
+	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
+	pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
+
+	if (ts->wgp_stylus) {
+		input_set_abs_params(pen_input_dev, ABS_X, 0, ts->touch_width * 2 - 1, 0, 0);
+		input_set_abs_params(pen_input_dev, ABS_Y, 0, ts->touch_height * 2 - 1, 0, 0);
+	} else {
+		input_set_abs_params(pen_input_dev, ABS_X, 0, ts->abs_x_max, 0, 0);
+		input_set_abs_params(pen_input_dev, ABS_Y, 0, ts->abs_y_max, 0, 0);
+	}
+	input_set_abs_params(pen_input_dev, ABS_PRESSURE, 0, PEN_PRESSURE_MAX, 0, 0);
+#ifdef PEN_DISTANCE_SUPPORT
+	input_set_abs_params(pen_input_dev, ABS_DISTANCE, 0, PEN_DISTANCE_MAX, 0, 0);
+#endif
+	input_set_abs_params(pen_input_dev, ABS_TILT_X, PEN_TILT_MIN, PEN_TILT_MAX, 0, 0);
+	input_set_abs_params(pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN, PEN_TILT_MAX, 0, 0);
+
+#if NVT_TOUCH_EXT_USI
+	__set_bit(EV_MSC, pen_input_dev->evbit);
+	__set_bit(MSC_SERIAL, pen_input_dev->mscbit);
+#endif
+	pen_input_dev->name = ts->pen_name;
+	pen_input_dev->uniq = pen_input_dev->name;
+	pen_input_dev->phys = ts->pen_phys;
+	pen_input_dev->dev.parent = &ts->client->dev;
+	pen_input_dev->id.bustype = BUS_SPI;
+	pen_input_dev->id.vendor = vid;
+	pen_input_dev->id.product = pid;
+	pen_input_dev->id.version = NVT_VERSION;
+
+	//---register pen input device---
+	ret = input_register_device(pen_input_dev);
+	if (ret) {
+		NVT_ERR("register pen input device (%s) failed. ret=%d\n",
+			pen_input_dev->name, ret);
+		goto err_pen_input_register_device_failed;
+	}
+
+	ts->pen_input_idx = !ts->pen_input_idx;
+
+	return pen_input_dev;
+
+err_pen_input_register_device_failed:
+	input_free_device(pen_input_dev);
+	return NULL;
+}
+
+static void destroy_pen_input_device(struct input_dev *pen_input_dev)
+{
+	input_unregister_device(pen_input_dev);
 }
 
 static irqreturn_t nvt_ts_isr(int irq, void *handle)
@@ -1592,6 +1720,13 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint32_t pen_btn2 = 0;
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
+#if NVT_TOUCH_EXT_USI
+	uint8_t info_buf[INFO_BUF_SIZE] = {0};
+	uint32_t pen_serial_low;
+	uint16_t info_buf_flags;
+	uint16_t pen_vid;
+	uint16_t pen_pid;
+#endif
 
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
@@ -1871,10 +2006,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-				if (point_data[78] && ts->pen_bat_capa != (uint32_t)point_data[78]) {
-					ts->pen_bat_capa = (uint32_t)point_data[78];
-					power_supply_changed(ts->pen_bat_psy);
-				}
 //				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
 //						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
 
@@ -1902,13 +2033,35 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
+#if NVT_TOUCH_EXT_USI
+				/*
+				 * Input Subsystem doesn't support 64bits serial number.
+				 * So we only reports the lower 32bit.
+				 */
+				if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
+					input_event(ts->pen_input_dev, EV_MSC,
+						    MSC_SERIAL, pen_serial_low);
+#endif
+				input_sync(ts->pen_input_dev);
+#if NVT_TOUCH_EXT_USI
+				info_buf_flags = point_data[63] + (point_data[64] << 8);
+
+				if (info_buf_flags) {
+					nvt_set_page(ts->mmap->EB_INFO_ADDR);
+					info_buf[0] = ts->mmap->EB_INFO_ADDR & 0x7F;
+					CTP_SPI_READ(ts->client, info_buf, INFO_BUF_SIZE);
+					nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+
+					process_usi_responses(info_buf_flags, info_buf);
+				}
+#endif
 			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
 			} else {
 				NVT_ERR("Unknown pen format id!\n");
 				goto XFER_ERROR;
 			}
-		} else { // pen_format_id = 0xFF, i.e. no pen present
+		} else if (ts->pen_active) { // pen_format_id = 0xFF and a pen was reporting
 			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
 			/* Snapshot some stylus context information for offload */
@@ -1929,9 +2082,32 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
-		}
+#if NVT_TOUCH_EXT_USI
+			if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
+				input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
+#endif
+			input_sync(ts->pen_input_dev);
+#if NVT_TOUCH_EXT_USI
+			if (!nvt_usi_get_vid_pid(&pen_vid, &pen_pid) &&
+			    (ts->pen_vid != pen_vid || ts->pen_pid != pen_pid)) {
+				struct input_dev *new_pen_input_dev;
 
-		input_sync(ts->pen_input_dev);
+				ts->pen_vid = pen_vid;
+				ts->pen_pid = pen_pid;
+
+				new_pen_input_dev = create_pen_input_device(pen_vid, pen_pid);
+
+				if (!new_pen_input_dev) {
+					NVT_ERR("create pen input device failed.\n");
+				} else {
+					destroy_pen_input_device(ts->pen_input_dev);
+					ts->pen_input_dev = new_pen_input_dev;
+				}
+			}
+
+			nvt_usi_clear_stylus_read_map();
+#endif
+		}
 	} /* if (ts->pen_support) */
 
 	/* Check any sensing freq hopping for touch or stylus. */
@@ -2361,67 +2537,25 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 
 	if (ts->pen_support) {
-		//---allocate pen input device---
-		ts->pen_input_dev = input_allocate_device();
-		if (ts->pen_input_dev == NULL) {
-			NVT_ERR("allocate pen input device failed\n");
-			ret = -ENOMEM;
-			goto err_pen_input_dev_alloc_failed;
-		}
-
-		//---set pen input device info.---
-		ts->pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(
-						      EV_KEY) | BIT_MASK(EV_ABS);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(
-					BTN_TOOL_PEN);
-		//ts->pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
-		ts->pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
-		ts->pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
-
-		if (ts->wgp_stylus) {
-			input_set_abs_params(ts->pen_input_dev, ABS_X, 0,
-				ts->touch_width * 2 - 1, 0, 0);
-			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0,
-				ts->touch_height * 2 - 1, 0, 0);
-		} else {
-			input_set_abs_params(ts->pen_input_dev, ABS_X, 0, ts->abs_x_max, 0, 0);
-			input_set_abs_params(ts->pen_input_dev, ABS_Y, 0, ts->abs_y_max, 0, 0);
-		}
-		input_set_abs_params(ts->pen_input_dev, ABS_PRESSURE, 0, PEN_PRESSURE_MAX,
-				     0, 0);
-#ifdef PEN_DISTANCE_SUPPORT
-		input_set_abs_params(ts->pen_input_dev, ABS_DISTANCE, 0, PEN_DISTANCE_MAX,
-				     0, 0);
-#endif
-		input_set_abs_params(ts->pen_input_dev, ABS_TILT_X, PEN_TILT_MIN,
-				     PEN_TILT_MAX, 0, 0);
-		input_set_abs_params(ts->pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN,
-				     PEN_TILT_MAX, 0, 0);
-
 		snprintf(ts->pen_phys, sizeof(ts->pen_phys), "input/pen");
-		ts->pen_input_dev->name = NVT_PEN_NAME;
-		ts->pen_input_dev->uniq = ts->pen_input_dev->name;
-		ts->pen_input_dev->phys = ts->pen_phys;
-		ts->pen_input_dev->dev.parent = &client->dev;
-		ts->pen_input_dev->id.bustype = BUS_SPI;
-		ts->pen_input_dev->id.vendor = NVT_VENDOR_ID;
-		ts->pen_input_dev->id.product = NVT_PRODUCT_ID;
-		ts->pen_input_dev->id.version = NVT_VERSION;
+		snprintf(ts->pen_name, sizeof(ts->pen_name), NVT_PEN_NAME);
 
-		//---register pen input device---
-		ret = input_register_device(ts->pen_input_dev);
-		if (ret) {
-			NVT_ERR("register pen input device (%s) failed. ret=%d\n",
-				ts->pen_input_dev->name, ret);
-			goto err_pen_input_register_device_failed;
-		}
-
-		ts->pen_bat_psy = pen_setup_battery();
+		ts->pen_bat_psy = pen_setup_battery(&client->dev);
 		if (ts->pen_bat_psy == NULL) {
 			NVT_ERR("register pen battery failed.\n");
 			goto err_pen_setup_battery_failed;
+		}
+
+		/*
+		 * Use 0xFFFF as the initial VID/PID so we can create new evdev
+		 * for the first stroke after boot.
+		 */
+		ts->pen_vid = 0xFFFF;
+		ts->pen_pid = 0xFFFF;
+		ts->pen_input_dev = create_pen_input_device(ts->pen_vid, ts->pen_pid);
+		if (!ts->pen_input_dev) {
+			NVT_ERR("create pen input device failed.\n");
+			goto err_create_pen_input_device_failed;
 		}
 	} /* if (ts->pen_support) */
 
@@ -2645,19 +2779,12 @@ err_goog_pm_register:
 #endif
 	goog_touch_interface_remove(ts->gti);
 err_goog_touch_interface:
+	destroy_pen_input_device(ts->pen_input_dev);
+	ts->pen_input_dev = NULL;
+err_create_pen_input_device_failed:
 	pen_clean_battery(ts->pen_bat_psy);
 	ts->pen_bat_psy = NULL;
 err_pen_setup_battery_failed:
-	if (ts->pen_support)
-		input_unregister_device(ts->pen_input_dev);
-err_pen_input_register_device_failed:
-	if (ts->pen_support) {
-		if (ts->pen_input_dev) {
-			input_free_device(ts->pen_input_dev);
-			ts->pen_input_dev = NULL;
-		}
-	}
-err_pen_input_dev_alloc_failed:
 	input_unregister_device(ts->input_dev);
 err_input_register_device_failed:
 	if (ts->input_dev) {
@@ -2886,6 +3013,10 @@ int nvt_ts_suspend(struct device *dev)
 	uint32_t i = 0;
 #endif
 
+#if NVT_TOUCH_EXT_USI
+	uint32_t pen_serial_low;
+#endif
+
 	if (!ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
 		return 0;
@@ -2960,12 +3091,19 @@ int nvt_ts_suspend(struct device *dev)
 		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+#if NVT_TOUCH_EXT_USI
+		if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
+			input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
+#endif
 		input_sync(ts->pen_input_dev);
 
 		ts->pen_active = 0;
 		ts->pen_offload_coord_timestamp = ts->timestamp;
 		memset(&ts->pen_offload_coord, 0,
 				sizeof(ts->pen_offload_coord));
+#if NVT_TOUCH_EXT_USI
+		nvt_usi_clear_stylus_read_map();
+#endif
 	}
 
 #if WAKEUP_GESTURE_DEFAULT
