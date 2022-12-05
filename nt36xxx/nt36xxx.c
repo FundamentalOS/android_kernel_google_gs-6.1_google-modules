@@ -286,7 +286,7 @@ void nvt_irq_enable(bool enable)
 		}
 	} else {
 		if (ts->irq_enabled) {
-			disable_irq(ts->client->irq);
+			disable_irq_nosync(ts->client->irq);
 			ts->irq_enabled = false;
 		}
 	}

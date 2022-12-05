@@ -403,6 +403,8 @@ int32_t nvt_write_addr(uint32_t addr, uint8_t data);
 extern void update_firmware_release(void);
 extern int32_t nvt_update_firmware(const char *firmware_name, uint8_t full);
 extern void nvt_change_mode(uint8_t mode);
+extern void nvt_get_xdata_info(int32_t **ptr, int *size);
+extern void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr);
 extern int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis);
 extern uint8_t nvt_get_fw_pipe(void);
 extern void nvt_read_fw_history(uint32_t addr);
