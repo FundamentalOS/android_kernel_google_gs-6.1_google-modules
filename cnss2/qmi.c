@@ -16,6 +16,9 @@
 #include "main.h"
 #include "qmi.h"
 #include "genl.h"
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+#include "pci_platform.h"
+#endif
 
 #define WLFW_SERVICE_INS_ID_V01		1
 #define WLFW_CLIENT_ID			0x4b4e454c
@@ -820,6 +823,15 @@ int cnss_wlfw_bdf_dnld_send_sync(struct cnss_plat_data *plat_priv,
 	if (bdf_type == CNSS_BDF_REGDB)
 		ret = cnss_request_firmware_direct(plat_priv, &fw_entry,
 						   filename);
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	else if (bdf_type == CNSS_BDF_ELF) {
+		ret = cnss_request_multiple_bdf_files(&fw_entry, filename,
+							&plat_priv->plat_dev->dev);
+		if (ret) {
+			goto err_req_fw;
+		}
+	}
+#endif
 	else
 		ret = firmware_request_nowarn(&fw_entry, filename,
 					      &plat_priv->plat_dev->dev);
@@ -832,6 +844,9 @@ int cnss_wlfw_bdf_dnld_send_sync(struct cnss_plat_data *plat_priv,
 	temp = fw_entry->data;
 	remaining = fw_entry->size;
 
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	if (bdf_type != CNSS_BDF_ELF)
+#endif
 	cnss_pr_dbg("Downloading BDF: %s, size: %u\n", filename, remaining);
 
 	while (remaining) {
