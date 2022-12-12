@@ -194,6 +194,9 @@ int _cnss_pci_get_reg_dump(struct cnss_pci_data *pci_priv,
 
 #if IS_ENABLED(CONFIG_WCN_GOOGLE)
 int cnss_pci_of_reserved_mem_device_init(struct cnss_pci_data *pci_priv);
+int cnss_wlan_init_hardware_info(void);
+int cnss_request_multiple_bdf_files(const struct firmware **fw,
+				const char *name, struct device *device);
 #else
 #if IS_ENABLED(CONFIG_ARCH_QCOM)
 int cnss_pci_of_reserved_mem_device_init(struct cnss_pci_data *pci_priv);

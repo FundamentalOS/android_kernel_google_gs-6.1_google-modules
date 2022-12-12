@@ -10,6 +10,57 @@
 #include "debug.h"
 #include "bus.h"
 
+#define PLT_PATH "/chosen/plat"
+#define CDB_PATH "/chosen/config"
+#define HW_SKU    "sku"
+#define HW_STAGE  "stage"
+#define HW_MAJOR  "major"
+#define HW_MINOR  "minor"
+#define MAX_HW_INFO_LEN   10u
+#define MAX_HW_EXT_LEN    (MAX_HW_INFO_LEN * 2)
+#define MAX_FILE_COUNT    4u
+#define MAX_HW_STAGE      6u
+#ifndef ARRAYSIZE
+#define ARRAYSIZE(a)		(u32)(sizeof(a) / sizeof(a[0]))
+#endif
+
+enum {
+	REV_SKU = 0,
+	REV_ONLY = 1,
+	SKU_ONLY = 2,
+	NO_EXT_NAME = 3
+};
+
+typedef struct {
+    char hw_id[MAX_HW_INFO_LEN];
+    char sku[MAX_HW_INFO_LEN];
+} sku_info_t;
+
+char hw_stage_name[MAX_HW_STAGE][MAX_HW_INFO_LEN] = {
+	"DEV",
+	"PROTO",
+	"EVT",
+	"DVT",
+	"PVT",
+	"MP",
+};
+
+sku_info_t sku_table[] = {
+	{ {"G0DZQ"}, {"MMW"} },
+	{ {"GWKK3"}, {"NA"} },
+	{ {"G82U8"}, {"JPN"} },
+	{ {"GHL1X"}, {"ROW"} }
+};
+
+typedef struct platform_hw_info {
+	unsigned long avail_bmap;
+	char ext_name[MAX_FILE_COUNT][MAX_HW_EXT_LEN];
+} platform_hw_info_t;
+
+platform_hw_info_t platform_hw_info;
+char val_revision[MAX_HW_INFO_LEN] = "NULL";
+char val_sku[MAX_HW_INFO_LEN] = "NULL";
+
 extern int exynos_pcie_pm_resume(int ch_num);
 extern void exynos_pcie_pm_suspend(int ch_num);
 extern void exynos_pcie_set_perst(int ch_num, bool on);
@@ -315,4 +366,122 @@ void crash_info_handler(u8 *info)
 		return;
 	strncpy(crash_info, info, string_len);
 	crash_info[string_len] = '\0';
+}
+
+static void
+cnss_set_platform_ext_name(char *hw_rev, char* val_sku)
+{
+	memset(&platform_hw_info, 0, sizeof(platform_hw_info_t));
+
+	if (strncmp(hw_rev, "NULL", MAX_HW_INFO_LEN) != 0) {
+		if (strncmp(val_sku, "NULL", MAX_HW_INFO_LEN) != 0) {
+			snprintf(platform_hw_info.ext_name[REV_SKU], MAX_HW_EXT_LEN, "_%s_%s",
+				hw_rev, val_sku);
+			set_bit(REV_SKU, &platform_hw_info.avail_bmap);
+		}
+		snprintf(platform_hw_info.ext_name[REV_ONLY], MAX_HW_EXT_LEN, "_%s", hw_rev);
+		set_bit(REV_ONLY, &platform_hw_info.avail_bmap);
+	}
+
+	if (strncmp(val_sku, "NULL", MAX_HW_INFO_LEN) != 0) {
+		snprintf(platform_hw_info.ext_name[SKU_ONLY], MAX_HW_EXT_LEN, "_%s", val_sku);
+		set_bit(SKU_ONLY, &platform_hw_info.avail_bmap);
+	}
+
+	memset(platform_hw_info.ext_name[NO_EXT_NAME], 0, MAX_HW_EXT_LEN);
+	set_bit(NO_EXT_NAME, &platform_hw_info.avail_bmap);
+
+	return;
+}
+
+int cnss_wlan_init_hardware_info(void)
+{
+	struct device_node *node = NULL;
+	const char *hw_sku = NULL;
+	int hw_stage = -1;
+	int hw_major = -1;
+	int hw_minor = -1;
+	int i;
+
+	node = of_find_node_by_path(PLT_PATH);
+	if (!node) {
+		cnss_pr_err("Node not created under %s\n", PLT_PATH);
+		goto exit;
+	} else {
+
+		if (of_property_read_u32(node, HW_STAGE, &hw_stage)) {
+			cnss_pr_err("%s: Failed to get hw stage\n", __FUNCTION__);
+			goto exit;
+		}
+
+		if (of_property_read_u32(node, HW_MAJOR, &hw_major)) {
+			cnss_pr_err("%s: Failed to get hw major\n", __FUNCTION__);
+			goto exit;
+		}
+
+		if (of_property_read_u32(node, HW_MINOR, &hw_minor)) {
+			cnss_pr_err("%s: Failed to get hw minor\n", __FUNCTION__);
+			goto exit;
+		}
+
+		if (hw_stage > 0 && hw_stage <= MAX_HW_STAGE) {
+			snprintf(val_revision, MAX_HW_INFO_LEN, "%s%d.%d",
+					hw_stage_name[hw_stage-1], hw_major, hw_minor);
+
+		} else {
+			snprintf(val_revision, MAX_HW_INFO_LEN, "NULL");
+		}
+	}
+
+	node = of_find_node_by_path(CDB_PATH);
+	if (!node) {
+		cnss_pr_err("Node not created under %s\n", CDB_PATH);
+		goto exit;
+	} else {
+		if (of_property_read_string(node, HW_SKU, &hw_sku)) {
+			cnss_pr_err("%s: Failed to get hw sku\n", __FUNCTION__);
+			goto exit;
+		}
+
+		for (i = 0; i < ARRAYSIZE(sku_table); i ++) {
+			if (strcmp(hw_sku, sku_table[i].hw_id) == 0) {
+				strcpy(val_sku, sku_table[i].sku);
+				break;
+			}
+		}
+	}
+
+	cnss_pr_info("%s: val_revision is %s, hw_sku is %s, val_sku is %s\n",
+		__FUNCTION__, val_revision, hw_sku, val_sku);
+
+exit:
+	cnss_set_platform_ext_name(val_revision, val_sku);
+	return 0;
+}
+
+int cnss_request_multiple_bdf_files(const struct firmware **fw,
+				const char *name, struct device *device)
+{
+	int i, ret;
+	char tmp_name[MAX_FIRMWARE_NAME_LEN];
+
+	for (i = 0; i <= NO_EXT_NAME; i++) {
+		if (!test_bit(i, &platform_hw_info.avail_bmap)) {
+			continue;
+		}
+		memset(tmp_name, 0, MAX_FIRMWARE_NAME_LEN);
+		snprintf(tmp_name, MAX_FIRMWARE_NAME_LEN, "%s%s", name,
+				platform_hw_info.ext_name[i]);
+		ret = firmware_request_nowarn(fw, tmp_name, device);
+
+		if (ret) {
+			cnss_pr_info("Failed to load BDF: %s, ret: %d\n", tmp_name, ret);
+			continue;
+		} else {
+			cnss_pr_info("Load BDF successfully: %s, size: %u\n",
+							tmp_name, (*fw)->size);
+			break;
+		}
+	}
+	return ret;
 }
