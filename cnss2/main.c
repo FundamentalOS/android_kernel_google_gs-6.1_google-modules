@@ -25,6 +25,9 @@
 #include "debug.h"
 #include "genl.h"
 #include "reg.h"
+#if IS_ENABLED(CONFIG_WCN_GOOGLE)
+#include "pci_platform.h"
+#endif
 
 #define CNSS_DUMP_FORMAT_VER		0x11
 #define CNSS_DUMP_FORMAT_VER_V2		0x22
@@ -3640,6 +3643,7 @@ static int cnss_probe(struct platform_device *plat_dev)
 	cnss_aop_mbox_init(plat_priv);
 	cnss_init_control_params(plat_priv);
 #if IS_ENABLED(CONFIG_WCN_GOOGLE)
+	cnss_wlan_init_hardware_info();
 	plat_priv->recovery_enabled = true;
 #endif //CONFIG_WCN_GOOGLE
 
