@@ -2015,10 +2015,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				 * offload
 				 */
 				ts->pen_active = 1;
+#ifdef GOOG_TOUCH_INTERFACE
 				ts->pen_offload_coord.status = COORD_STATUS_PEN;
 				ts->pen_offload_coord.x = pen_x;
 				ts->pen_offload_coord.y = pen_y;
 				ts->pen_offload_coord.pressure = pen_pressure;
+#endif
 				ts->pen_offload_coord_timestamp = ts->timestamp;
 
 				input_report_abs(ts->pen_input_dev, ABS_X, pen_x);
@@ -2067,9 +2069,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			/* Snapshot some stylus context information for offload */
 			ts->pen_active = 0;
 			ts->pen_offload_coord_timestamp = ts->timestamp;
+#ifdef GOOG_TOUCH_INTERFACE
 			memset(&ts->pen_offload_coord, 0,
 			       sizeof(ts->pen_offload_coord));
-
+#endif
 			input_report_abs(ts->pen_input_dev, ABS_X, 0);
 			input_report_abs(ts->pen_input_dev, ABS_Y, 0);
 			input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
@@ -2579,9 +2582,15 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	if (client->irq) {
 		NVT_LOG("int_trigger_type=%d\n", ts->int_trigger_type);
 		ts->irq_enabled = true;
+#ifdef GOOG_TOUCH_INTERFACE
 		ret = goog_request_threaded_irq(ts->gti, client->irq,
 				nvt_ts_isr, nvt_ts_work_func,
 				ts->int_trigger_type | IRQF_ONESHOT, NVT_SPI_NAME, ts);
+#else
+		ret = request_threaded_irq(client->irq,
+				nvt_ts_isr, nvt_ts_work_func,
+				ts->int_trigger_type | IRQF_ONESHOT, NVT_SPI_NAME, ts);
+#endif
 		if (ret != 0) {
 			NVT_ERR("request irq failed. ret=%d\n", ret);
 			goto err_int_request_failed;
@@ -3099,8 +3108,10 @@ int nvt_ts_suspend(struct device *dev)
 
 		ts->pen_active = 0;
 		ts->pen_offload_coord_timestamp = ts->timestamp;
+#ifdef GOOG_TOUCH_INTERFACE
 		memset(&ts->pen_offload_coord, 0,
 				sizeof(ts->pen_offload_coord));
+#endif
 #if NVT_TOUCH_EXT_USI
 		nvt_usi_clear_stylus_read_map();
 #endif
