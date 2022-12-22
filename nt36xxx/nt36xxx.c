@@ -1727,6 +1727,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint16_t pen_vid;
 	uint16_t pen_pid;
 #endif
+	char trace_tag[128];
+	ktime_t pen_ktime;
 
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
@@ -1993,6 +1995,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		ts->pen_format_id = point_data[66];
 		if (ts->pen_format_id != 0xFF) {
 			if (ts->pen_format_id == 0x01) {
+				pen_ktime = ktime_get();
+				scnprintf(trace_tag, sizeof(trace_tag),
+					"stylus-active: TH %lld BH %lld delta %lld us\n",
+					ktime_to_us(ts->timestamp), ktime_to_us(pen_ktime),
+					ktime_us_delta(pen_ktime, ts->timestamp));
+				ATRACE_BEGIN(trace_tag);
 				// report pen data
 				pen_x = (uint32_t)(point_data[67] << 8) + (uint32_t)(point_data[68]);
 				pen_y = (uint32_t)(point_data[69] << 8) + (uint32_t)(point_data[70]);
@@ -2057,6 +2065,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 					process_usi_responses(info_buf_flags, info_buf);
 				}
 #endif
+				ATRACE_END();
 			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
 			} else {
@@ -2064,6 +2073,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				goto XFER_ERROR;
 			}
 		} else if (ts->pen_active) { // pen_format_id = 0xFF and a pen was reporting
+			pen_ktime = ktime_get();
+			scnprintf(trace_tag, sizeof(trace_tag),
+				"stylus-inactive: TH %lld BH %lld delta %lld us\n",
+				ktime_to_us(ts->timestamp), ktime_to_us(pen_ktime),
+				ktime_us_delta(pen_ktime, ts->timestamp));
+			ATRACE_BEGIN(trace_tag);
 			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
 			/* Snapshot some stylus context information for offload */
@@ -2110,6 +2125,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 			nvt_usi_clear_stylus_read_map();
 #endif
+			ATRACE_END();
 		}
 	} /* if (ts->pen_support) */
 
