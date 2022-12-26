@@ -7,6 +7,7 @@
 #include "nt36xxx.h"
 #include <linux/input/mt.h>
 #include <samsung/exynos_drm_connector.h> /* to_exynos_connector_state() */
+#include "../../../gs-google/drivers/soc/google/vh/kernel/systrace.h"
 
 void nvt_heatmap_decode(
 		const uint8_t *in, const uint32_t in_sz,
@@ -149,6 +150,78 @@ int nvt_get_channel_data(void *private_data,
 	return ret;
 }
 
+int nvt_test_mode_read(struct nvt_ts_data *ts, struct gti_sensor_data_cmd *cmd)
+{
+	char trace_tag[128];
+	int ret = 0;
+
+	scnprintf(trace_tag, sizeof(trace_tag), "%s: type=%#x\n",
+		__func__, cmd->type);
+	ATRACE_BEGIN(trace_tag);
+
+	NVT_DBG("++\n");
+	if (mutex_lock_interruptible(&ts->lock)) {
+		ret = -ERESTARTSYS;
+		goto err_read;
+	}
+
+#if NVT_TOUCH_ESD_PROTECT
+	nvt_esd_check_enable(false);
+#endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+	if (nvt_clear_fw_status()) {
+		ret = -EAGAIN;
+		goto err_read;
+	}
+
+	nvt_change_mode(TEST_MODE_2);
+
+	if (nvt_check_fw_status()) {
+		ret = -EAGAIN;
+		goto err_read;
+	}
+
+	if (nvt_get_fw_info()) {
+		ret = -EAGAIN;
+		goto err_read;
+	}
+
+	switch (cmd->type) {
+	case GTI_SENSOR_DATA_TYPE_MS_RAW:
+		if (nvt_get_fw_pipe() == 0)
+			nvt_read_mdata(ts->mmap->RAW_PIPE0_ADDR, ts->mmap->RAW_BTN_PIPE0_ADDR);
+		else
+			nvt_read_mdata(ts->mmap->RAW_PIPE1_ADDR, ts->mmap->RAW_BTN_PIPE1_ADDR);
+		break;
+	case GTI_SENSOR_DATA_TYPE_MS_BASELINE:
+		nvt_read_mdata(ts->mmap->BASELINE_ADDR, ts->mmap->BASELINE_BTN_ADDR);
+		break;
+	case GTI_SENSOR_DATA_TYPE_MS_DIFF:
+		if (nvt_get_fw_pipe() == 0)
+			nvt_read_mdata(ts->mmap->DIFF_PIPE0_ADDR, ts->mmap->DIFF_BTN_PIPE0_ADDR);
+		else
+			nvt_read_mdata(ts->mmap->DIFF_PIPE1_ADDR, ts->mmap->DIFF_BTN_PIPE1_ADDR);
+		break;
+	default:
+		NVT_ERR("invalid type %#x.\n", cmd->type);
+		ret = -ENODATA;
+		break;
+	}
+
+err_read:
+	nvt_change_mode(NORMAL_MODE);
+	if (ret == -EAGAIN) {
+		NVT_LOG("Reload FW to recover unexcepted return!");
+		nvt_update_firmware(get_fw_name(), 1);
+	}
+	mutex_unlock(&ts->lock);
+	NVT_DBG("--, ret(%d)\n", ret);
+
+	ATRACE_END();
+	return ret;
+}
+
+
 int nvt_callback(void *private_data,
 		enum gti_cmd_type cmd_type, struct gti_union_cmd_data *cmd)
 {
@@ -269,10 +342,32 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_GET_SENSOR_DATA_MANUAL:
-		if (cmd->manual_sensor_data_cmd.type == GTI_SENSOR_DATA_TYPE_MS_DIFF) {
-			cmd->manual_sensor_data_cmd.buffer = ts->heatmap_out_buf;
-			cmd->manual_sensor_data_cmd.size = ts->heatmap_out_buf_size;
-			ret = 0;
+		if (display_state_on == false ||
+			!(cmd->manual_sensor_data_cmd.type & TOUCH_SCAN_TYPE_MUTUAL)) {
+			ret = -ENODATA;
+		} else {
+			int16_t *out = (int16_t *)ts->extra_spi_buf;
+			int out_sz = ts->x_num * ts->y_num * sizeof(int16_t);
+			int32_t *in = NULL;
+			int in_sz = 0;
+
+			nvt_get_xdata_info(&in, &in_sz);
+			if (in && out &&
+				out_sz <= in_sz &&
+				out_sz <= ts->extra_spi_buf_size) {
+				int i, j;
+				int idx = 0;
+
+				ret = nvt_test_mode_read(ts, &cmd->manual_sensor_data_cmd);
+				if (!ret) {
+					for (i = 0; i < ts->y_num; i++)
+						for (j = 0; j < ts->x_num; j++)
+							out[idx++] = (int16_t)in[i * ts->x_num + j];
+
+					cmd->manual_sensor_data_cmd.buffer = ts->extra_spi_buf;
+					cmd->manual_sensor_data_cmd.size = out_sz;
+				}
+			}
 		}
 		break;
 

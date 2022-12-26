@@ -286,7 +286,7 @@ void nvt_irq_enable(bool enable)
 		}
 	} else {
 		if (ts->irq_enabled) {
-			disable_irq(ts->client->irq);
+			disable_irq_nosync(ts->client->irq);
 			ts->irq_enabled = false;
 		}
 	}
@@ -1730,6 +1730,17 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
+
+	if (ts->bTouchIsAwake == false && ts->irq_enabled == false) {
+#ifdef GOOG_TOUCH_INTERFACE
+		u32 locks = goog_pm_wake_get_locks(ts->gti);
+#else
+		u32 locks = 0;
+#endif
+		NVT_LOG("Skipping stray interrupt, locks %#x wkg_option %#x!\n",
+			locks, ts->wkg_option);
+		return IRQ_HANDLED;
+	}
 
 	if (ts->wkg_option != WAKEUP_GESTURE_OFF && ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5 * MSEC_PER_SEC);

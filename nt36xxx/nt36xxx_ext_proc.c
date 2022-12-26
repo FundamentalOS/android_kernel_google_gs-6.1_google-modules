@@ -59,6 +59,12 @@ static struct proc_dir_entry *NVT_proc_pen_2d_baseline_entry;
 static struct proc_dir_entry *NVT_proc_pen_2d_diff_entry;
 static struct proc_dir_entry *NVT_proc_pen_1d_diff_entry;
 
+void nvt_get_xdata_info(int32_t **ptr, int *size)
+{
+	*ptr = xdata;
+	*size = sizeof(xdata);
+}
+
 /*******************************************************
 Description:
 	Novatek touchscreen change mode function.
