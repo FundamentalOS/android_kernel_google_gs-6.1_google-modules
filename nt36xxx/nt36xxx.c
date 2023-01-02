@@ -286,7 +286,7 @@ void nvt_irq_enable(bool enable)
 		}
 	} else {
 		if (ts->irq_enabled) {
-			disable_irq(ts->client->irq);
+			disable_irq_nosync(ts->client->irq);
 			ts->irq_enabled = false;
 		}
 	}
@@ -1727,9 +1727,22 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint16_t pen_vid;
 	uint16_t pen_pid;
 #endif
+	char trace_tag[128];
+	ktime_t pen_ktime;
 
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
+
+	if (ts->bTouchIsAwake == false && ts->irq_enabled == false) {
+#ifdef GOOG_TOUCH_INTERFACE
+		u32 locks = goog_pm_wake_get_locks(ts->gti);
+#else
+		u32 locks = 0;
+#endif
+		NVT_LOG("Skipping stray interrupt, locks %#x wkg_option %#x!\n",
+			locks, ts->wkg_option);
+		return IRQ_HANDLED;
+	}
 
 	if (ts->wkg_option != WAKEUP_GESTURE_OFF && ts->bTouchIsAwake == false)
 		pm_wakeup_event(&ts->input_dev->dev, 5 * MSEC_PER_SEC);
@@ -1993,6 +2006,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		ts->pen_format_id = point_data[66];
 		if (ts->pen_format_id != 0xFF) {
 			if (ts->pen_format_id == 0x01) {
+				pen_ktime = ktime_get();
+				scnprintf(trace_tag, sizeof(trace_tag),
+					"stylus-active: TH %lld BH %lld delta %lld us\n",
+					ktime_to_us(ts->timestamp), ktime_to_us(pen_ktime),
+					ktime_us_delta(pen_ktime, ts->timestamp));
+				ATRACE_BEGIN(trace_tag);
 				// report pen data
 				pen_x = (uint32_t)(point_data[67] << 8) + (uint32_t)(point_data[68]);
 				pen_y = (uint32_t)(point_data[69] << 8) + (uint32_t)(point_data[70]);
@@ -2057,6 +2076,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 					process_usi_responses(info_buf_flags, info_buf);
 				}
 #endif
+				ATRACE_END();
 			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
 			} else {
@@ -2064,6 +2084,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				goto XFER_ERROR;
 			}
 		} else if (ts->pen_active) { // pen_format_id = 0xFF and a pen was reporting
+			pen_ktime = ktime_get();
+			scnprintf(trace_tag, sizeof(trace_tag),
+				"stylus-inactive: TH %lld BH %lld delta %lld us\n",
+				ktime_to_us(ts->timestamp), ktime_to_us(pen_ktime),
+				ktime_us_delta(pen_ktime, ts->timestamp));
+			ATRACE_BEGIN(trace_tag);
 			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
 			/* Snapshot some stylus context information for offload */
@@ -2110,6 +2136,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 			nvt_usi_clear_stylus_read_map();
 #endif
+			ATRACE_END();
 		}
 	} /* if (ts->pen_support) */
 
