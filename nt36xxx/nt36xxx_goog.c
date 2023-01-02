@@ -7,7 +7,6 @@
 #include "nt36xxx.h"
 #include <linux/input/mt.h>
 #include <samsung/exynos_drm_connector.h> /* to_exynos_connector_state() */
-#include "../../../gs-google/drivers/soc/google/vh/kernel/systrace.h"
 
 void nvt_heatmap_decode(
 		const uint8_t *in, const uint32_t in_sz,
