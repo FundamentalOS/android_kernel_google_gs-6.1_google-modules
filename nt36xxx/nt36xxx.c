@@ -2008,9 +2008,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			if (ts->pen_format_id == 0x01) {
 				pen_ktime = ktime_get();
 				scnprintf(trace_tag, sizeof(trace_tag),
-					"stylus-active: TH %lld BH %lld delta %lld us\n",
-					ktime_to_us(ts->timestamp), ktime_to_us(pen_ktime),
-					ktime_us_delta(pen_ktime, ts->timestamp));
+					"stylus-active: IN_TS=%lld TS=%lld DELTA=%lld ns.\n",
+					ktime_to_ns(ts->timestamp), ktime_to_ns(pen_ktime),
+					ktime_to_ns(ktime_sub(pen_ktime, ts->timestamp)));
 				ATRACE_BEGIN(trace_tag);
 				// report pen data
 				pen_x = (uint32_t)(point_data[67] << 8) + (uint32_t)(point_data[68]);
@@ -2086,9 +2086,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		} else if (ts->pen_active) { // pen_format_id = 0xFF and a pen was reporting
 			pen_ktime = ktime_get();
 			scnprintf(trace_tag, sizeof(trace_tag),
-				"stylus-inactive: TH %lld BH %lld delta %lld us\n",
-				ktime_to_us(ts->timestamp), ktime_to_us(pen_ktime),
-				ktime_us_delta(pen_ktime, ts->timestamp));
+				"stylus-inactive: IN_TS=%lld TS=%lld DELTA=%lld ns.\n",
+				ktime_to_ns(ts->timestamp), ktime_to_ns(pen_ktime),
+				ktime_to_ns(ktime_sub(pen_ktime, ts->timestamp)));
 			ATRACE_BEGIN(trace_tag);
 			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
