@@ -905,7 +905,7 @@ int mhi_process_ctrl_ev_ring(struct mhi_controller *mhi_cntrl,
 
 			new_state = MHI_TRE_GET_EV_STATE(local_rp);
 
-			MHI_VERB("State change event to state: %s\n",
+			MHI_LOG("State change event to state: %s\n",
 				TO_MHI_STATE_STR(new_state));
 
 			switch (new_state) {
@@ -946,7 +946,7 @@ int mhi_process_ctrl_ev_ring(struct mhi_controller *mhi_cntrl,
 			enum dev_st_transition st = DEV_ST_TRANSITION_MAX;
 			enum mhi_ee_type event = MHI_TRE_GET_EV_EXECENV(local_rp);
 
-			MHI_VERB("Received EE event: %s\n",
+			MHI_LOG("Received EE event: %s\n",
 				TO_MHI_EXEC_STR(event));
 			switch (event) {
 			case MHI_EE_SBL:
