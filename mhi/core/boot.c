@@ -71,6 +71,9 @@ int mhi_rddm_download_status(struct mhi_controller *mhi_cntrl)
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
 	int ret = 0;
 
+	MHI_LOG("mhi_cntrl->timeout_ms=%u, retry=%u\n"
+			, mhi_cntrl->timeout_ms, retry);
+
 	while (retry--) {
 		ret = mhi_read_reg_field(mhi_cntrl, base, BHIE_RXVECSTATUS_OFFS,
 					 BHIE_RXVECSTATUS_STATUS_BMSK,

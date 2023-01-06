@@ -4895,7 +4895,7 @@ void cnss_pci_collect_dump_info(struct cnss_pci_data *pci_priv, bool in_panic)
 		/* Inside panic handler, reduce timeout for RDDM to avoid
 		 * unnecessary hypervisor watchdog bite.
 		 */
-		pci_priv->mhi_ctrl->timeout_ms /= 2;
+		pci_priv->mhi_ctrl->timeout_ms = 5000;
 	}
 
 	cnss_mhi_debug_reg_dump(pci_priv);
