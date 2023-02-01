@@ -481,6 +481,10 @@ struct nvt_usi_context {
 	uint8_t stylus_GID[GID_NUM];		/* C.GetGID() */
 	uint8_t stylus_fw_ver[FW_VER_NUM];	/* C.GetFirmwareVersion() */
 	uint8_t stylus_battery;			/* C.GetBattery() */
+
+	uint8_t stylus_hash_id[USI_HASH_ID_SIZE];
+	uint8_t stylus_session_id[USI_SESSION_ID_SIZE];
+	uint8_t stylus_freq_seed;
 };
 
 static struct nvt_usi_context *usi_ctx;
@@ -579,6 +583,19 @@ int32_t nvt_usi_store_fw_version(const uint8_t *buf_fw_ver)
 	return 0;
 }
 
+int32_t nvt_usi_get_fw_version(uint8_t *buf_fw_ver)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_FW_VERSION_FLAG))
+		return -ENODATA;
+
+	memcpy(buf_fw_ver, usi_ctx->stylus_fw_ver, sizeof(usi_ctx->stylus_fw_ver));
+
+	return 0;
+}
+
 int32_t nvt_usi_store_capability(const uint8_t *buf_cap)
 {
 	if (!usi_ctx)
@@ -647,6 +664,102 @@ int32_t nvt_usi_get_vid_pid(uint16_t *vid, uint16_t *pid)
 
 	*vid = usi_ctx->stylus_GID[8] | usi_ctx->stylus_GID[9] << 8;
 	*pid = usi_ctx->stylus_GID[10] | usi_ctx->stylus_GID[11] << 8;
+
+	return 0;
+}
+
+int32_t nvt_usi_store_hash_id(const uint8_t *buf_hash_id)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	memcpy(usi_ctx->stylus_hash_id, buf_hash_id, sizeof(usi_ctx->stylus_hash_id));
+	usi_ctx->stylus_read_map |= USI_HASH_ID_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_hash_id(uint8_t *buf_hash_id)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_HASH_ID_FLAG))
+		return -ENODATA;
+
+	memcpy(buf_hash_id, usi_ctx->stylus_hash_id, sizeof(usi_ctx->stylus_hash_id));
+
+	return 0;
+}
+
+int32_t nvt_usi_store_session_id(const uint8_t *buf_session_id)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	memcpy(usi_ctx->stylus_session_id, buf_session_id, sizeof(usi_ctx->stylus_session_id));
+	usi_ctx->stylus_read_map |= USI_SESSION_ID_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_session_id(uint8_t *buf_session_id)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_SESSION_ID_FLAG))
+		return -ENODATA;
+
+	memcpy(buf_session_id, usi_ctx->stylus_session_id, sizeof(usi_ctx->stylus_session_id));
+
+	return 0;
+}
+
+int32_t nvt_usi_store_freq_seed(const uint8_t *buf_freq_seed)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	usi_ctx->stylus_freq_seed = *buf_freq_seed;
+	usi_ctx->stylus_read_map |= USI_FREQ_SEED_FLAG;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_freq_seed(uint8_t *buf_freq_seed)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_FREQ_SEED_FLAG))
+		return -ENODATA;
+
+	*buf_freq_seed = usi_ctx->stylus_freq_seed;
+
+	return 0;
+}
+
+int32_t nvt_usi_get_validity_flags(uint16_t *validity_flags)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	*validity_flags = 0;
+
+	/*
+	 * validity_flag is to show what data is available in the driver.
+	 * the validity_flag is sent to the controller FW during the resume()
+	 * so that the controller only asks stylus the data that the driver doesn't have.
+	 */
+	if (usi_ctx->stylus_read_map & USI_FW_VERSION_FLAG)
+		*validity_flags = 1; /* Tell the controller that driver has the USI FW version */
+
+	if (usi_ctx->stylus_read_map & USI_CAPABILITY_FLAG)
+		*validity_flags |= 2; /* Tell the controller that driver has the USI Capability */
+
+	if (usi_ctx->stylus_read_map & USI_GID_FLAG)
+		*validity_flags |= 4; /* Tell the controller that driver has the USI GID */
 
 	return 0;
 }

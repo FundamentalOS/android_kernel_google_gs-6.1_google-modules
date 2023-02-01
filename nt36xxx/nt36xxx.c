@@ -1591,6 +1591,9 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 		}
 	}
 
+	if (info_buf_flags & USI_NORMAL_PAIR_FLAG)
+		nvt_usi_clear_stylus_read_map();
+
 	if (info_buf_flags & USI_BATTERY_FLAG) {
 		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
 		nvt_usi_get_battery(&pen_bat_capa);
@@ -1605,6 +1608,15 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 
 	if (info_buf_flags & USI_CAPABILITY_FLAG)
 		nvt_usi_store_capability(info_buf + USI_CAPABILITY_OFFSET);
+
+	if (info_buf_flags & USI_HASH_ID_FLAG)
+		nvt_usi_store_hash_id(info_buf + USI_HASH_ID_OFFSET);
+
+	if (info_buf_flags & USI_SESSION_ID_FLAG)
+		nvt_usi_store_session_id(info_buf + USI_SESSION_ID_OFFSET);
+
+	if (info_buf_flags & USI_FREQ_SEED_FLAG)
+		nvt_usi_store_freq_seed(info_buf + USI_FREQ_SEED_OFFSET);
 }
 #endif
 
@@ -2133,8 +2145,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 					ts->pen_input_dev = new_pen_input_dev;
 				}
 			}
-
-			nvt_usi_clear_stylus_read_map();
 #endif
 			ATRACE_END();
 		}
@@ -3076,21 +3086,6 @@ int nvt_ts_suspend(struct device *dev)
 	reinit_completion(&ts->bus_resumed);
 	ts->bTouchIsAwake = false;
 
-	/* Backup fast-pairing configuration. */
-	if (ts->pen_support) {
-		uint8_t buf[6];
-
-		nvt_set_page(PEN_HASH_SECTION_ID_ADDR);
-		buf[0] = PEN_HASH_SECTION_ID_ADDR & (0x7F);
-		CTP_SPI_READ(ts->client, buf, sizeof(buf));
-		ts->pen_hash_id = (uint16_t)((buf[2] << 8) + buf[1]);
-		ts->pen_section_id = (uint16_t)((buf[4] << 8) + buf[3]);
-		ts->pen_freq_seed = buf[5];
-		NVT_LOG("fast-pairing: hash_id: %04X, section_id: %04X, freq_seed: %02X.\n",
-				ts->pen_hash_id, ts->pen_section_id, ts->pen_freq_seed);
-	}
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-
 #ifndef GOOG_TOUCH_INTERFACE
 	/* release all touches */
 	goog_input_lock(ts->gti);
@@ -3138,9 +3133,6 @@ int nvt_ts_suspend(struct device *dev)
 #ifdef GOOG_TOUCH_INTERFACE
 		memset(&ts->pen_offload_coord, 0,
 				sizeof(ts->pen_offload_coord));
-#endif
-#if NVT_TOUCH_EXT_USI
-		nvt_usi_clear_stylus_read_map();
 #endif
 	}
 
@@ -3220,19 +3212,58 @@ int nvt_ts_resume(struct device *dev)
 
 	/* Restore fast-pairing configuration. */
 	if (ts->pen_support) {
-		uint8_t buf[8];
+		uint8_t buf[7], hash_id[2], session_id[2], fw_version[2], freq_seed = 0;
+		uint16_t validity_flags = 0;
+
+		if (nvt_usi_get_hash_id(hash_id)) {
+			hash_id[0] = 0; /* set 0 if error */
+			hash_id[1] = 0;
+		}
+
+		if (nvt_usi_get_session_id(session_id)) {
+			session_id[0] = 0; /* set 0 if error */
+			session_id[1] = 0;
+		}
 
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x70;
 		buf[2] = 0x81;
-		buf[3] = ts->pen_hash_id & 0xFF;
-		buf[4] = (ts->pen_hash_id >> 8) & 0xFF;
-		buf[5] = ts->pen_section_id & 0xFF;
-		buf[6] = (ts->pen_section_id >> 8) & 0xFF;
-		buf[7] = ts->pen_freq_seed;
+		buf[3] = hash_id[0];
+		buf[4] = hash_id[1];
+		buf[5] = session_id[0];
+		buf[6] = session_id[1];
 		CTP_SPI_WRITE(ts->client, buf, sizeof(buf));
-		NVT_LOG("fast-pairing: hash_id: %04X, section_id: %04X, freq_seed: %02X.\n",
-				ts->pen_hash_id, ts->pen_section_id, ts->pen_freq_seed);
+		NVT_LOG("fast-pairing: hash_id: 0x%02X%02X, session_id: 0x%02X%02X\n",
+				hash_id[1], hash_id[0], session_id[1], session_id[0]);
+
+		msleep(20);
+
+		nvt_usi_get_freq_seed(&freq_seed);
+		if (nvt_usi_get_fw_version(fw_version)){
+			fw_version[0] = 0; /* set 0 if error */
+			fw_version[1] = 0;
+		}
+
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x70;
+		buf[2] = 0x82;
+		buf[3] = freq_seed;
+		buf[4] = fw_version[0];
+		buf[5] = fw_version[1];
+		CTP_SPI_WRITE(ts->client, buf, 6);
+		NVT_LOG("Write pen_freq_seed = %02X, pen_fw_ver = 0x%02X%02X\n",
+				freq_seed, fw_version[1], fw_version[0]);
+		msleep(20);
+
+		nvt_usi_get_validity_flags(&validity_flags);
+
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x70;
+		buf[2] = 0x83;
+		buf[3] = validity_flags & 0xFF;
+		buf[4] = (validity_flags >> 8) & 0xFF;
+		CTP_SPI_WRITE(ts->client, buf, 5);
+		NVT_LOG("pen_valid_flag = %04X\n", validity_flags);
 	}
 
 	ts->bTouchIsAwake = true;
