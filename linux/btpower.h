@@ -11,6 +11,7 @@
 #include <linux/mailbox/qmp.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/types.h>
+#include <misc/logbuffer.h>
 
 /*
  * voltage regulator information required for configuring the
@@ -65,7 +66,8 @@ struct btpower_platform_data {
 	struct device *slim_dev;
 
 	int chipset_version;
-	char compatible[MAX_PROP_SIZE];        /*Bluetooth SoC name */
+	char compatible[MAX_PROP_SIZE];        /* Bluetooth SoC name */
+	struct logbuffer *devlog;
 
 	/* GPIOs */
 	struct pinctrl *pinctrls;
