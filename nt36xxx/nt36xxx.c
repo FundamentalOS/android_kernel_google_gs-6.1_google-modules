@@ -1636,7 +1636,7 @@ static struct input_dev *create_pen_input_device(uint16_t vid, uint16_t pid)
 	pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
 	pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(BTN_TOOL_PEN);
-	//pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
+	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
 	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
 	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
 	pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
@@ -1730,6 +1730,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	int8_t pen_tilt_y = 0;
 	uint32_t pen_btn1 = 0;
 	uint32_t pen_btn2 = 0;
+	uint32_t pen_btn3 = 0;
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
 #if NVT_TOUCH_EXT_USI
@@ -2037,8 +2038,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-//				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
-//						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
+				pen_btn3 = (uint32_t)((point_data[77] >> 2) & 0x01);
+//				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,b3=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
+//						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_btn3, pen_battery);
 
 				input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
@@ -2066,6 +2068,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
+				input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, pen_btn3);
 #if NVT_TOUCH_EXT_USI
 				/*
 				 * Input Subsystem doesn't support 64bits serial number.
@@ -2123,6 +2126,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+			input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, 0);
 #if NVT_TOUCH_EXT_USI
 			if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
 				input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
@@ -3122,6 +3126,7 @@ int nvt_ts_suspend(struct device *dev)
 		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+		input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, 0);
 #if NVT_TOUCH_EXT_USI
 		if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
 			input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
