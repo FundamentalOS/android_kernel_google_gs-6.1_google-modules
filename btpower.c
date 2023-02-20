@@ -583,6 +583,10 @@ static void bt_configure_wakeup_gpios(struct btpower_platform_data *drvdata, boo
 			LOGD(drvdata, "BT-OFF bt-hostwake-gpio(%d) IRQ(%d) value(%d)",
 				bt_host_wake_gpio, drvdata->irq,
 				gpio_get_value(bt_host_wake_gpio));
+                        rc = disable_irq_wake(drvdata->irq);
+                        if(rc) {
+                          LOGE(drvdata, "Failed to disable IRQ wake");
+                        }
 			free_irq(drvdata->irq, drvdata);
 		}
 
@@ -605,6 +609,10 @@ static void bt_configure_wakeup_gpios(struct btpower_platform_data *drvdata, boo
 		if (rc)
 			LOGE(drvdata, "unable to request IRQ %d (%d)",
 				bt_host_wake_gpio, rc);
+                rc = enable_irq_wake(drvdata->irq);
+                if(rc) {
+                  LOGE(drvdata, "Failed to enable IRQ wake");
+                }
 		drvdata->hostwake_state = -1;
 		drvdata->hostwake_count = 0;
 	}
