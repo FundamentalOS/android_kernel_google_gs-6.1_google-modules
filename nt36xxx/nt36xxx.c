@@ -1591,8 +1591,14 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 		}
 	}
 
-	if (info_buf_flags & USI_NORMAL_PAIR_FLAG)
-		nvt_usi_clear_stylus_read_map();
+	if (info_buf_flags & USI_NORMAL_PAIR_FLAG) {
+		uint8_t hash_id[2] = {0};
+
+		/* clear stylus info map if the HASH ID is not available or not matched */
+		if (nvt_usi_get_hash_id(hash_id) || hash_id[0] != *(info_buf + USI_HASH_ID_OFFSET) ||
+			    hash_id[1] != *(info_buf + USI_HASH_ID_OFFSET + 1))
+			nvt_usi_clear_stylus_read_map();
+	}
 
 	if (info_buf_flags & USI_BATTERY_FLAG) {
 		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
