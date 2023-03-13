@@ -286,9 +286,6 @@ struct nvt_ts_data {
 	uint16_t dttw_motion_tolerance;
 	uint16_t dttw_detection_window_edge;
 	uint8_t heatmap_data_type;
-	uint16_t pen_hash_id;
-	uint16_t pen_section_id;
-	uint8_t pen_freq_seed;
 #endif
 
 	const char *fw_name;
@@ -423,24 +420,70 @@ extern int32_t nvt_usi_store_battery(const uint8_t *buf_bat);
 extern int32_t nvt_usi_store_capability(const uint8_t *buf_cap);
 extern int32_t nvt_usi_store_fw_version(const uint8_t *buf_fw_ver);
 extern int32_t nvt_usi_store_gid(const uint8_t *buf_gid);
+extern int32_t nvt_usi_store_hash_id(const uint8_t *buf_hash_id);
+extern int32_t nvt_usi_store_session_id(const uint8_t *buf_session_id);
+extern int32_t nvt_usi_store_freq_seed(const uint8_t *buf_freq_seed);
 
 extern int32_t nvt_usi_get_battery(uint8_t *bat);
+extern int32_t nvt_usi_get_fw_version(uint8_t *buf_fw_ver);
 extern int32_t nvt_usi_get_vid_pid(uint16_t *vid, uint16_t *pid);
 extern int32_t nvt_usi_get_serial_number(uint32_t *serial_high, uint32_t *serial_low);
+extern int32_t nvt_usi_get_hash_id(uint8_t *buf_hash_id);
+extern int32_t nvt_usi_get_session_id(uint8_t *buf_session_id);
+extern int32_t nvt_usi_get_freq_seed(uint8_t *buf_freq_seed);
+extern int32_t nvt_usi_get_validity_flags(uint16_t *validity_flags);
+
 /* Flags for the responses of the USI read commands */
 enum {
-	USI_GID_FLAG		= 1U << 0,	/* C.GetGID() */
-	USI_BATTERY_FLAG	= 1U << 1,	/* C.GetBattery() */
-	USI_CAPABILITY_FLAG	= 1U << 2,	/* C.GetCapacity() */
-	USI_FW_VERSION_FLAG	= 1U << 3,	/* C.GetFirmwareVersion() */
+	USI_GID_FLAG		= 1U << 0,
+	USI_BATTERY_FLAG	= 1U << 1,
+	USI_CAPABILITY_FLAG	= 1U << 2,
+	USI_FW_VERSION_FLAG	= 1U << 3,
+	USI_CRC_FAIL_FLAG	= 1U << 4,
+	USI_FAST_PAIR_FLAG	= 1U << 5,
+	USI_NORMAL_PAIR_FLAG	= 1U << 6,
+	USI_RESERVED1_FLAG	= 1U << 7,
+	USI_RESERVED2_FLAG	= 1U << 8,
+	USI_RESERVED3_FLAG	= 1U << 9,
+	USI_RESERVED4_FLAG	= 1U << 10,
+	USI_RESERVED5_FLAG	= 1U << 11,
+	USI_HASH_ID_FLAG	= 1U << 12,
+	USI_SESSION_ID_FLAG	= 1U << 13,
+	USI_FREQ_SEED_FLAG	= 1U << 14,
+	USI_INFO_FLAG		= 1U << 15,
+};
+
+enum {
+	USI_GID_SIZE		= 12,
+	USI_BATTERY_SIZE	= 2,
+	USI_FW_VERSION_SIZE	= 2,
+	USI_CAPABILITY_SIZE	= 12,
+	USI_CRC_FAIL_SIZE	= 2,
+	USI_FAST_PAIR_SIZE	= 2,
+	USI_NORMAL_PAIR_SIZE	= 2,
+	USI_RESERVED1_SIZE	= 22,
+	USI_HASH_ID_SIZE	= 2,
+	USI_SESSION_ID_SIZE	= 2,
+	USI_FREQ_SEED_SIZE	= 1,
+	USI_RESERVED2_SIZE	= 1,
+	USI_INFO_FLAG_SIZE	= 2,
 };
 
 /* location of the data in the response buffer */
 enum {
 	USI_GID_OFFSET		= 1,
-	USI_BATTERY_OFFSET	= 13,
-	USI_FW_VERSION_OFFSET	= 15,
-	USI_CAPABILITY_OFFSET	= 17
+	USI_BATTERY_OFFSET	= USI_GID_OFFSET + USI_GID_SIZE,
+	USI_FW_VERSION_OFFSET	= USI_BATTERY_OFFSET + USI_BATTERY_SIZE,
+	USI_CAPABILITY_OFFSET	= USI_FW_VERSION_OFFSET + USI_FW_VERSION_SIZE,
+	USI_CRC_FAIL_OFFSET	= USI_CAPABILITY_OFFSET + USI_CAPABILITY_SIZE,
+	USI_FAST_PAIR_OFFSET	= USI_CRC_FAIL_OFFSET + USI_CRC_FAIL_SIZE,
+	USI_NORMAL_PAIR_OFFSET	= USI_FAST_PAIR_OFFSET + USI_FAST_PAIR_SIZE,
+	USI_RESERVED1_OFFSET	= USI_NORMAL_PAIR_OFFSET + USI_NORMAL_PAIR_SIZE,
+	USI_HASH_ID_OFFSET	= USI_RESERVED1_OFFSET + USI_RESERVED1_SIZE,
+	USI_SESSION_ID_OFFSET	= USI_HASH_ID_OFFSET + USI_HASH_ID_SIZE,
+	USI_FREQ_SEED_OFFSET	= USI_SESSION_ID_OFFSET + USI_SESSION_ID_SIZE,
+	USI_RESERVED2_OFFSET	= USI_FREQ_SEED_OFFSET + USI_FREQ_SEED_SIZE,
+	USI_INFO_FLAG_OFFSET	= USI_RESERVED2_OFFSET + USI_RESERVED2_SIZE,
 };
 #endif
 

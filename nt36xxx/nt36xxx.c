@@ -1591,6 +1591,15 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 		}
 	}
 
+	if (info_buf_flags & USI_NORMAL_PAIR_FLAG) {
+		uint8_t hash_id[2] = {0};
+
+		/* clear stylus info map if the HASH ID is not available or not matched */
+		if (nvt_usi_get_hash_id(hash_id) || hash_id[0] != *(info_buf + USI_HASH_ID_OFFSET) ||
+			    hash_id[1] != *(info_buf + USI_HASH_ID_OFFSET + 1))
+			nvt_usi_clear_stylus_read_map();
+	}
+
 	if (info_buf_flags & USI_BATTERY_FLAG) {
 		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
 		nvt_usi_get_battery(&pen_bat_capa);
@@ -1605,6 +1614,15 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 
 	if (info_buf_flags & USI_CAPABILITY_FLAG)
 		nvt_usi_store_capability(info_buf + USI_CAPABILITY_OFFSET);
+
+	if (info_buf_flags & USI_HASH_ID_FLAG)
+		nvt_usi_store_hash_id(info_buf + USI_HASH_ID_OFFSET);
+
+	if (info_buf_flags & USI_SESSION_ID_FLAG)
+		nvt_usi_store_session_id(info_buf + USI_SESSION_ID_OFFSET);
+
+	if (info_buf_flags & USI_FREQ_SEED_FLAG)
+		nvt_usi_store_freq_seed(info_buf + USI_FREQ_SEED_OFFSET);
 }
 #endif
 
@@ -1624,7 +1642,7 @@ static struct input_dev *create_pen_input_device(uint16_t vid, uint16_t pid)
 	pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
 	pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
 	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(BTN_TOOL_PEN);
-	//pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
+	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
 	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
 	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
 	pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
@@ -1718,6 +1736,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	int8_t pen_tilt_y = 0;
 	uint32_t pen_btn1 = 0;
 	uint32_t pen_btn2 = 0;
+	uint32_t pen_btn3 = 0;
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
 #if NVT_TOUCH_EXT_USI
@@ -2025,8 +2044,9 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 #endif
 				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
 				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-//				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
-//						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_battery);
+				pen_btn3 = (uint32_t)((point_data[77] >> 2) & 0x01);
+//				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,b3=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
+//						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_btn3, pen_battery);
 
 				input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
@@ -2054,6 +2074,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
 				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
+				input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, pen_btn3);
 #if NVT_TOUCH_EXT_USI
 				/*
 				 * Input Subsystem doesn't support 64bits serial number.
@@ -2111,6 +2132,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 			input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+			input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, 0);
 #if NVT_TOUCH_EXT_USI
 			if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
 				input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
@@ -2133,8 +2155,6 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 					ts->pen_input_dev = new_pen_input_dev;
 				}
 			}
-
-			nvt_usi_clear_stylus_read_map();
 #endif
 			ATRACE_END();
 		}
@@ -3076,21 +3096,6 @@ int nvt_ts_suspend(struct device *dev)
 	reinit_completion(&ts->bus_resumed);
 	ts->bTouchIsAwake = false;
 
-	/* Backup fast-pairing configuration. */
-	if (ts->pen_support) {
-		uint8_t buf[6];
-
-		nvt_set_page(PEN_HASH_SECTION_ID_ADDR);
-		buf[0] = PEN_HASH_SECTION_ID_ADDR & (0x7F);
-		CTP_SPI_READ(ts->client, buf, sizeof(buf));
-		ts->pen_hash_id = (uint16_t)((buf[2] << 8) + buf[1]);
-		ts->pen_section_id = (uint16_t)((buf[4] << 8) + buf[3]);
-		ts->pen_freq_seed = buf[5];
-		NVT_LOG("fast-pairing: hash_id: %04X, section_id: %04X, freq_seed: %02X.\n",
-				ts->pen_hash_id, ts->pen_section_id, ts->pen_freq_seed);
-	}
-	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-
 #ifndef GOOG_TOUCH_INTERFACE
 	/* release all touches */
 	goog_input_lock(ts->gti);
@@ -3127,6 +3132,7 @@ int nvt_ts_suspend(struct device *dev)
 		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
 		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
+		input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, 0);
 #if NVT_TOUCH_EXT_USI
 		if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
 			input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
@@ -3138,9 +3144,6 @@ int nvt_ts_suspend(struct device *dev)
 #ifdef GOOG_TOUCH_INTERFACE
 		memset(&ts->pen_offload_coord, 0,
 				sizeof(ts->pen_offload_coord));
-#endif
-#if NVT_TOUCH_EXT_USI
-		nvt_usi_clear_stylus_read_map();
 #endif
 	}
 
@@ -3220,19 +3223,58 @@ int nvt_ts_resume(struct device *dev)
 
 	/* Restore fast-pairing configuration. */
 	if (ts->pen_support) {
-		uint8_t buf[8];
+		uint8_t buf[7], hash_id[2], session_id[2], fw_version[2], freq_seed = 0;
+		uint16_t validity_flags = 0;
+
+		if (nvt_usi_get_hash_id(hash_id)) {
+			hash_id[0] = 0; /* set 0 if error */
+			hash_id[1] = 0;
+		}
+
+		if (nvt_usi_get_session_id(session_id)) {
+			session_id[0] = 0; /* set 0 if error */
+			session_id[1] = 0;
+		}
 
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x70;
 		buf[2] = 0x81;
-		buf[3] = ts->pen_hash_id & 0xFF;
-		buf[4] = (ts->pen_hash_id >> 8) & 0xFF;
-		buf[5] = ts->pen_section_id & 0xFF;
-		buf[6] = (ts->pen_section_id >> 8) & 0xFF;
-		buf[7] = ts->pen_freq_seed;
+		buf[3] = hash_id[0];
+		buf[4] = hash_id[1];
+		buf[5] = session_id[0];
+		buf[6] = session_id[1];
 		CTP_SPI_WRITE(ts->client, buf, sizeof(buf));
-		NVT_LOG("fast-pairing: hash_id: %04X, section_id: %04X, freq_seed: %02X.\n",
-				ts->pen_hash_id, ts->pen_section_id, ts->pen_freq_seed);
+		NVT_LOG("fast-pairing: hash_id: 0x%02X%02X, session_id: 0x%02X%02X\n",
+				hash_id[1], hash_id[0], session_id[1], session_id[0]);
+
+		msleep(20);
+
+		nvt_usi_get_freq_seed(&freq_seed);
+		if (nvt_usi_get_fw_version(fw_version)){
+			fw_version[0] = 0; /* set 0 if error */
+			fw_version[1] = 0;
+		}
+
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x70;
+		buf[2] = 0x82;
+		buf[3] = freq_seed;
+		buf[4] = fw_version[0];
+		buf[5] = fw_version[1];
+		CTP_SPI_WRITE(ts->client, buf, 6);
+		NVT_LOG("Write pen_freq_seed = %02X, pen_fw_ver = 0x%02X%02X\n",
+				freq_seed, fw_version[1], fw_version[0]);
+		msleep(20);
+
+		nvt_usi_get_validity_flags(&validity_flags);
+
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0x70;
+		buf[2] = 0x83;
+		buf[3] = validity_flags & 0xFF;
+		buf[4] = (validity_flags >> 8) & 0xFF;
+		CTP_SPI_WRITE(ts->client, buf, 5);
+		NVT_LOG("pen_valid_flag = %04X\n", validity_flags);
 	}
 
 	ts->bTouchIsAwake = true;
