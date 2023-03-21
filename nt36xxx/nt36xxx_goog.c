@@ -253,19 +253,19 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_GET_CONTEXT_DRIVER:
-		cmd->context_driver_cmd.contents.screen_state = 1;
+		cmd->context_driver_cmd.context_changed.screen_state = 1;
 		cmd->context_driver_cmd.screen_state =
 				ts->bTouchIsAwake ? 1 : 0;
 #ifdef DYNAMIC_REFRESH_RATE
-		cmd->context_driver_cmd.contents.display_refresh_rate = 1;
+		cmd->context_driver_cmd.context_changed.display_refresh_rate = 1;
 		cmd->context_driver_cmd.display_refresh_rate =
 				ts->display_refresh_rate;
 #endif
 		/* Fixed touch report rate and no update event */
-		cmd->context_driver_cmd.contents.touch_report_rate = 1;
+		cmd->context_driver_cmd.context_changed.touch_report_rate = 1;
 		cmd->context_driver_cmd.touch_report_rate = 120;
 
-		cmd->context_driver_cmd.contents.offload_timestamp = 1;
+		cmd->context_driver_cmd.context_changed.offload_timestamp = 1;
 		cmd->context_driver_cmd.offload_timestamp =
 				ts->pen_offload_coord_timestamp;
 		ret = 0;
