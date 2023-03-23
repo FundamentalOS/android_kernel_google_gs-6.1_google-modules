@@ -14,7 +14,6 @@
 #include "core.h"
 
 #define client_to_core(client) ((struct wlan_ptracker_core *)((client)->core))
-
 /* Default mapping rule follow 802.11e */
 static const int dscp_trans[WMM_AC_MAX][DSCP_MAP_MAX] = {
 	{0, 24, 26, 28, 30, -1}, /* AC_BE */
@@ -41,6 +40,7 @@ static void dscp_to_ac_init(u8 *dscp_to_ac)
 static struct wlan_ptracker_core *wlan_ptracker_core_init(struct wlan_ptracker_client *client)
 {
 	struct wlan_ptracker_core *core;
+        int ret;
 
 	core = kzalloc(sizeof(struct wlan_ptracker_core), GFP_KERNEL);
 	if (!core)
@@ -49,13 +49,19 @@ static struct wlan_ptracker_core *wlan_ptracker_core_init(struct wlan_ptracker_c
 	core->client = client;
 	device_initialize(&core->device);
 	dev_set_name(&core->device, PTRACKER_PREFIX);
-	device_add(&core->device);
+	ret = device_add(&core->device);
+        if (ret)
+	  goto err_add;
+
 	dscp_to_ac_init(core->dscp_to_ac);
 	wlan_ptracker_debugfs_init(&core->debugfs);
 	wlan_ptracker_notifier_init(&core->notifier);
 	scenes_fsm_init(&core->fsm);
 	dytwt_init(core);
 	return core;
+err_add:
+	kfree(core);
+	return NULL;
 }
 
 static void wlan_ptracker_core_exit(struct wlan_ptracker_core *core)

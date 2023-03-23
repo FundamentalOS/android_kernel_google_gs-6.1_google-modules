@@ -26,7 +26,10 @@ endif
 
 EXTRA_CFLAGS += -I$(KERNEL_SRC)/../google-modules/wlan/wlan_ptracker
 
+EXTRA_SYMBOLS += $(OUT_DIR)/../private/google-modules/wlan/wlan_ptracker/Module.symvers
+
 ccflags-y := $(EXTRA_CFLAGS)
 
 modules modules_install clean:
-	$(MAKE) -C $(KERNEL_SRC) M=$(M) $(KBUILD_OPTIONS) W=1 $(@)
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 \
+	$(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(@)
