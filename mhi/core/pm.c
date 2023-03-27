@@ -806,17 +806,23 @@ void mhi_pm_st_worker(struct work_struct *work)
 static bool mhi_in_rddm(struct mhi_controller *mhi_cntrl)
 {
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+	enum mhi_ee_type ee = MHI_EE_MAX;
 
-	if (mhi_cntrl->rddm_image && mhi_get_exec_env(mhi_cntrl) == MHI_EE_RDDM
+	ee = mhi_get_exec_env(mhi_cntrl);
+
+	if (mhi_cntrl->rddm_image && ee == MHI_EE_RDDM
 	    && mhi_is_active(mhi_cntrl)) {
-		mhi_cntrl->ee = MHI_EE_RDDM;
 
 		MHI_ERR("RDDM event occurred!\n");
 
 		/* notify critical clients with early notifications */
 		mhi_report_error(mhi_cntrl);
 
-		mhi_cntrl->status_cb(mhi_cntrl, MHI_CB_EE_RDDM);
+		/* Notify mhi controller only once for RDDM event*/
+		if (ee == MHI_EE_RDDM && mhi_cntrl->ee != MHI_EE_RDDM) {
+			mhi_cntrl->status_cb(mhi_cntrl, MHI_CB_EE_RDDM);
+			mhi_cntrl->ee = MHI_EE_RDDM;
+		}
 		wake_up_all(&mhi_cntrl->state_event);
 
 		return true;
