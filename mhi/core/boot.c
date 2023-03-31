@@ -501,6 +501,9 @@ void mhi_fw_load_handler(struct mhi_controller *mhi_cntrl)
 		goto error_fw_load;
 	}
 
+#ifdef CONFIG_WCN_GOOGLE
+	MHI_LOG("request_firmware: %s", fw_name);
+#endif
 	ret = request_firmware(&firmware, fw_name, dev->parent);
 	if (ret) {
 		if (!mhi_cntrl->fallback_fw_image) {
