@@ -1288,7 +1288,7 @@ static struct attribute_group fts_attribute_group = {
 static ssize_t proc_fw_update_write(struct file *filp, const char __user *buff,
     size_t count, loff_t *ppos)
 {
-    struct fts_ts_data *ts_data = PDE_DATA(file_inode(filp));
+    struct fts_ts_data *ts_data = pde_data(file_inode(filp));
     char fwname[FILE_NAME_LENGTH] = { 0 };
     int buflen = count;
 

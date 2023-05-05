@@ -2296,7 +2296,7 @@ static int proc_run_os_test_show(struct seq_file *s, void *v)
 
 static int proc_run_os_test_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_run_os_test_show, PDE_DATA(inode));
+    return single_open(file, proc_run_os_test_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -2466,7 +2466,7 @@ exit:
 
 static int proc_test_hw_reset_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_hw_reset_show, PDE_DATA(inode));
+    return single_open(file, proc_test_hw_reset_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -2537,7 +2537,7 @@ exit:
 
 static int proc_test_sw_reset_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_sw_reset_show, PDE_DATA(inode));
+    return single_open(file, proc_test_sw_reset_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -2596,7 +2596,7 @@ exit:
 
 static int proc_test_int_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_int_show, PDE_DATA(inode));
+    return single_open(file, proc_test_int_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -2693,7 +2693,7 @@ exit:
 
 static int proc_test_raw_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_raw_show, PDE_DATA(inode));
+    return single_open(file, proc_test_raw_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -2791,7 +2791,7 @@ exit:
 
 static int proc_test_baseline_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_baseline_show, PDE_DATA(inode));
+    return single_open(file, proc_test_baseline_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -2979,7 +2979,7 @@ exit:
 
 static int proc_test_strength_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_strength_show, PDE_DATA(inode));
+    return single_open(file, proc_test_strength_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -3069,7 +3069,7 @@ exit:
 
 static int proc_test_uniformity_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_uniformity_show, PDE_DATA(inode));
+    return single_open(file, proc_test_uniformity_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -3190,7 +3190,7 @@ exit:
 
 static int proc_test_sraw_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_sraw_show, PDE_DATA(inode));
+    return single_open(file, proc_test_sraw_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -3312,7 +3312,7 @@ exit:
 
 static int proc_test_scb_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_scb_show, PDE_DATA(inode));
+    return single_open(file, proc_test_scb_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -3399,7 +3399,7 @@ exit:
 
 static int proc_test_noise_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_noise_show, PDE_DATA(inode));
+    return single_open(file, proc_test_noise_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -3485,7 +3485,7 @@ exit:
 
 static int proc_test_short_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_short_show, PDE_DATA(inode));
+    return single_open(file, proc_test_short_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -3571,7 +3571,7 @@ exit:
 
 static int proc_test_panel_differ_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, proc_test_panel_differ_show, PDE_DATA(inode));
+    return single_open(file, proc_test_panel_differ_show, pde_data(inode));
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
