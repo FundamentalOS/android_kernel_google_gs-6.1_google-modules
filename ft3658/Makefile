@@ -9,10 +9,9 @@ EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_PANEL_BRIDGE
 EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_TBN
 EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_HEATMAP
 EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_OFFLOAD
-EXTRA_CFLAGS	+= -I$(KERNEL_SRC)/../google-modules/display
-EXTRA_CFLAGS	+= -I$(KERNEL_SRC)/../google-modules/touch/common
-EXTRA_CFLAGS	+= -I$(KERNEL_SRC)/../google-modules/touch/common/include
-EXTRA_SYMBOLS	+= $(OUT_DIR)/../google-modules/touch/common/Module.symvers
+EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/touch/common/Module.symvers
+
+include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 
 modules modules_install clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) \
