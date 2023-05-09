@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 # Makefile for the focaltech touchscreen drivers.
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
