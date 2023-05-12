@@ -265,7 +265,8 @@ int gxp_dma_init(struct gxp_dev *gxp)
 	dev_err(gxp->dev, "AUX domains not supported\n");
 #endif
 
-#if IS_ENABLED(CONFIG_ANDROID)
+	/* TODO(b/277649169): this API is not enabled in android14-6.1 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 	/* Enable best fit algorithm to minimize fragmentation */
 	ret = iommu_dma_enable_best_fit_algo(gxp->dev);
 	if (ret)
