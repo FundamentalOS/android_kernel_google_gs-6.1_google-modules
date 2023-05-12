@@ -6,7 +6,10 @@
  */
 
 #include <linux/bits.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 #include <linux/dma-iommu.h>
+#endif
 #include <linux/dma-mapping.h>
 #include <linux/iommu.h>
 #include <linux/platform_device.h>
@@ -72,6 +75,7 @@ static int map_flags_to_iommu_prot(enum dma_data_direction dir,
 	return dma_info_to_prot(dir, coherent, attrs);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 static int gxp_dma_ssmt_program(struct gxp_dev *gxp,
 				struct iommu_domain *domain, uint core_list)
 {
@@ -94,6 +98,7 @@ static int gxp_dma_ssmt_program(struct gxp_dev *gxp,
 	}
 	return 0;
 }
+#endif
 
 /* Fault handler */
 
@@ -178,7 +183,11 @@ static void gxp_unmap_csrs(struct gxp_dev *gxp, struct iommu_domain *domain,
 uint gxp_iommu_aux_get_pasid(struct gxp_dev *gxp,
 			     struct gxp_iommu_domain *gdomain)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
+	return 0;
+#else
 	return iommu_aux_get_pasid(gdomain->domain, gxp->dev);
+#endif
 }
 
 struct gxp_iommu_domain *gxp_iommu_get_domain_for_dev(struct gxp_dev *gxp)
@@ -246,11 +255,15 @@ int gxp_dma_init(struct gxp_dev *gxp)
 		return -EIO;
 	}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 	iommu_dev_enable_feature(gxp->dev, IOMMU_DEV_FEAT_AUX);
 	if (!iommu_dev_feature_enabled(gxp->dev, IOMMU_DEV_FEAT_AUX)) {
 		dev_err(gxp->dev, "Failed to enable aux support in SysMMU\n");
 		goto err_unreg_fault_handler;
 	}
+#else
+	dev_err(gxp->dev, "AUX domains not supported\n");
+#endif
 
 #if IS_ENABLED(CONFIG_ANDROID)
 	/* Enable best fit algorithm to minimize fragmentation */
@@ -265,12 +278,14 @@ int gxp_dma_init(struct gxp_dev *gxp)
 
 	return 0;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 err_unreg_fault_handler:
 	if (iommu_unregister_device_fault_handler(gxp->dev))
 		dev_err(gxp->dev,
 			"Failed to unregister SysMMU fault handler\n");
 
 	return -EIO;
+#endif
 }
 
 void gxp_dma_exit(struct gxp_dev *gxp)
@@ -300,18 +315,24 @@ int gxp_dma_domain_attach_device(struct gxp_dev *gxp,
 {
 	int ret;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 	ret = iommu_aux_attach_device(gdomain->domain, gxp->dev);
 	if (ret)
 		goto out;
 	gxp_dma_ssmt_program(gxp, gdomain->domain, core_list);
 out:
+#else
+	ret = -EINVAL;
+#endif
 	return ret;
 }
 
 void gxp_dma_domain_detach_device(struct gxp_dev *gxp,
 				  struct gxp_iommu_domain *gdomain)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 	iommu_aux_detach_device(gdomain->domain, gxp->dev);
+#endif
 }
 
 int gxp_dma_map_core_resources(struct gxp_dev *gxp,
