@@ -323,7 +323,7 @@ int gxp_dma_domain_attach_device(struct gxp_dev *gxp,
 	gxp_dma_ssmt_program(gxp, gdomain->domain, core_list);
 out:
 #else
-	ret = -EINVAL;
+	ret = 0;
 #endif
 	return ret;
 }
