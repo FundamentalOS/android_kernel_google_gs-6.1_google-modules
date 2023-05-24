@@ -718,6 +718,7 @@ static struct attribute *default_file_attrs[] = {
 	&attr_twt_statistic.attr,
 	NULL,
 };
+ATTRIBUTE_GROUPS(default_file);
 
 static ssize_t dytwt_sysfs_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -756,7 +757,7 @@ static struct sysfs_ops dytwt_sysfs_ops = {
 
 static struct kobj_type dytwt_ktype = {
 	.sysfs_ops = &dytwt_sysfs_ops,
-	.default_attrs = default_file_attrs,
+	.default_groups = default_file_groups,
 };
 
 static int dytwt_sysfs_init(struct dytwt_manager *dytwt, struct wlan_ptracker_debugfs *debugfs)
