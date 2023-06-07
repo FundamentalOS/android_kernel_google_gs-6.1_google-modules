@@ -414,7 +414,7 @@ static int remap_telemetry_buffers(struct gxp_dev *gxp,
 
 	/* mmap the buffers */
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
-	vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_pgoff = 0;
 
 	for (i = 0; i < GXP_NUM_CORES; i++) {
