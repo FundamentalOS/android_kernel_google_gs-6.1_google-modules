@@ -86,6 +86,9 @@ static int gxp_dma_ssmt_program(struct gxp_dev *gxp, struct gxp_iommu_domain *gd
 	/* Program VID only when cores are managed by us. */
 	if (gxp_is_direct_mode(gxp) || gxp_core_boot(gxp)) {
 		pasid = gxp_iommu_aux_get_pasid(gxp, gdomain);
+		if (pasid < 0)
+			return pasid;
+
 		for (core = 0; core < GXP_NUM_CORES; core++)
 			if (BIT(core) & core_list) {
 				dev_dbg(gxp->dev, "Assign core%u to PASID %d\n",
@@ -178,8 +181,8 @@ static void gxp_unmap_csrs(struct gxp_dev *gxp, struct iommu_domain *domain,
 
 /* gxp-dma.h Interface */
 
-uint gxp_iommu_aux_get_pasid(struct gxp_dev *gxp,
-			     struct gxp_iommu_domain *gdomain)
+int gxp_iommu_aux_get_pasid(struct gxp_dev *gxp,
+			    struct gxp_iommu_domain *gdomain)
 {
 	struct gxp_dma_iommu_manager *mgr =
 		container_of(gxp->dma_mgr, struct gxp_dma_iommu_manager, dma_mgr);
@@ -190,7 +193,8 @@ uint gxp_iommu_aux_get_pasid(struct gxp_dev *gxp,
 			return i;
 	}
 
-	return 0;
+	dev_err(gxp->dev, "Request for PASID of unattached domain\n");
+	return -EINVAL;
 }
 
 struct gxp_iommu_domain *gxp_iommu_get_domain_for_dev(struct gxp_dev *gxp)
@@ -340,6 +344,9 @@ void gxp_dma_domain_detach_device(struct gxp_dev *gxp,
 	struct gxp_dma_iommu_manager *mgr =
 		container_of(gxp->dma_mgr, struct gxp_dma_iommu_manager, dma_mgr);
 	int pasid = gxp_iommu_aux_get_pasid(gxp, gdomain);
+
+	if (pasid < 0)
+		return;
 
 	iommu_detach_device_pasid(gdomain->domain, gxp->dev, pasid);
 	ida_free(&mgr->pasid_pool, pasid);

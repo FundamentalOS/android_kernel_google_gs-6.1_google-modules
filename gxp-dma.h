@@ -363,10 +363,10 @@ struct gxp_iommu_domain *gxp_iommu_get_domain_for_dev(struct gxp_dev *gxp);
  * @gxp: The GXP device attached to IOMMU
  * @gdomain: The IOMMU domain to get the PASID for
  *
- * Return: PASID of the passed domain
+ * Return: PASID of the passed domain or -EINVAL if not attached
  */
-uint gxp_iommu_aux_get_pasid(struct gxp_dev *gxp,
-			     struct gxp_iommu_domain *gdomain);
+int gxp_iommu_aux_get_pasid(struct gxp_dev *gxp,
+			    struct gxp_iommu_domain *gdomain);
 
 /**
  * gxp_iommu_setup_shareability() - Set shareability to enable IO-Coherency.
