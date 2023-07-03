@@ -30,7 +30,7 @@
 #include <linux/earlysuspend.h>
 #endif
 
-#include "../../../gs-google/drivers/soc/google/vh/kernel/systrace.h"
+#include <trace/hooks/systrace.h>
 #include "nt36xxx_mem_map.h"
 
 #ifdef CONFIG_MTK_SPI
