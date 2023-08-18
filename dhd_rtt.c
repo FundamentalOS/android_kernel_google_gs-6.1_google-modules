@@ -3875,9 +3875,14 @@ dhd_rtt_create_failure_result(rtt_status_info_t *rtt_status,
 	(void)memcpy_s(&rtt_result->report.addr, ETHER_ADDR_LEN,
 		&rtt_target_info->addr, ETHER_ADDR_LEN);
 	rtt_result->report.distance = FTM_INVALID;
+
+	rtt_result->report_extra_len = sizeof(rtt_result->report_extra);
+	rtt_result->report_extra.frequency = -1;
+	rtt_result->report_extra.packet_bw = RTT_BW_UNSPECIFIED;
+
 	list_add_tail(&rtt_result->list, &rtt_results_header->result_list);
 	rtt_results_header->result_cnt++;
-	rtt_results_header->result_tot_len += rtt_result->report_len;
+	rtt_results_header->result_tot_len += rtt_result->report_len + rtt_result->report_extra_len;
 exit:
 	return ret;
 }
