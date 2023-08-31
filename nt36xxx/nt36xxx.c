@@ -1540,7 +1540,7 @@ static struct power_supply *pen_setup_battery(struct device *parent)
 	}
 
 	psy_desc->name = NVT_PEN_BATTERY_NAME;
-	psy_desc->type = POWER_SUPPLY_TYPE_BATTERY;
+	psy_desc->type = POWER_SUPPLY_TYPE_UNKNOWN;
 	psy_desc->properties = pen_battery_props;
 	psy_desc->num_properties = ARRAY_SIZE(pen_battery_props);
 	psy_desc->get_property = pen_get_battery_property;
