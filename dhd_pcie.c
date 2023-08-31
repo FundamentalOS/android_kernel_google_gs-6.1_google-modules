@@ -2188,7 +2188,27 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 			((PMU_CC18_WL_P_CHAN_TIMER_SEL_8ms << PMU_CC18_WL_P_CHAN_TIMER_SEL_OFF) &
 			PMU_CC18_WL_P_CHAN_TIMER_SEL_MASK)));
 		si_setcore(bus->sih, origidx, 0);
+		if (PCIECTO_ENAB(bus)) {
+			dhdpcie_cto_init(bus, TRUE);
+		}
 	} else if (BCM4362_CHIP(bus->sih->chip) && (bus->sih->chiprev == 4)) {
+		uint origidx = 0;
+		chipcregs_t *cc;
+
+		origidx = si_coreidx(bus->sih);
+
+		/* WAR. Set max rsrc mask to 0x7fffffff and force HT before CTO init */
+		pmu_corereg(bus->sih, SI_CC_IDX, max_res_mask, ~0, 0x7fffffff);
+
+		cc = (chipcregs_t*)si_setcore(bus->sih, CC_CORE_ID, 0);
+		if (cc) {
+			OR_REG(osh, &cc->clk_ctl_st, CCS_FORCEHT);
+			SPINWAIT(((R_REG(osh, &cc->clk_ctl_st) & CCS_HTAVAIL) == 0),
+				PMU_MAX_TRANSITION_DLY);
+		} else {
+			DHD_ERROR(("CC is NULL\n"));
+		}
+		si_setcore(bus->sih, origidx, 0);
 		if (PCIECTO_ENAB(bus)) {
 			dhdpcie_cto_init(bus, TRUE);
 		}

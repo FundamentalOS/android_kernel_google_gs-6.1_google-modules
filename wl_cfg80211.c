@@ -1091,23 +1091,6 @@ static struct ieee80211_channel __wl_2ghz_channels[] = {
 	CHAN2G(14, 2484, 0)
 };
 
-static struct ieee80211_channel available_5ghz_a_channels[] = {
-	CHAN5G(36, 0), CHAN5G(40, 0),
-	CHAN5G(44, 0), CHAN5G(48, 0),
-	CHAN5G(52, 0), CHAN5G(56, 0),
-	CHAN5G(60, 0), CHAN5G(64, 0),
-	CHAN5G(100, 0), CHAN5G(104, 0),
-	CHAN5G(108, 0), CHAN5G(112, 0),
-	CHAN5G(116, 0), CHAN5G(120, 0),
-	CHAN5G(124, 0), CHAN5G(128, 0),
-	CHAN5G(132, 0), CHAN5G(136, 0),
-	CHAN5G(140, 0), CHAN5G(144, 0),
-	CHAN5G(149, 0), CHAN5G(153, 0),
-	CHAN5G(157, 0), CHAN5G(161, 0),
-	CHAN5G(165, 0), CHAN5G(169, 0),
-	CHAN5G(173, 0), CHAN5G(177, 0),
-};
-
 static struct ieee80211_channel __wl_5ghz_a_channels[] = {
 	CHAN5G(34, 0), CHAN5G(36, 0),
 	CHAN5G(38, 0), CHAN5G(40, 0),
@@ -11131,6 +11114,7 @@ wl_cfg80211_update_self_regd(struct bcm_cfg80211 *cfg, char *ccode)
 	int regd_len = 0;
 	struct ieee80211_regdomain *regd_copy = NULL;
 	s32 clm_flags = WLC_BAND_5G;
+	int index = 0;
 
 	wl_check_brcm_specifc_country_code(ccode);
 
@@ -11172,6 +11156,11 @@ wl_cfg80211_update_self_regd(struct bcm_cfg80211 *cfg, char *ccode)
 			} else {
 				regd_copy->dfs_region = NL80211_DFS_UNSET;
 			}
+		}
+		for (index = 0; index < __wl_band_5ghz_a.n_channels; index++) {
+			WL_DBG(("%s: channel=%d flags=%x\n", __func__,
+					__wl_band_5ghz_a.channels[index].hw_value,
+					__wl_band_5ghz_a.channels[index].flags));
 		}
 		if (wiphy) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
@@ -17414,6 +17403,18 @@ static int wl_flag_to_regflags(int flag)
 }
 #endif /* WL_SELF_MANAGED_REGDOM && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0)) */
 
+bool
+check_ht40only_chan(int chan)
+{
+	if ((chan == 34) ||
+		(chan == 38) ||
+		(chan == 42) ||
+		(chan == 46)) {
+		return TRUE;
+	}
+	return FALSE;
+}
+
 static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_cap_5g)
 {
 	struct net_device *dev = bcmcfg_to_prmry_ndev(cfg);
@@ -17427,7 +17428,7 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 	bool dfs_radar_disabled = FALSE;
 	bool legacy_chan_info = FALSE;
 	u16 list_count;
-	u32 channels_array[ARRAYSIZE(available_5ghz_a_channels)];
+	u32 channels_array[ARRAYSIZE(__wl_5ghz_a_channels)];
 	u32 channel_index = 0;
 	u32 channel_counts = 0;
 	u32 a_channel_counts = 0;
@@ -17462,7 +17463,7 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 	memset(channels_array, 0, channel_counts);
 
 	WL_CHANNEL_ARRAY_INIT(__wl_2ghz_channels);
-	WL_CHANNEL_ARRAY_INIT(available_5ghz_a_channels);
+	WL_CHANNEL_ARRAY_INIT(__wl_5ghz_a_channels);
 #ifdef CFG80211_6G_SUPPORT
 	WL_CHANNEL_ARRAY_INIT(__wl_6ghz_channels);
 #endif /* CFG80211_6G_SUPPORT */
@@ -17516,8 +17517,8 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 			(channel <= CH_MAX_6G_CHANNEL)) ||
 #endif /* WL_6G_BAND */
 			(CHSPEC_IS5G(chspec) && channel >= CH_MIN_5G_CHANNEL)) {
-			band_chan_arr = available_5ghz_a_channels;
-			array_size = ARRAYSIZE(available_5ghz_a_channels);
+			band_chan_arr = __wl_5ghz_a_channels;
+			array_size = ARRAYSIZE(__wl_5ghz_a_channels);
 			ht40_allowed = WL_BW_CAP_40MHZ(bw_cap_5g);
 			ht80_allowed = WL_BW_CAP_80MHZ(bw_cap_5g);
 		} else {
@@ -17644,13 +17645,13 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 
 	}
 #endif /* WL_SELF_MANAGED_REGDOM */
-	a_channel_counts = ARRAYSIZE(available_5ghz_a_channels);
+	a_channel_counts = ARRAYSIZE(__wl_5ghz_a_channels);
 #if defined(WL_SELF_MANAGED_REGDOM) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
 	{
 		int flags, k;
 
 		index = 0;
-		band_chan_arr = available_5ghz_a_channels;
+		band_chan_arr = __wl_5ghz_a_channels;
 		flags = band_chan_arr[1].flags;
 		for (j = 1; j < a_channel_counts; j++) {
 			if ((flags & IEEE80211_CHAN_DISABLED) && (band_chan_arr[j].flags & IEEE80211_CHAN_DISABLED)) {
@@ -17661,6 +17662,10 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 			}
 			WL_DBG(("j=%d, hw_vlaue=%d, flag=%x\n",
 					j, band_chan_arr[j].hw_value, band_chan_arr[j].flags));
+			if (check_ht40only_chan(band_chan_arr[j].hw_value)) {
+				WL_DBG(("ignore %d\n", band_chan_arr[j].hw_value));
+				continue;
+			}
 			for (k = 0; k < channel_index; k++) {
 				if (band_chan_arr[j].hw_value == channels_array[k]) {
 					/* channel match with current support channel */
@@ -17675,6 +17680,9 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 							index = j;
 							break;
 						}
+						/* for iw reg info., skip 5170 freq */
+						if (band_chan_arr[index].center_freq == 5170)
+							index = index + 1;
 						dhd_update_reg_rules(0, band_chan_arr[index].center_freq,
 								band_chan_arr[j - 1].center_freq,
 								wl_flag_to_bw(flags), wl_flag_to_regflags(flags));
@@ -17715,6 +17723,8 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap_2g, s32 bw_
 		}
 	}
 #endif /* WL_SELF_MANAGED_REGDOM */
+	WL_CHANNEL_COPY_FLAG(__wl_2ghz_channels);
+	WL_CHANNEL_COPY_FLAG(__wl_5ghz_a_channels);
 #ifdef CFG80211_6G_SUPPORT
 	__wl_band_6ghz.n_channels = ARRAYSIZE(__wl_6ghz_channels);
 #endif /* CFG80211_6G_SUPPORT */
