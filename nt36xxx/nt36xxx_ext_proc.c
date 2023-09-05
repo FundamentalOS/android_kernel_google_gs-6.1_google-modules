@@ -603,7 +603,7 @@ static int32_t nvt_fw_version_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -616,7 +616,7 @@ static int32_t nvt_fw_version_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_fw_version_seq_ops);
 }
@@ -650,7 +650,7 @@ static int32_t nvt_fw_update_open(struct inode *inode, struct file *file)
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	mutex_lock(&ts->lock);
 	ret = nvt_update_firmware(get_fw_name(), 1);
@@ -661,7 +661,7 @@ static int32_t nvt_fw_update_open(struct inode *inode, struct file *file)
 		return -EIO;
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return seq_open(file, &nvt_fw_version_seq_ops);
 }
 
@@ -695,7 +695,7 @@ static int32_t nvt_baseline_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -724,7 +724,7 @@ static int32_t nvt_baseline_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_seq_ops);
 }
@@ -758,7 +758,7 @@ static int32_t nvt_raw_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -790,7 +790,7 @@ static int32_t nvt_raw_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_seq_ops);
 }
@@ -824,7 +824,7 @@ static int32_t nvt_diff_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -856,7 +856,7 @@ static int32_t nvt_diff_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_seq_ops);
 }
@@ -950,7 +950,7 @@ static int32_t nvt_pen_2d_raw_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -966,7 +966,7 @@ static int32_t nvt_pen_2d_raw_open(struct inode *inode, struct file *file)
 		return ret;
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_pen_2d_seq_ops);
 }
@@ -1002,7 +1002,7 @@ static int32_t nvt_pen_2d_baseline_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -1018,7 +1018,7 @@ static int32_t nvt_pen_2d_baseline_open(struct inode *inode, struct file *file)
 		return ret;
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_pen_2d_seq_ops);
 }
@@ -1054,7 +1054,7 @@ static int32_t nvt_pen_2d_diff_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -1070,7 +1070,7 @@ static int32_t nvt_pen_2d_diff_open(struct inode *inode, struct file *file)
 		return ret;
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_pen_2d_seq_ops);
 }
@@ -1106,7 +1106,7 @@ static int32_t nvt_pen_1d_diff_open(struct inode *inode, struct file *file)
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -1122,7 +1122,7 @@ static int32_t nvt_pen_1d_diff_open(struct inode *inode, struct file *file)
 		return ret;
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_pen_1d_seq_ops);
 }

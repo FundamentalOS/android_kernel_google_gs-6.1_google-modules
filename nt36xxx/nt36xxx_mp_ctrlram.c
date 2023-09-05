@@ -669,7 +669,7 @@ static void nvt_print_lmt_array(int32_t *array, int32_t x_ch, int32_t y_ch)
 
 static void nvt_print_criteria(void)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	//---PS_Config_Lmt_Short_Rawdata---
 	pr_info("PS_Config_Lmt_Short_Rawdata_P:\n");
@@ -775,7 +775,7 @@ static void nvt_print_criteria(void)
 				PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
 	} /* if (ts->pen_support) */
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 }
 
 static void nvt_print_rawdata(int32_t *rawdata, uint8_t x_ch, uint8_t y_ch)
@@ -846,7 +846,7 @@ int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis)
 	uint8_t retry = 0;
 	int8_t ret = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	for (retry = 0; retry < 20; retry++) {
 		//---set xdata index to EVENT BUF ADDR---
@@ -873,7 +873,7 @@ int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis)
 		ret = -1;
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return ret;
 }
@@ -889,7 +889,7 @@ static int32_t nvt_read_baseline(int32_t *xdata)
 	int32_t k = 0;
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	nvt_read_mdata(ts->mmap->BASELINE_ADDR, ts->mmap->BASELINE_BTN_ADDR);
 
@@ -911,7 +911,7 @@ static int32_t nvt_read_baseline(int32_t *xdata)
 	pr_info("%s:\n", __func__);
 	nvt_print_rawdata(xdata, X_Channel, Y_Channel);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
@@ -927,7 +927,7 @@ static int32_t nvt_read_CC(int32_t *xdata)
 	int32_t k = 0;
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (nvt_get_fw_pipe() == 0)
 		nvt_read_mdata(ts->mmap->DIFF_PIPE1_ADDR, ts->mmap->DIFF_BTN_PIPE1_ADDR);
@@ -952,14 +952,14 @@ static int32_t nvt_read_CC(int32_t *xdata)
 	pr_info("%s:\n", __func__);
 	nvt_print_rawdata(xdata, X_Channel, Y_Channel);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
 
 static int32_t nvt_read_pen_baseline(void)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	nvt_read_get_num_mdata(ts->mmap->PEN_2D_BL_TIP_X_ADDR, RawData_PenTipX_Raw,
 			       ts->x_num * ts->y_gang_num);
@@ -979,7 +979,7 @@ static int32_t nvt_read_pen_baseline(void)
 	pr_info("%s:RawData_PenRingY_Raw\n", __func__);
 	nvt_print_rawdata(RawData_PenRingY_Raw, ts->x_gang_num, ts->y_num);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
@@ -1013,7 +1013,7 @@ static int32_t nvt_read_fw_noise(int32_t *xdata)
 	int32_t k = 0;
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	//---Enter Test Mode---
 	if (nvt_clear_fw_status()) {
@@ -1112,7 +1112,7 @@ static int32_t nvt_read_fw_noise(int32_t *xdata)
 		nvt_print_rawdata(RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
 	} /* if (ts->pen_support) */
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
@@ -1161,7 +1161,7 @@ static int32_t nvt_read_fw_open(int32_t *xdata)
 	int32_t k = 0;
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	//---Enter Test Mode---
 	if (nvt_clear_fw_status()) {
@@ -1242,7 +1242,7 @@ static int32_t nvt_read_fw_open(int32_t *xdata)
 	pr_info("%s:RawData_Open\n", __func__);
 	nvt_print_rawdata(xdata, X_Channel, Y_Channel);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
@@ -1260,7 +1260,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 	int32_t k = 0;
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	//---Enter Test Mode---
 	if (nvt_clear_fw_status()) {
@@ -1335,7 +1335,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 	pr_info("%s:RawData_Short\n", __func__);
 	nvt_print_rawdata(xdata, X_Channel, Y_Channel);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
@@ -1517,7 +1517,7 @@ return:
 *******************************************************/
 static int32_t c_show_selftest(struct seq_file *m, void *v)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	seq_puts(m, "\n***** Selftest Data *****\n");
 
@@ -1703,7 +1703,7 @@ static int32_t c_show_selftest(struct seq_file *m, void *v)
 
 	nvt_mp_test_result_printed = 1;
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return 0;
 }
@@ -1794,7 +1794,7 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		TestResult_PenRingY_DiffMin = 0;
 	} /* if (ts->pen_support) */
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock)) {
 		return -ERESTARTSYS;
@@ -2061,7 +2061,7 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	nvt_mp_test_result_printed = 0;
 

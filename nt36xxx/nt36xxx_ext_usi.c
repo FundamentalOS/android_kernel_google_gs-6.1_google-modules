@@ -1142,7 +1142,7 @@ int32_t nvt_extra_usi_init(void)
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	usi_ctx = kzalloc(sizeof(*usi_ctx), GFP_KERNEL);
 	if (!usi_ctx)
@@ -1153,7 +1153,7 @@ int32_t nvt_extra_usi_init(void)
 		NVT_ERR("Register %s failed\n", nvt_hid_usi_dev.name);
 		goto usi_init_error;
 	}
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return ret;
 
@@ -1166,10 +1166,10 @@ usi_init_error:
 
 void nvt_extra_usi_deinit(void)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 	misc_deregister(&nvt_hid_usi_dev);
 	kfree(usi_ctx);
 	usi_ctx = NULL;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 }
 #endif

@@ -250,7 +250,7 @@ static int nvt_pinctrl_configure(struct nvt_ts_data *ts, bool enable)
 		return -EINVAL;
 	}
 
-	NVT_LOG("%s\n", enable ? "ACTIVE" : "SUSPEND");
+	NVT_LOGI("%s\n", enable ? "ACTIVE" : "SUSPEND");
 
 	if (enable) {
 		state = pinctrl_lookup_state(ts->pinctrl, "ts_active");
@@ -642,7 +642,7 @@ void nvt_bootloader_reset(void)
 		nvt_write_addr(SPI_RD_FAST_ADDR, 0x00);
 	}
 
-	NVT_LOG("end\n");
+	NVT_LOGD("end\n");
 }
 
 /*******************************************************
@@ -1060,15 +1060,10 @@ static int32_t nvt_flash_proc_init(void)
 {
 	NVT_proc_entry = proc_create(NVT_DEVICE_NAME, 0444, NULL, &nvt_flash_fops);
 	if (NVT_proc_entry == NULL) {
-		NVT_ERR("Failed!\n");
+		NVT_LOGE("Failed!\n");
 		return -ENOMEM;
-	} else {
-		NVT_LOG("Succeeded!\n");
 	}
-
-	NVT_LOG("============================================================\n");
 	NVT_LOG("Create /proc/%s\n", NVT_DEVICE_NAME);
-	NVT_LOG("============================================================\n");
 
 	return 0;
 }
@@ -2357,7 +2352,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	uint32_t mt_touch_major_res = 0, mt_pos_x_res = 0, mt_pos_y_res = 0;
 #endif
 
-	NVT_LOG("start\n");
+	NVT_LOGI("start\n");
 
 	ts = (struct nvt_ts_data *)kzalloc(sizeof(struct nvt_ts_data), GFP_KERNEL);
 	if (ts == NULL) {
@@ -2770,7 +2765,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	ts->bTouchIsAwake = true;
 	ts->pen_format_id = 0xFF;
 
-	NVT_LOG("end\n");
+	NVT_LOGD("end\n");
 
 	nvt_irq_enable(true);
 
@@ -3086,7 +3081,7 @@ int nvt_ts_suspend(struct device *dev)
 
 	mutex_lock(&ts->lock);
 
-	NVT_LOG("start\n");
+	NVT_LOGD("start\n");
 	/* Initialize heatmap_host_cmd to force sending again after resume. */
 	ts->heatmap_host_cmd = HEATMAP_HOST_CMD_DISABLE;
 
@@ -3175,7 +3170,7 @@ int nvt_ts_suspend(struct device *dev)
 	msleep(50);
 #endif
 
-	NVT_LOG("end\n");
+	NVT_LOGD("end\n");
 
 	return 0;
 }
@@ -3196,7 +3191,7 @@ int nvt_ts_resume(struct device *dev)
 
 	mutex_lock(&ts->lock);
 
-	NVT_LOG("start\n");
+	NVT_LOGD("start\n");
 #if defined(CONFIG_SOC_GOOGLE)
 	nvt_pinctrl_configure(ts, true);
 	usleep_range(NVT_PINCTRL_US_DELAY, NVT_PINCTRL_US_DELAY + 1);
@@ -3281,7 +3276,7 @@ int nvt_ts_resume(struct device *dev)
 	complete_all(&ts->bus_resumed);
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("end\n");
+	NVT_LOGD("end\n");
 
 	return 0;
 }
@@ -3471,8 +3466,6 @@ static int32_t __init nvt_driver_init(void)
 {
 	int32_t ret = 0;
 
-	NVT_LOG("start\n");
-
 	//---add spi driver---
 	ret = spi_register_driver(&nvt_spi_driver);
 	if (ret) {
@@ -3480,7 +3473,7 @@ static int32_t __init nvt_driver_init(void)
 		goto err_driver;
 	}
 
-	NVT_LOG("finished\n");
+	NVT_LOGI("finished\n");
 
 err_driver:
 	return ret;
