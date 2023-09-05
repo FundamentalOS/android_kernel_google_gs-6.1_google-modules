@@ -137,7 +137,7 @@ static ssize_t nvt_get_mode_history_show(struct device *dev,
 	uint8_t spi_buf[65] = {0};
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -145,11 +145,11 @@ static ssize_t nvt_get_mode_history_show(struct device *dev,
 	nvt_set_page(GET_MODE_HISTORY_ADDR);
 	spi_buf[0] = GET_MODE_HISTORY_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 65);
-	ret = snprintf(buf, PAGE_SIZE, "%*ph\n", 64, &spi_buf[1]);
+	ret = sysfs_emit(buf, "%*ph\n", 64, &spi_buf[1]);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -159,16 +159,16 @@ static ssize_t nvt_palm_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = PALM_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -180,7 +180,7 @@ static ssize_t nvt_palm_mode_store(struct device *dev,
 	uint16_t cmd_test_bit = PALM_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -211,7 +211,7 @@ static ssize_t nvt_palm_mode_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -222,16 +222,16 @@ static ssize_t nvt_high_sensi_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = HIGH_SENSI_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -243,7 +243,7 @@ static ssize_t nvt_high_sensi_mode_store(struct device *dev,
 	uint16_t cmd_test_bit = HIGH_SENSI_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -274,7 +274,7 @@ static ssize_t nvt_high_sensi_mode_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -286,7 +286,7 @@ static ssize_t nvt_touch_idle_mode_show(struct device *dev,
 	uint8_t spi_buf[2] = {0};
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -298,27 +298,27 @@ static ssize_t nvt_touch_idle_mode_show(struct device *dev,
 	switch (mode) {
 	case 0x3:
 		NVT_LOG("normal active mode\n"); // Active mode
-		ret = snprintf(buf, PAGE_SIZE, "%s\n", "Normal_Active");
+		ret = sysfs_emit(buf, "%s\n", "Normal_Active");
 		break;
 	case 0x4:
 	case 0x6:
 		NVT_LOG("normal idle mode\n"); // Idle mode
-		ret = snprintf(buf, PAGE_SIZE, "%s\n", "Normal_Idle");
+		ret = sysfs_emit(buf, "%s\n", "Normal_Idle");
 		break;
 	case 0xA:
 		NVT_LOG("low power active mode\n"); // WKG mode
-		ret = snprintf(buf, PAGE_SIZE, "%s\n", "LowPower_Active");
+		ret = sysfs_emit(buf, "%s\n", "LowPower_Active");
 		break;
 	case 0x9:
 	case 0xB:
 		NVT_LOG("low power idle mode\n"); // FDM mode
-		ret = snprintf(buf, PAGE_SIZE, "%s\n", "LowPower_Idle");
+		ret = sysfs_emit(buf, "%s\n", "LowPower_Idle");
 		break;
 	}
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -330,7 +330,7 @@ static ssize_t nvt_touch_idle_mode_store(struct device *dev,
 	uint16_t cmd_test_bit = TOUCH_IDLE_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -361,7 +361,7 @@ static ssize_t nvt_touch_idle_mode_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -371,17 +371,15 @@ static ssize_t nvt_heatmap_data_type_show(struct device *dev,
 {
 	int32_t ret = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret += scnprintf(buf, PAGE_SIZE, "type: %d, host_cmd: %x, host_cmd_addr: %x.\n",
-		ts->heatmap_data_type, ts->heatmap_host_cmd, ts->heatmap_host_cmd_addr);
-
+	ret += sysfs_emit(buf, "%d\n", ts->heatmap_data_type);
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -391,7 +389,7 @@ static ssize_t nvt_heatmap_data_type_store(struct device *dev,
 {
 	uint8_t type;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &type) || type >= HEATMAP_DATA_TYPE_UNSUPPORTED)
 		return -EINVAL;
@@ -423,7 +421,7 @@ static ssize_t nvt_heatmap_data_type_store(struct device *dev,
 	}
 
 	ts->heatmap_data_type = type;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -433,7 +431,7 @@ static ssize_t nvt_heatmap_touch_threshold_show(struct device *dev,
 	uint8_t spi_buf[2] = {0};
 	int32_t ret = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -441,12 +439,12 @@ static ssize_t nvt_heatmap_touch_threshold_show(struct device *dev,
 	nvt_set_page(GET_HM_TOUCH_TH_ADDR);
 	spi_buf[0] = GET_HM_TOUCH_TH_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, sizeof(spi_buf));
-	ret += scnprintf(buf, PAGE_SIZE, "%d\n", spi_buf[1]);
+	ret += sysfs_emit(buf, "%d\n", spi_buf[1]);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -456,7 +454,7 @@ static ssize_t nvt_heatmap_touch_threshold_store(struct device *dev,
 	uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, 0};
 	uint8_t hm_touch_th = 0, hm_touch_th_lvl = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &hm_touch_th) ||
 		hm_touch_th < TOUCH_HEATMAP_TH_MIN ||
@@ -491,7 +489,7 @@ static ssize_t nvt_heatmap_touch_threshold_store(struct device *dev,
 
 	NVT_LOG("request %d as threshold, FW adjust to %d(lvl: %d) by design.\n",
 		hm_touch_th, spi_buf[1], hm_touch_th_lvl);
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return count;
 }
@@ -502,16 +500,16 @@ static ssize_t nvt_cont_report_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = CONT_REPORT_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -523,7 +521,7 @@ static ssize_t nvt_cont_report_mode_store(struct device *dev,
 	uint16_t cmd_test_bit = CONT_REPORT_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -556,7 +554,7 @@ static ssize_t nvt_cont_report_mode_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -567,16 +565,16 @@ static ssize_t nvt_noise_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = NOISE_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -588,7 +586,7 @@ static ssize_t nvt_noise_mode_store(struct device *dev,
 	uint16_t cmd_test_bit = NOISE_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -621,7 +619,7 @@ static ssize_t nvt_noise_mode_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -632,16 +630,16 @@ static ssize_t nvt_water_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = WATER_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -653,7 +651,7 @@ static ssize_t nvt_water_mode_store(struct device *dev,
 	uint16_t cmd_test_bit = WATER_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -686,7 +684,7 @@ static ssize_t nvt_water_mode_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -697,7 +695,7 @@ static ssize_t nvt_sw_reset_store(struct device *dev,
 {
 	uint8_t mode;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode != CMD_ENABLE)
 		return -EINVAL;
@@ -708,7 +706,7 @@ static ssize_t nvt_sw_reset_store(struct device *dev,
 	nvt_update_firmware(get_fw_name(), 1);
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return count;
 }
@@ -720,7 +718,7 @@ static ssize_t nvt_sensing_store(struct device *dev,
 	uint8_t spi_buf[3] = {0}, mode;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -752,7 +750,7 @@ static ssize_t nvt_sensing_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -764,7 +762,7 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 	uint8_t spi_buf[4] = {0}, mode;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_4 || (mode == 0))
 		return -EINVAL;
@@ -829,7 +827,7 @@ static ssize_t nvt_freq_hopping_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -840,7 +838,7 @@ static ssize_t nvt_grip_level_show(struct device *dev,
 	uint8_t spi_buf[2] = {0};
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -848,12 +846,12 @@ static ssize_t nvt_grip_level_show(struct device *dev,
 	nvt_set_page(GET_GRIP_LEVEL_ADDR);
 	spi_buf[0] = GET_GRIP_LEVEL_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 2);
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", spi_buf[1]);
+	ret = sysfs_emit(buf, "%d\n", spi_buf[1]);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -865,7 +863,7 @@ static ssize_t nvt_grip_level_store(struct device *dev,
 	uint16_t cmd_test_bit = GRIP_LEVEL_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_4)
 		return -EINVAL;
@@ -920,7 +918,7 @@ static ssize_t nvt_grip_level_store(struct device *dev,
 		return -EINVAL;
 	} else {
 		grip_level = mode;
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -932,7 +930,7 @@ static ssize_t nvt_force_calibration_store(struct device *dev,
 	uint8_t spi_buf[3] = {0}, mode;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode != CMD_ENABLE)
 		return -EINVAL;
@@ -958,7 +956,7 @@ static ssize_t nvt_force_calibration_store(struct device *dev,
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -969,7 +967,7 @@ static ssize_t nvt_get_calibration_show(struct device *dev,
 	int32_t ret;
 	uint8_t spi_buf[2] = {0};
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
@@ -977,12 +975,12 @@ static ssize_t nvt_get_calibration_show(struct device *dev,
 	nvt_set_page(GET_CALIBRATION_ADDR);
 	spi_buf[0] = GET_CALIBRATION_ADDR & 0x7F;
 	CTP_SPI_READ(ts->client, spi_buf, 2);
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", spi_buf[1]);
+	ret = sysfs_emit(buf, "%d\n", spi_buf[1]);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -991,9 +989,9 @@ static ssize_t nvt_sync_freq_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
-	ret = snprintf(buf, PAGE_SIZE, "%s\n", SYNC_FREQ);
-	NVT_LOG("--\n");
+	NVT_LOGD("++\n");
+	ret = sysfs_emit(buf, "%s\n", SYNC_FREQ);
+	NVT_LOGD("--\n");
 
 	return ret;
 }
@@ -1027,7 +1025,7 @@ void cal_uniformity(uint8_t *arr, uint32_t size)
 
 static int32_t nvt_get_rawdata_uniformity(void)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (!rawdata_uniformity_spi_buf) {
 		rawdata_uniformity_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
@@ -1076,13 +1074,13 @@ static int32_t nvt_get_rawdata_uniformity(void)
 	cal_uniformity(rawdata_uniformity_spi_buf,
 		       rawdata_uniformity_spi_buf_size);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return 0;
 }
 
 static int32_t nvt_get_cc_uniformity(void)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (!cc_uniformity_spi_buf) {
 		cc_uniformity_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
@@ -1152,7 +1150,7 @@ static int32_t nvt_get_cc_uniformity(void)
 
 	cal_uniformity(cc_uniformity_spi_buf, cc_uniformity_spi_buf_size);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return 0;
 }
 
@@ -1161,7 +1159,7 @@ static ssize_t nvt_verify_calibration_show(struct device *dev,
 {
 	int32_t i, ret = 0, max = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (nvt_get_rawdata_uniformity())
 		return -EAGAIN;
@@ -1174,13 +1172,13 @@ static ssize_t nvt_verify_calibration_show(struct device *dev,
 	}
 
 	if (max > RAWDATA_UNIFORMITY_LIMIT)
-		ret = snprintf(buf, PAGE_SIZE, "%s\n", "Fail");
+		ret = sysfs_emit(buf, "%s\n", "Fail");
 	else
-		ret = snprintf(buf, PAGE_SIZE, "%s\n", "Pass");
+		ret = sysfs_emit(buf, "%s\n", "Pass");
 
 	NVT_LOG("max rawdata deviation = %d\n", max);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return ret;
 }
@@ -1191,16 +1189,16 @@ static ssize_t nvt_cancel_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = SET_CANCEL_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1211,7 +1209,7 @@ static ssize_t nvt_cancel_mode_store(struct device *dev, struct device_attribute
 	uint16_t cmd_test_bit = SET_CANCEL_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > CMD_ENABLE)
 		return -EINVAL;
@@ -1244,7 +1242,7 @@ static ssize_t nvt_cancel_mode_store(struct device *dev, struct device_attribute
 		NVT_ERR("failed, ret = %d\n", ret);
 		return -EINVAL;
 	} else {
-		NVT_LOG("--\n");
+		NVT_LOGD("--\n");
 		return count;
 	}
 }
@@ -1255,16 +1253,16 @@ static ssize_t nvt_playback_mode_show(struct device *dev,
 	uint16_t cmd_get_bit = PLAYBACK_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%zd\n", nvt_get_api_status(cmd_get_bit));
+	ret = sysfs_emit(buf, "%zd\n", nvt_get_api_status(cmd_get_bit));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1275,7 +1273,7 @@ static ssize_t nvt_playback_mode_store(struct device *dev, struct device_attribu
 	uint16_t cmd_test_bit = PLAYBACK_MODE_CMD_TEST_BIT;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || mode > MODE_2)
 		return -EINVAL;
@@ -1348,7 +1346,7 @@ static ssize_t nvt_playback_mode_store(struct device *dev, struct device_attribu
 	}
 
 	playback_enabled = (mode == CMD_DISABLE ? 0 : 1);
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1372,7 +1370,7 @@ void nvt_set_dttw(bool check_result)
 	if (ts->wkg_default != WAKEUP_GESTURE_DTTW)
 		return;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 	if (ts->wkg_option == WAKEUP_GESTURE_DTTW) {
 		spi_buf[0] = EVENT_MAP_HOST_CMD;
 		spi_buf[1] = 0x70;
@@ -1408,7 +1406,7 @@ void nvt_set_dttw(bool check_result)
 		NVT_LOG("Gesture conf: off.\n");
 	}
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 }
 
 static ssize_t nvt_dttw_mode_show(struct device *dev,
@@ -1416,16 +1414,16 @@ static ssize_t nvt_dttw_mode_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", ts->wkg_option);
+	ret = sysfs_emit(buf, "%d\n", ts->wkg_option);
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1434,7 +1432,7 @@ static ssize_t nvt_dttw_mode_store(struct device *dev, struct device_attribute *
 {
 	uint8_t mode;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 10, &mode) || !ts->bTouchIsAwake)
 		return -EINVAL;
@@ -1463,7 +1461,7 @@ static ssize_t nvt_dttw_mode_store(struct device *dev, struct device_attribute *
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1472,16 +1470,16 @@ static ssize_t nvt_dttw_touch_area_max_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_TOUCH_AREA_MAX_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1492,7 +1490,7 @@ static ssize_t nvt_dttw_touch_area_max_store(struct device *dev, struct device_a
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1519,7 +1517,7 @@ static ssize_t nvt_dttw_touch_area_max_store(struct device *dev, struct device_a
 	}
 
 	ts->dttw_touch_area_max = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1528,16 +1526,16 @@ static ssize_t nvt_dttw_touch_area_min_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_TOUCH_AREA_MIN_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1548,7 +1546,7 @@ static ssize_t nvt_dttw_touch_area_min_store(struct device *dev, struct device_a
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1575,7 +1573,7 @@ static ssize_t nvt_dttw_touch_area_min_store(struct device *dev, struct device_a
 	}
 
 	ts->dttw_touch_area_min = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1584,16 +1582,16 @@ static ssize_t nvt_dttw_contact_duration_max_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_CONTACT_DURATION_MAX_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1604,7 +1602,7 @@ static ssize_t nvt_dttw_contact_duration_max_store(struct device *dev,
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1631,7 +1629,7 @@ static ssize_t nvt_dttw_contact_duration_max_store(struct device *dev,
 	}
 
 	ts->dttw_contact_duration_max = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1640,16 +1638,16 @@ static ssize_t nvt_dttw_contact_duration_min_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_CONTACT_DURATION_MIN_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1660,7 +1658,7 @@ static ssize_t nvt_dttw_contact_duration_min_store(struct device *dev,
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1687,7 +1685,7 @@ static ssize_t nvt_dttw_contact_duration_min_store(struct device *dev,
 	}
 
 	ts->dttw_contact_duration_min = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1696,16 +1694,16 @@ static ssize_t nvt_dttw_tap_offset_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_TAP_OFFSET_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1716,7 +1714,7 @@ static ssize_t nvt_dttw_tap_offset_store(struct device *dev, struct device_attri
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1743,7 +1741,7 @@ static ssize_t nvt_dttw_tap_offset_store(struct device *dev, struct device_attri
 	}
 
 	ts->dttw_tap_offset = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1752,16 +1750,16 @@ static ssize_t nvt_dttw_tap_gap_duration_max_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MAX_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1772,7 +1770,7 @@ static ssize_t nvt_dttw_tap_gap_duration_max_store(struct device *dev,
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1799,7 +1797,7 @@ static ssize_t nvt_dttw_tap_gap_duration_max_store(struct device *dev,
 	}
 
 	ts->dttw_tap_gap_duration_max = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1808,16 +1806,16 @@ static ssize_t nvt_dttw_tap_gap_duration_min_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_TAP_GAP_DURATION_MIN_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1828,7 +1826,7 @@ static ssize_t nvt_dttw_tap_gap_duration_min_store(struct device *dev,
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1855,7 +1853,7 @@ static ssize_t nvt_dttw_tap_gap_duration_min_store(struct device *dev,
 	}
 
 	ts->dttw_tap_gap_duration_min = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1864,16 +1862,16 @@ static ssize_t nvt_dttw_motion_tolerance_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n", nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR));
+	ret = sysfs_emit(buf, "%d\n", nvt_get_dttw_para(DTTW_MOTION_TOLERANCE_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1884,7 +1882,7 @@ static ssize_t nvt_dttw_motion_tolerance_store(struct device *dev, struct device
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1911,7 +1909,7 @@ static ssize_t nvt_dttw_motion_tolerance_store(struct device *dev, struct device
 	}
 
 	ts->dttw_motion_tolerance = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1920,17 +1918,17 @@ static ssize_t nvt_dttw_detection_window_edge_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
-	ret = snprintf(buf, PAGE_SIZE, "%d\n",
+	ret = sysfs_emit(buf, "%d\n",
 		nvt_get_dttw_para(DTTW_DETECTION_WINDOW_EDGE_ADDR));
 
 	mutex_unlock(&ts->lock);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -1941,7 +1939,7 @@ static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
 	uint16_t value;
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = kstrtou16(buf, 10, &value);
 	if (ret) {
@@ -1968,7 +1966,7 @@ static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
 	}
 
 	ts->dttw_detection_window_edge = value;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -1977,22 +1975,22 @@ static ssize_t nvt_fw_history_show(struct device *dev,
 {
 	int idx = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
 	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
-	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "fw history 0x%x:\n",
+	idx += sysfs_emit_at(buf, idx, "0x%x:\n",
 			ts->mmap->MMAP_HISTORY_EVENT0);
-	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s", ts->history_buf);
+	idx += sysfs_emit_at(buf, idx, "%s", ts->history_buf);
 	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
-	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "fw history 0x%x:\n",
+	idx += sysfs_emit_at(buf, idx, "0x%x:\n",
 			ts->mmap->MMAP_HISTORY_EVENT1);
-	idx += scnprintf(buf + idx, PAGE_SIZE - idx, "%s", ts->history_buf);
+	idx += sysfs_emit_at(buf, idx, "%s", ts->history_buf);
 
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	mutex_unlock(&ts->lock);
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return idx;
 }
 
@@ -2282,11 +2280,11 @@ static const struct file_operations nvt_heatmap_fops = {
 static int32_t nvt_cc_uniformity_open(struct inode *inode,
 				      struct file *file)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 	if (nvt_get_cc_uniformity())
 		return -EAGAIN;
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 	return seq_open(file, &nvt_cc_uniformity_seq_ops);
 }
@@ -2313,7 +2311,7 @@ int32_t nvt_extra_api_init(void)
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	ret = sysfs_create_link(ts->input_dev->dev.kobj.parent,
 				&ts->input_dev->dev.kobj, NVT_TOUCH_SYSFS_LINK);
@@ -2336,7 +2334,7 @@ int32_t nvt_extra_api_init(void)
 	if (NVT_proc_cc_uniformity_entry == NULL)
 		NVT_ERR("create /proc/nvt_cc_uniformity Failed!\n");
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 
 exit_nvt_touch_sysfs_init:
 	return ret;
@@ -2344,7 +2342,7 @@ exit_nvt_touch_sysfs_init:
 
 void nvt_extra_api_deinit(void)
 {
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 	devm_device_remove_group(&ts->input_dev->dev, &nvt_api_attribute_group);
 	sysfs_remove_link(ts->input_dev->dev.kobj.parent, NVT_TOUCH_SYSFS_LINK);
 	devm_kfree(&ts->client->dev, ts->heatmap_spi_buf);
@@ -2353,7 +2351,7 @@ void nvt_extra_api_deinit(void)
 	cc_uniformity_spi_buf = NULL;
 	kfree(rawdata_uniformity_spi_buf);
 	rawdata_uniformity_spi_buf = NULL;
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 }
 
 void nvt_get_dttw_conf(void)

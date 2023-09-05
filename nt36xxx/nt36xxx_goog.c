@@ -511,14 +511,14 @@ ssize_t force_touch_active_show(struct device *dev,
 {
 	int32_t ret = 0;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 #ifdef GOOG_TOUCH_INTERFACE
-	ret = scnprintf(buf, PAGE_SIZE, "locks %#x\n",
+	ret = sysfs_emit(buf, "%#x\n",
 		goog_pm_wake_get_locks(ts->gti));
 #endif
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -533,7 +533,7 @@ ssize_t force_touch_active_store(struct device *dev,
 	u32 lock = 0;
 #endif
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 0, &mode)) {
 		NVT_ERR("invalid input!\n");
@@ -596,7 +596,7 @@ ssize_t force_touch_active_store(struct device *dev,
 			lock, ret, goog_pm_wake_get_locks(ts->gti));
 #endif
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 
@@ -605,11 +605,11 @@ ssize_t force_release_fw_show(struct device *dev,
 {
 	int32_t ret;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
-	ret = scnprintf(buf, PAGE_SIZE, "force_release_fw %d\n", ts->force_release_fw);
+	ret = sysfs_emit(buf, "%d\n", ts->force_release_fw);
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return ret;
 }
 
@@ -619,7 +619,7 @@ ssize_t force_release_fw_store(struct device *dev,
 {
 	u8 mode;
 
-	NVT_LOG("++\n");
+	NVT_LOGD("++\n");
 
 	if (kstrtou8(buf, 0, &mode)) {
 		NVT_ERR("invalid input!\n");
@@ -630,7 +630,7 @@ ssize_t force_release_fw_store(struct device *dev,
 	if (ts->force_release_fw)
 		update_firmware_release();
 
-	NVT_LOG("--\n");
+	NVT_LOGD("--\n");
 	return count;
 }
 

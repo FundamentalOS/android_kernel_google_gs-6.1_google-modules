@@ -70,13 +70,14 @@
 
 //---SPI driver info.---
 #define NVT_SPI_NAME "NVT-ts"
-
-#define NVT_DBG(fmt, args...)    pr_debug("[%s] %s %d: " fmt, NVT_SPI_NAME,\
-					__func__, __LINE__, ##args)
-#define NVT_LOG(fmt, args...)    pr_info("[%s] %s %d: " fmt, NVT_SPI_NAME,\
-					__func__, __LINE__, ##args)
-#define NVT_ERR(fmt, args...)    pr_err("[%s] %s %d: " fmt, NVT_SPI_NAME,\
-					__func__, __LINE__, ##args)
+#undef pr_fmt
+#define pr_fmt(fmt) "gtd: NVT-ts: " fmt
+#define NVT_DBG(fmt, args...)  pr_debug(fmt, ##args)
+#define NVT_LOG(fmt, args...)  pr_info(fmt, ##args)
+#define NVT_ERR(fmt, args...)  pr_err(fmt, ##args)
+#define NVT_LOGD(fmt, args...) NVT_DBG("%s: "fmt, __func__, ##args)
+#define NVT_LOGI(fmt, args...) NVT_LOG("%s: "fmt, __func__, ##args)
+#define NVT_LOGE(fmt, args...) NVT_ERR("%s: "fmt, __func__, ##args)
 
 //---Input device info.---
 #define NVT_TS_NAME "NVTCapacitiveTouchScreen"
