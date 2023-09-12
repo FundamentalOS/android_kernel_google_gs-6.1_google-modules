@@ -11340,8 +11340,7 @@ void wl_config_custom_regulatory(struct wiphy *wiphy)
 	struct ieee80211_regdomain *regd_copy = NULL;
 
 	/* Use self managed regulatory domain */
-	wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED |
-			REGULATORY_IGNORE_STALE_KICKOFF;
+	wiphy->regulatory_flags |= REGULATORY_WIPHY_SELF_MANAGED;
 	regd_len = sizeof(struct ieee80211_regdomain) +
 		(brcm_regdom.n_reg_rules * sizeof(struct ieee80211_reg_rule));
 	/* it will be released in function reg_process_self_managed_hints */
@@ -11359,9 +11358,6 @@ void wl_config_custom_regulatory(struct wiphy *wiphy)
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0))
 	wiphy->regulatory_flags |=
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-		REGULATORY_IGNORE_STALE_KICKOFF |
-#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0) */
 		REGULATORY_CUSTOM_REG;
 #else /* KERNEL VER >= 3.14 */
 	wiphy->flags |= WIPHY_FLAG_CUSTOM_REGULATORY;
