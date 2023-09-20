@@ -424,6 +424,7 @@ extern int32_t nvt_usi_store_gid(const uint8_t *buf_gid);
 extern int32_t nvt_usi_store_hash_id(const uint8_t *buf_hash_id);
 extern int32_t nvt_usi_store_session_id(const uint8_t *buf_session_id);
 extern int32_t nvt_usi_store_freq_seed(const uint8_t *buf_freq_seed);
+extern int32_t nvt_usi_store_pen_model_index(const uint8_t *buf_model_idx);
 
 extern int32_t nvt_usi_get_battery(uint8_t *bat);
 extern int32_t nvt_usi_get_fw_version(uint8_t *buf_fw_ver);
@@ -433,6 +434,7 @@ extern int32_t nvt_usi_get_hash_id(uint8_t *buf_hash_id);
 extern int32_t nvt_usi_get_session_id(uint8_t *buf_session_id);
 extern int32_t nvt_usi_get_freq_seed(uint8_t *buf_freq_seed);
 extern int32_t nvt_usi_get_validity_flags(uint16_t *validity_flags);
+extern int32_t nvt_usi_get_pen_model_index(uint8_t *model_idx);
 
 /* Flags for the responses of the USI read commands */
 enum {
@@ -462,7 +464,8 @@ enum {
 	USI_CRC_FAIL_SIZE	= 2,
 	USI_FAST_PAIR_SIZE	= 2,
 	USI_NORMAL_PAIR_SIZE	= 2,
-	USI_RESERVED1_SIZE	= 22,
+	USI_PEN_MODEL_IDX_SIZE	= 1,
+	USI_RESERVED1_SIZE	= 21,
 	USI_HASH_ID_SIZE	= 2,
 	USI_SESSION_ID_SIZE	= 2,
 	USI_FREQ_SEED_SIZE	= 1,
@@ -472,19 +475,20 @@ enum {
 
 /* location of the data in the response buffer */
 enum {
-	USI_GID_OFFSET		= 1,
-	USI_BATTERY_OFFSET	= USI_GID_OFFSET + USI_GID_SIZE,
-	USI_FW_VERSION_OFFSET	= USI_BATTERY_OFFSET + USI_BATTERY_SIZE,
-	USI_CAPABILITY_OFFSET	= USI_FW_VERSION_OFFSET + USI_FW_VERSION_SIZE,
-	USI_CRC_FAIL_OFFSET	= USI_CAPABILITY_OFFSET + USI_CAPABILITY_SIZE,
-	USI_FAST_PAIR_OFFSET	= USI_CRC_FAIL_OFFSET + USI_CRC_FAIL_SIZE,
-	USI_NORMAL_PAIR_OFFSET	= USI_FAST_PAIR_OFFSET + USI_FAST_PAIR_SIZE,
-	USI_RESERVED1_OFFSET	= USI_NORMAL_PAIR_OFFSET + USI_NORMAL_PAIR_SIZE,
-	USI_HASH_ID_OFFSET	= USI_RESERVED1_OFFSET + USI_RESERVED1_SIZE,
-	USI_SESSION_ID_OFFSET	= USI_HASH_ID_OFFSET + USI_HASH_ID_SIZE,
-	USI_FREQ_SEED_OFFSET	= USI_SESSION_ID_OFFSET + USI_SESSION_ID_SIZE,
-	USI_RESERVED2_OFFSET	= USI_FREQ_SEED_OFFSET + USI_FREQ_SEED_SIZE,
-	USI_INFO_FLAG_OFFSET	= USI_RESERVED2_OFFSET + USI_RESERVED2_SIZE,
+	USI_GID_OFFSET		 = 1,
+	USI_BATTERY_OFFSET	 = USI_GID_OFFSET + USI_GID_SIZE,
+	USI_FW_VERSION_OFFSET	 = USI_BATTERY_OFFSET + USI_BATTERY_SIZE,
+	USI_CAPABILITY_OFFSET	 = USI_FW_VERSION_OFFSET + USI_FW_VERSION_SIZE,
+	USI_CRC_FAIL_OFFSET	 = USI_CAPABILITY_OFFSET + USI_CAPABILITY_SIZE,
+	USI_FAST_PAIR_OFFSET	 = USI_CRC_FAIL_OFFSET + USI_CRC_FAIL_SIZE,
+	USI_NORMAL_PAIR_OFFSET	 = USI_FAST_PAIR_OFFSET + USI_FAST_PAIR_SIZE,
+	USI_PEN_MODEL_IDX_OFFSET = USI_NORMAL_PAIR_OFFSET + USI_NORMAL_PAIR_SIZE,
+	USI_RESERVED1_OFFSET	 = USI_PEN_MODEL_IDX_OFFSET + USI_PEN_MODEL_IDX_SIZE,
+	USI_HASH_ID_OFFSET	 = USI_RESERVED1_OFFSET + USI_RESERVED1_SIZE,
+	USI_SESSION_ID_OFFSET	 = USI_HASH_ID_OFFSET + USI_HASH_ID_SIZE,
+	USI_FREQ_SEED_OFFSET	 = USI_SESSION_ID_OFFSET + USI_SESSION_ID_SIZE,
+	USI_RESERVED2_OFFSET	 = USI_FREQ_SEED_OFFSET + USI_FREQ_SEED_SIZE,
+	USI_INFO_FLAG_OFFSET	 = USI_RESERVED2_OFFSET + USI_RESERVED2_SIZE,
 };
 #endif
 
