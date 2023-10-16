@@ -179,6 +179,7 @@ static int scene_notifier_handler(struct notifier_block *nb,
 			jiffies_to_msecs(jiffies - notifier->prev_event));
 #endif
 		notifier->prev_event = jiffies;
+		fallthrough;
 	case WLAN_PTRACKER_NOTIFY_STA_CONNECT:
 	case WLAN_PTRACKER_NOTIFY_TP:
 		scenes_fsm_decision(core, event);
