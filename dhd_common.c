@@ -1526,7 +1526,7 @@ int dhd_collect_coredump(dhd_pub_t *dhdp, dhd_dump_t *dump)
 		DHD_ERROR(("SSSR is not enabled or not collected yet "
 				"sssr_enab = %d, dhdp->collect_sssr = %d\n",
 				sssr_enab, dhdp->collect_sssr));
-		return BCME_ERROR;
+		return BCME_UNSUPPORTED;
 	}
 
 	num_d11cores = dhd_d11_slices_num_get(dhdp);

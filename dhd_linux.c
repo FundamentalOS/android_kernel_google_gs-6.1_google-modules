@@ -22916,9 +22916,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 
 #ifdef DHD_SSSR_DUMP
 	ret = dhd_collect_coredump(dhdp, dump);
-	if (ret) {
+	if (ret == BCME_ERROR) {
 		DHD_ERROR(("%s: dhd_collect_coredump() failed.\n", __FUNCTION__));
 		goto exit;
+	} else if (ret == BCME_UNSUPPORTED) {
+		DHD_ERROR(("%s: Unable to collect SSSR dumps. Skip it.\n",
+			__FUNCTION__));
 	}
 #endif /* DHD_SSSR_DUMP */
 
@@ -29975,6 +29978,10 @@ dhd_net_del_flowrings_sta(dhd_pub_t *dhd, struct net_device *ndev)
 		__FUNCTION__, ifp->idx));
 
 	dhd_del_all_sta(dhd, ifp->idx);
+#ifdef DHD_PCIE_RUNTIMEPM
+	DHD_ERROR(("dhd_bus_busy_state = 0x%x\n", dhd->dhd_bus_busy_state));
+	dhdpcie_runtime_bus_wake(dhd, CAN_SLEEP(), __builtin_return_address(0));
+#endif /* DHD_PCIE_RUNTIMEPM */
 	dhd_flow_rings_delete(dhd, ifp->idx);
 }
 #endif /* PCIE_FULL_DONGLE */

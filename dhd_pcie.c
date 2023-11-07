@@ -17539,7 +17539,7 @@ dhd_pcie_dump_int_regs(dhd_pub_t *dhd)
 	uint32 d2h_mb_data = 0;
 
 	/* Skip after receiving D3 ACK */
-	if (DHD_CHK_BUS_LPS_D3_ACKED(dhd->bus)) {
+	if (__DHD_CHK_BUS_LPS_D3_ACKED(dhd->bus)) {
 		DHD_ERROR(("dhd_pcie_dump_int_regs: skip as d3 ack is received\n"));
 		return TRUE;
 	}
