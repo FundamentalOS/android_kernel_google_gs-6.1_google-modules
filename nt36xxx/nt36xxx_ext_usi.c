@@ -485,6 +485,7 @@ struct nvt_usi_context {
 	uint8_t stylus_hash_id[USI_HASH_ID_SIZE];
 	uint8_t stylus_session_id[USI_SESSION_ID_SIZE];
 	uint8_t stylus_freq_seed;
+	uint8_t pen_model_index;
 };
 
 static struct nvt_usi_context *usi_ctx;
@@ -592,6 +593,30 @@ int32_t nvt_usi_get_fw_version(uint8_t *buf_fw_ver)
 		return -ENODATA;
 
 	memcpy(buf_fw_ver, usi_ctx->stylus_fw_ver, sizeof(usi_ctx->stylus_fw_ver));
+
+	return 0;
+}
+
+int32_t nvt_usi_store_pen_model_index(const uint8_t *buf_model_idx)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	usi_ctx->pen_model_index = buf_model_idx[0];
+
+	return 0;
+}
+
+
+int32_t nvt_usi_get_pen_model_index(uint8_t *model_idx)
+{
+	if (!usi_ctx)
+		return -EINVAL;
+
+	if (!(usi_ctx->stylus_read_map & USI_GID_FLAG))
+		return -ENODATA;
+
+	*model_idx = usi_ctx->pen_model_index;
 
 	return 0;
 }

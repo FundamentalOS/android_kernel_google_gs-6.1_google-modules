@@ -1569,6 +1569,7 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 	if (info_buf_flags & USI_GID_FLAG) {
 		nvt_usi_store_gid(info_buf + USI_GID_OFFSET);
 		nvt_usi_get_serial_number(&pen_serial_high, &pen_serial_low);
+		nvt_usi_store_pen_model_index(info_buf + USI_PEN_MODEL_IDX_OFFSET);
 		if (ts->pen_serial_high != pen_serial_high ||
 		    ts->pen_serial_low != pen_serial_low) {
 			int idx = 0;
@@ -3216,7 +3217,8 @@ int nvt_ts_resume(struct device *dev)
 
 	/* Restore fast-pairing configuration. */
 	if (ts->pen_support) {
-		uint8_t buf[7], hash_id[2], session_id[2], fw_version[2], freq_seed = 0;
+		uint8_t buf[7], hash_id[2], session_id[2], fw_version[2];
+		uint8_t freq_seed = 0, pen_model_index = 0;
 		uint16_t validity_flags = 0;
 
 		if (nvt_usi_get_hash_id(hash_id)) {
@@ -3242,6 +3244,7 @@ int nvt_ts_resume(struct device *dev)
 
 		msleep(20);
 
+		nvt_usi_get_pen_model_index(&pen_model_index);
 		nvt_usi_get_freq_seed(&freq_seed);
 		if (nvt_usi_get_fw_version(fw_version)){
 			fw_version[0] = 0; /* set 0 if error */
@@ -3254,9 +3257,10 @@ int nvt_ts_resume(struct device *dev)
 		buf[3] = freq_seed;
 		buf[4] = fw_version[0];
 		buf[5] = fw_version[1];
-		CTP_SPI_WRITE(ts->client, buf, 6);
-		NVT_LOG("Write pen_freq_seed = %02X, pen_fw_ver = 0x%02X%02X\n",
-				freq_seed, fw_version[1], fw_version[0]);
+		buf[6] = pen_model_index;
+		CTP_SPI_WRITE(ts->client, buf, 7);
+		NVT_LOG("Write pen_freq_seed = %02X, pen_fw_ver = 0x%02X%02X, model_idx = %d\n",
+				freq_seed, fw_version[1], fw_version[0], pen_model_index);
 		msleep(20);
 
 		nvt_usi_get_validity_flags(&validity_flags);
