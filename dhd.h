@@ -4860,4 +4860,7 @@ extern void dhd_dbg_ring_write(int type, char *binary_data,
 #define DHD_PKTID_UNMAP_LOG_HDR "\n------------------ PKTID UNMAP log -----------------------\n"
 #define PKTID_LOG_DUMP_FMT "\nIndex(Current=%d) Timestamp Pktaddr(PA) Pktid Size\n"
 #endif /* DHD_LOG_DUMP */
+extern void dhd_unregister_net(struct net_device *net, bool need_rtnl_lock);
+extern int dhd_register_net(struct net_device *net, bool need_rtnl_lock);
+
 #endif /* _dhd_h_ */

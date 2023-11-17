@@ -632,6 +632,7 @@ static void dhd_ifadd_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_ifdel_event_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mac_addr_handler(void *handle, void *event_info, u8 event);
 static void dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event);
+static void dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event);
 #ifdef BCM_ROUTER_DHD
 static void dhd_inform_dhd_monitor_handler(void *handle, void *event_info, u8 event);
 #endif
@@ -3528,7 +3529,11 @@ done:
 
 	MFREE(dhd->pub.osh, if_event, sizeof(dhd_if_event_t));
 #if defined(WLDWDS) && defined(FOURADDR_AUTO_BRG)
-	dhd_bridge_dev_set(dhd, ifidx, ndev);
+	if (ndev)
+		dhd_bridge_dev_set(dhd, ifidx, ndev);
+	else
+		DHD_ERROR(("Netdev not found! Do nothing.\n"));
+
 #endif /* defiend(WLDWDS) && defined(FOURADDR_AUTO_BRG) */
 
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
@@ -3648,6 +3653,37 @@ done:
 	DHD_OS_WAKE_UNLOCK(&dhd->pub);
 	dhd_net_if_unlock_local(dhd);
 }
+
+static void
+dhd_ndev_upd_features_handler(void *handle, void *event_info, u8 event)
+{
+	struct net_device *net = event_info;
+
+	if (event != DHD_WQ_WORK_NDEV_UPD_FEATURES) {
+		DHD_ERROR(("%s: unexpected event \n", __FUNCTION__));
+		return;
+	}
+	if (!net) {
+		DHD_ERROR(("%s: event data is null \n", __FUNCTION__));
+		return;
+	}
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	rtnl_lock();
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
+	netdev_update_features(net);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	rtnl_unlock();
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)) */
+}
+
+static void
+dhd_ndev_upd_features(dhd_info_t *dhd, struct net_device *net)
+{
+	dhd_deferred_schedule_work(dhd->dhd_deferred_wq, (void *)net,
+			DHD_WQ_WORK_NDEV_UPD_FEATURES, dhd_ndev_upd_features_handler,
+			DHD_WQ_WORK_PRIORITY_HIGH);
+}
+
 
 static void
 dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event)
@@ -8071,9 +8107,9 @@ dhd_add_monitor_if(dhd_info_t *dhd)
 	 * So, register_netdev() shouldn't be called. It leads to deadlock.
 	 * To avoid deadlock due to rtnl_lock(), register_netdevice() should be used.
 	 */
-		ret= register_netdevice(dev);
+		ret = register_netdevice(dev);
 	}else{
-		ret= register_netdev(dev);
+		ret = register_netdev(dev);
 	}
 	if (ret) {
 		DHD_ERROR(("%s, register_netdev failed for %s\n",
@@ -8429,6 +8465,48 @@ void dhd_bus_retry_hang_recovery(wlan_bt_handle_t handle)
 }
 EXPORT_SYMBOL(dhd_bus_retry_hang_recovery);
 #endif /* BT_OVER_SDIO */
+
+void dhd_unregister_net(struct net_device *net, bool need_rtnl_lock)
+{
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	if (need_rtnl_lock) {
+		rtnl_lock();
+		cfg80211_unregister_netdevice(net);
+		rtnl_unlock();
+	} else {
+		cfg80211_unregister_netdevice(net);
+	}
+#else
+	if (need_rtnl_lock) {
+		unregister_netdev(net);
+	} else {
+		unregister_netdevice(net);
+	}
+#endif /* KERNEL_VER >= KERNEL_VERSION(5, 15, 0) */
+	return;
+}
+
+int dhd_register_net(struct net_device *net, bool need_rtnl_lock)
+{
+	int err = 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	if (need_rtnl_lock) {
+		rtnl_lock();
+		err = cfg80211_register_netdevice(net);
+		rtnl_unlock();
+	} else {
+		err = cfg80211_register_netdevice(net);
+	}
+#else
+	if (need_rtnl_lock) {
+		err = register_netdev(net);
+	} else {
+		err = register_netdevice(net);
+	}
+#endif /* KERNEL_VER >= KERNEL_VERSION(5, 15, 0) */
+	return err;
+}
+
 
 #if defined(DHD_H2D_LOG_TIME_SYNC)
 /*
@@ -8902,6 +8980,15 @@ done:
 
 	return OSL_ERROR(bcmerror);
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+static int
+dhd_siocdevprivate(struct net_device *net, struct ifreq *ifr,
+	void __user *data, int cmd)
+{
+	return dhd_ioctl_entry(net, ifr, cmd);
+}
+#endif /* LINUX_VERSION_CODE >= 5.15.0 */
 
 #if defined(WL_CFG80211) && defined(SUPPORT_DEEP_SLEEP)
 /* Flags to indicate if we distingish power off policy when
@@ -9761,7 +9848,7 @@ dhd_open(struct net_device *net)
 #endif /* DHD_LB_TXP */
 		dhd->dhd_lb_candidacy_override = FALSE;
 #endif /* DHD_LB */
-		netdev_update_features(net);
+		dhd_ndev_upd_features(dhd, net);
 #ifdef DHD_PM_OVERRIDE
 		g_pm_override = FALSE;
 #endif /* DHD_PM_OVERRIDE */
@@ -10376,10 +10463,7 @@ dhd_allocate_if(dhd_pub_t *dhdpub, int ifidx, const char *name,
 				free_netdev(ifp->net);
 			} else {
 				dhd_tx_stop_queues(ifp->net);
-				if (need_rtnl_lock)
-					unregister_netdev(ifp->net);
-				else
-					unregister_netdevice(ifp->net);
+				dhd_unregister_net(ifp->net, need_rtnl_lock);
 			}
 			ifp->net = NULL;
 		}
@@ -10639,10 +10723,7 @@ dhd_remove_if(dhd_pub_t *dhdpub, int ifidx, bool need_rtnl_lock)
 #if (defined(DHDTCPACK_SUPPRESS) && defined(BCMPCIE))
 				dhd_tcpack_suppress_set(dhdpub, TCPACK_SUP_OFF);
 #endif /* DHDTCPACK_SUPPRESS && BCMPCIE */
-				if (need_rtnl_lock)
-					unregister_netdev(ifp->net);
-				else
-					unregister_netdevice(ifp->net);
+				dhd_unregister_net(ifp->net, need_rtnl_lock);
 			}
 			ifp->net = NULL;
 			DHD_GENERAL_LOCK(dhdpub, flags);
@@ -10692,6 +10773,9 @@ static struct net_device_ops dhd_ops_pri = {
 	.ndo_do_ioctl = dhd_ioctl_entry,
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	.ndo_siocdevprivate = dhd_siocdevprivate,
+#endif
 	.ndo_set_mac_address = dhd_set_mac_address,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0))
 	.ndo_set_rx_mode = dhd_set_multicast_list,
@@ -10716,6 +10800,9 @@ static struct net_device_ops dhd_ops_virt = {
 	.ndo_do_ioctl = dhd_ioctl_entry,
 	.ndo_start_xmit = dhd_start_xmit,
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
+	.ndo_siocdevprivate = dhd_siocdevprivate,
+#endif
 	.ndo_set_mac_address = dhd_set_mac_address,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0))
 	.ndo_set_rx_mode = dhd_set_multicast_list,
@@ -16780,10 +16867,7 @@ dhd_register_if(dhd_pub_t *dhdp, int ifidx, bool need_rtnl_lock)
 	if (ifidx == 0)
 		printf("%s\n", dhd_version);
 
-	if (need_rtnl_lock)
-		err = register_netdev(net);
-	else
-		err = register_netdevice(net);
+		err = dhd_register_net(net, need_rtnl_lock);
 
 	if (err != 0) {
 		DHD_ERROR(("couldn't register the net device [%s], err %d\n", net->name, err));
@@ -17073,7 +17157,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 				free_netdev(ifp->net);
 			} else {
 				netif_tx_disable(ifp->net);
-				unregister_netdev(ifp->net);
+				dhd_unregister_net(ifp->net, true);
 			}
 #ifdef PCIE_FULL_DONGLE
 			ifp->net = DHD_NET_DEV_NULL;

@@ -13027,7 +13027,7 @@ void wl_android_post_init(void)
 
 	if (!dhd_download_fw_on_driverload) {
 		g_wifi_on = FALSE;
-		DHD_ERROR(("%s: %d", __FUNCTION__, g_wifi_on));
+		DHD_ERROR(("%s: %d\n", __FUNCTION__, g_wifi_on));
 	}
 }
 
@@ -13378,7 +13378,7 @@ wl_cfg80211_unregister_static_if(struct bcm_cfg80211 *cfg)
 	/* wdev free will happen from notifier context */
 	/* free_netdev(cfg->static_ndev);
 	*/
-	unregister_netdev(cfg->static_ndev);
+	dhd_unregister_net(cfg->static_ndev, true);
 }
 
 s32

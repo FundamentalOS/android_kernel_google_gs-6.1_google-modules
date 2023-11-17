@@ -882,26 +882,32 @@ wl_release_vif_macaddr(struct bcm_cfg80211 *cfg, const u8 *mac_addr, u16 wl_ifty
 	}
 
 	/* Fetch last two bytes of mac address */
-	org_toggle_bytes = ntoh16(*((u16 *)&ndev->dev_addr[4]));
-	cur_toggle_bytes = ntoh16(*((u16 *)&mac_addr[4]));
-
-	toggled_bit = (org_toggle_bytes ^ cur_toggle_bytes);
-	WL_DBG(("org_toggle_bytes:%04X cur_toggle_bytes:%04X\n",
-		org_toggle_bytes, cur_toggle_bytes));
-	if (toggled_bit & cfg->vif_macaddr_mask) {
-		/* This toggled_bit is marked in the used mac addr
-		 * mask. Clear it.
-		 */
-		cfg->vif_macaddr_mask &= ~toggled_bit;
-		WL_INFORM(("MAC address - " MACDBG " released. toggled_bit:%04X vif_mask:%04X\n",
-			MAC2STRDBG(mac_addr), toggled_bit, cfg->vif_macaddr_mask));
-	} else {
-		WL_ERR(("MAC address - " MACDBG " not found in the used list."
-			" toggled_bit:%04x vif_mask:%04x\n", MAC2STRDBG(mac_addr),
-			toggled_bit, cfg->vif_macaddr_mask));
-		return -EINVAL;
+#ifdef WL_NAN
+	if (!((cfg->nancfg->mac_rand) && (wl_iftype == WL_IF_TYPE_NAN)))
+#endif /* WL_NAN */
+	{
+		/* Fetch last two bytes of mac address */
+		org_toggle_bytes = ntoh16(*((u16 *)&ndev->dev_addr[4]));
+		cur_toggle_bytes = ntoh16(*((u16 *)&mac_addr[4]));
+		toggled_bit = (org_toggle_bytes ^ cur_toggle_bytes);
+		WL_DBG(("org_toggle_bytes:%04X cur_toggle_bytes:%04X\n",
+			org_toggle_bytes, cur_toggle_bytes));
+		if (toggled_bit & cfg->vif_macaddr_mask) {
+			/* This toggled_bit is marked in the used mac addr
+			 * mask. Clear it.
+			 */
+			cfg->vif_macaddr_mask &= ~toggled_bit;
+			WL_INFORM(("MAC address - " MACDBG " released. toggled_bit:%04X"
+				" vif_mask:%04X\n",
+				MAC2STRDBG(mac_addr), toggled_bit, cfg->vif_macaddr_mask));
+		} else {
+			WL_ERR(("MAC address - " MACDBG " not found in the used list."
+				" toggled_bit:%04x vif_mask:%04x\n", MAC2STRDBG(mac_addr),
+				toggled_bit, cfg->vif_macaddr_mask));
+			return -EINVAL;
+		}
 	}
-
+	WL_INFORM_MEM(("vif deleted. vif_count:%d\n", cfg->vif_count));
 	return BCME_OK;
 }
 
@@ -917,14 +923,43 @@ wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr)
 	u32 offset = 0;
 	/* Toggle mask starts from MSB of second last byte */
 	u16 mask = 0x8000;
+	int i = 0;
+	bool rand_mac = false;
+
+	BCM_REFERENCE(i);
+	BCM_REFERENCE(rand_mac);
 	if (!mac_addr) {
 		return -EINVAL;
 	}
+#ifdef WL_NAN
+	rand_mac = cfg->nancfg->mac_rand;
+	if (wl_iftype == WL_IF_TYPE_NAN && rand_mac) {
+		/* ensure nmi != ndi */
+		do {
+			RANDOM_BYTES(mac_addr, ETHER_ADDR_LEN);
+			/* restore mcast and local admin bits to 0 and 1 */
+			ETHER_SET_UNICAST(mac_addr);
+			ETHER_SET_LOCALADDR(mac_addr);
+			i++;
+			if (i == NAN_RAND_MAC_RETRIES) {
+				break;
+			}
+		} while (eacmp(cfg->nancfg->nan_nmi_mac, mac_addr) == 0);
+
+		if (i == NAN_RAND_MAC_RETRIES) {
+			if (eacmp(cfg->nancfg->nan_nmi_mac, mac_addr) == 0) {
+				WL_ERR(("\nCouldn't generate rand NDI which != NMI\n"));
+				return BCME_NORESOURCE;
+			}
+		}
+		return BCME_OK;
+	}
+#endif /* WL_NAN */
 	if ((wl_iftype == WL_IF_TYPE_P2P_DISC) && p2p_dev_addr &&
 		ETHER_IS_LOCALADDR(p2p_dev_addr)) {
 		/* If mac address is already generated return the mac */
 		(void)memcpy_s(mac_addr, ETH_ALEN, p2p_dev_addr->octet, ETH_ALEN);
-		return 0;
+		return BCME_OK;
 	}
 	(void)memcpy_s(mac_addr, ETH_ALEN, ndev->perm_addr, ETH_ALEN);
 /*
@@ -982,7 +1017,7 @@ wl_get_vif_macaddr(struct bcm_cfg80211 *cfg, u16 wl_iftype, u8 *mac_addr)
 		} while (true);
 	}
 	WL_INFORM_MEM(("Get virtual I/F mac addr: "MACDBG"\n", MAC2STRDBG(mac_addr)));
-	return 0;
+	return BCME_OK;
 }
 
 bcm_struct_cfgdev *
@@ -1006,7 +1041,9 @@ wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
 	struct net_device *primary_ndev;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	struct wireless_dev *wdev;
+#if !defined(WL_STATIC_IF) && defined(APSTA_NON_CONCURRENT)
 	int ret = BCME_OK;
+#endif /* !WL_STATIC_IF && APSTA_NON_CONCURRENT */
 
 	WL_DBG(("Enter iftype: %d\n", type));
 	if (!cfg) {
@@ -1074,6 +1111,17 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 		WL_ERR(("Wrong iftype: %d\n", wdev->iftype));
 		return -ENODEV;
 	}
+
+#ifdef WL_NAN
+	if (wl_iftype == WL_IF_TYPE_STA && IS_NDI_IFACE(wdev->netdev->name)) {
+		if (wl_cfgnan_is_enabled(cfg) == false) {
+			WL_INFORM_MEM(("Nan is not active, ignore NDI delete\n"));
+			return ret;
+		}
+		/* Overwrite it with NAN iftype */
+		wl_iftype = WL_IF_TYPE_NAN;
+	}
+#endif /* WL_NAN */
 
 	if ((ret = wl_cfg80211_del_if(cfg, primary_ndev,
 			wdev, NULL)) < 0) {
