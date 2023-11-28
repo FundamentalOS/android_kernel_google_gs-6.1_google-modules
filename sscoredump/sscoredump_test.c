@@ -380,8 +380,8 @@ static ssize_t test_client_info_show(struct device *dev, struct device_attribute
 	return n;
 }
 
-/**
- * test_unregister_store() - unregister SSCD client
+/*
+ * test_client_unregister_store() - unregister SSCD client
  * @arg "number" number of clients to unregister
  */
 static ssize_t test_client_unregister_store(struct device *dev, struct device_attribute *attr,
