@@ -2723,10 +2723,8 @@ exit:
 
 #ifdef ROAMEXP_SUPPORT
 typedef enum {
-	FW_ROAMING_ENABLE = 1,
 	FW_ROAMING_DISABLE,
-	FW_ROAMING_PAUSE,
-	FW_ROAMING_RESUME
+	FW_ROAMING_ENABLE
 } fw_roaming_state_t;
 
 static int
@@ -2757,11 +2755,9 @@ wl_cfgvendor_set_fw_roaming_state(struct wiphy *wiphy,
 	requested_roaming_state = nla_get_u32(data);
 	WL_INFORM(("setting FW roaming state to %d\n", requested_roaming_state));
 
-	if ((requested_roaming_state == FW_ROAMING_ENABLE) ||
-		(requested_roaming_state == FW_ROAMING_RESUME)) {
+	if (requested_roaming_state == FW_ROAMING_ENABLE) {
 		err = wldev_iovar_setint(wdev_to_ndev(wdev), "roam_off", FALSE);
-	} else if ((requested_roaming_state == FW_ROAMING_DISABLE) ||
-		(requested_roaming_state == FW_ROAMING_PAUSE)) {
+	} else if (requested_roaming_state == FW_ROAMING_DISABLE) {
 		err = wldev_iovar_setint(wdev_to_ndev(wdev), "roam_off", TRUE);
 	} else {
 		err = -EINVAL;

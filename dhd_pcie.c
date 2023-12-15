@@ -2212,6 +2212,13 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		if (PCIECTO_ENAB(bus)) {
 			dhdpcie_cto_init(bus, TRUE);
 		}
+		cc = (chipcregs_t*)si_setcore(bus->sih, CC_CORE_ID, 0);
+		if (cc) {
+			AND_REG(osh, &cc->clk_ctl_st, ~CCS_FORCEHT);
+		} else {
+			DHD_ERROR(("CC is NULL\n"));
+		}
+		si_setcore(bus->sih, origidx, 0);
 	}
 
 	/* need to set the force_bt_quiesce flag here
