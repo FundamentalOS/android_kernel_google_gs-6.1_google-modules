@@ -12,7 +12,6 @@
  * GNU General Public License for more details.
  */
 
-#include <asm/setup.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -22,6 +21,7 @@
 #include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <asm/setup.h>
 #include "cnss_utils.h"
 
 #define CDB_PATH "/chosen/config"

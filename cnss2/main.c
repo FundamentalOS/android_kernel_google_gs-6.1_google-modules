@@ -15,6 +15,7 @@
 #include <linux/rwsem.h>
 #include <linux/suspend.h>
 #include <linux/timer.h>
+#include <linux/panic_notifier.h>
 #if IS_ENABLED(CONFIG_QCOM_MINIDUMP)
 #include <soc/qcom/minidump.h>
 #endif
@@ -2228,14 +2229,14 @@ static void cnss_driver_event_work(struct work_struct *work)
 		case CNSS_DRIVER_EVENT_IDLE_RESTART:
 			set_bit(CNSS_DRIVER_IDLE_RESTART,
 				&plat_priv->driver_state);
-			/* fall through */
+			fallthrough;
 		case CNSS_DRIVER_EVENT_POWER_UP:
 			ret = cnss_power_up_hdlr(plat_priv);
 			break;
 		case CNSS_DRIVER_EVENT_IDLE_SHUTDOWN:
 			set_bit(CNSS_DRIVER_IDLE_SHUTDOWN,
 				&plat_priv->driver_state);
-			/* fall through */
+			fallthrough;
 		case CNSS_DRIVER_EVENT_POWER_DOWN:
 			ret = cnss_power_down_hdlr(plat_priv);
 			break;
@@ -2922,7 +2923,10 @@ int cnss_request_firmware_direct(struct cnss_plat_data *plat_priv,
 }
 
 // Changed from CONFIG_INTERCONNECT to CONFIG_INTERCONNECT_QCOM by Google
-#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+// CONFIG_INTERCONNECT_QCOM is defined in kernel6.1, but interconnect is not used
+// so 0 is used instead of IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+//#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+#if 0
 /**
  * cnss_register_bus_scale() - Setup interconnect voting data
  * @plat_priv: Platform data structure

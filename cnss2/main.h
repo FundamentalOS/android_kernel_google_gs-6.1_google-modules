@@ -16,7 +16,10 @@
 #include <linux/etherdevice.h>
 #include <linux/firmware.h>
 // Changed from CONFIG_INTERCONNECT to CONFIG_INTERCONNECT_QCOM by Google
-#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+// CONFIG_INTERCONNECT_QCOM is defined in kernel6.1, but interconnect is not used
+// so 0 is used instead of IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+//#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+#if 0
 #include <linux/interconnect.h>
 #endif
 #include <linux/mailbox_client.h>
@@ -174,7 +177,10 @@ struct cnss_esoc_info {
 #endif
 
 // Changed from CONFIG_INTERCONNECT to CONFIG_INTERCONNECT_QCOM by Google
-#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+// CONFIG_INTERCONNECT_QCOM is defined in kernel6.1, but interconnect is not used
+// so 0 is used instead of IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+//#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+#if 0
 /**
  * struct cnss_bus_bw_cfg - Interconnect vote data
  * @avg_bw: Vote for average bandwidth

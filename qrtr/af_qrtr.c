@@ -19,6 +19,7 @@
 #include <linux/rwsem.h>
 #include <linux/uidgid.h>
 #include <linux/pm_wakeup.h>
+#include <linux/version.h>
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "ipc_logging.h"
 #else
@@ -1844,6 +1845,21 @@ static int qrtr_send_resume_tx(struct qrtr_cb *cb)
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
+static inline struct sk_buff *qrtr_skb_recv_datagram(struct sock *sk,
+				unsigned int flags, int *err)
+{
+	return skb_recv_datagram(sk, flags, err);
+}
+#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) */
+static inline struct sk_buff *qrtr_skb_recv_datagram(struct sock *sk,
+				unsigned int flags, int *err)
+{
+	return 	skb_recv_datagram(sk, flags & ~MSG_DONTWAIT,
+				flags & MSG_DONTWAIT, err);
+}
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) */
+
 static int qrtr_recvmsg(struct socket *sock, struct msghdr *msg,
 			size_t size, int flags)
 {
@@ -1857,8 +1873,7 @@ static int qrtr_recvmsg(struct socket *sock, struct msghdr *msg,
 	if (sock_flag(sk, SOCK_ZAPPED))
 		return -EADDRNOTAVAIL;
 
-	skb = skb_recv_datagram(sk, flags & ~MSG_DONTWAIT,
-				flags & MSG_DONTWAIT, &rc);
+	skb = qrtr_skb_recv_datagram(sk, flags, &rc);
 	if (!skb)
 		return rc;
 

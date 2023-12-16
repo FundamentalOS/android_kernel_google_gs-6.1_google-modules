@@ -14,6 +14,7 @@
 #include <linux/suspend.h>
 #include <linux/memblock.h>
 #include <linux/completion.h>
+#include <linux/version.h>
 #include <linux/sched.h>
 #ifdef CONFIG_WCN_GOOGLE
 #include <linux/dma-direct.h>
@@ -825,7 +826,10 @@ static int cnss_pci_force_wake_put(struct cnss_pci_data *pci_priv)
 }
 
 // Changed from CONFIG_INTERCONNECT to CONFIG_INTERCONNECT_QCOM by Google
-#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+// CONFIG_INTERCONNECT_QCOM is defined in kernel6.1, but interconnect is not used
+// so 0 is used instead of IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+//#if IS_ENABLED(CONFIG_INTERCONNECT_QCOM)
+#if 0
 /**
  * cnss_setup_bus_bandwidth() - Setup interconnect vote for given bandwidth
  * @plat_priv: Platform private data struct
@@ -4445,6 +4449,30 @@ u32 cnss_pci_get_wake_msi(struct cnss_pci_data *pci_priv)
 	return user_base_data;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0))
+static inline int cnss_pci_set_dma_mask(struct pci_dev *pci_dev, u64 mask)
+{
+	return dma_set_mask(&pci_dev->dev, mask);
+}
+
+static inline int cnss_pci_set_coherent_dma_mask(struct pci_dev *pci_dev,
+	u64 mask)
+{
+	return dma_set_coherent_mask(&pci_dev->dev, mask);
+}
+#else /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) */
+static inline int cnss_pci_set_dma_mask(struct pci_dev *pci_dev, u64 mask)
+{
+	return pci_set_dma_mask(pci_dev, mask);
+}
+
+static inline int cnss_pci_set_coherent_dma_mask(struct pci_dev *pci_dev,
+	u64 mask)
+{
+	return pci_set_consistent_dma_mask(pci_dev, mask);
+}
+#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)) */
+
 static int cnss_pci_enable_bus(struct cnss_pci_data *pci_priv)
 {
 	int ret = 0;
@@ -4494,13 +4522,13 @@ static int cnss_pci_enable_bus(struct cnss_pci_data *pci_priv)
 
 	cnss_pr_dbg("Set PCI DMA MASK (0x%llx)\n", pci_priv->dma_bit_mask);
 
-	ret = pci_set_dma_mask(pci_dev, pci_priv->dma_bit_mask);
+	ret = cnss_pci_set_dma_mask(pci_dev, pci_priv->dma_bit_mask);
 	if (ret) {
 		cnss_pr_err("Failed to set PCI DMA mask, err = %d\n", ret);
 		goto release_region;
 	}
 
-	ret = pci_set_consistent_dma_mask(pci_dev, pci_priv->dma_bit_mask);
+	ret = cnss_pci_set_coherent_dma_mask(pci_dev, pci_priv->dma_bit_mask);
 	if (ret) {
 		cnss_pr_err("Failed to set PCI consistent DMA mask, err = %d\n",
 			    ret);

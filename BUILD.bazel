@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
+
+kernel_module(
+    name = "cnss2",
+    srcs = glob([
+        "**/Makefile",
+        "**/Kbuild",
+        "inc/*.h",
+        "cnss_utils/*.c",
+        "cnss_utils/*.h",
+        "qmi/*.c",
+        "mhi/core/*.h",
+        "mhi/core/*.c",
+        "qrtr/*.h",
+        "qrtr/*.c",
+        "cnss_prealloc/*.c",
+        "cnss_genl/*.c",
+        "cnss2/*.h",
+        "cnss2/*.c",
+        "wlan_mac/*.c",
+    ]) + [
+        "//private/google-modules/soc/gs:gs_soc_headers",
+    ],
+    outs = [
+        "cnss2.ko",
+        "cnss_nl.ko",
+        "cnss_plat_ipc_qmi_svc.ko",
+        "cnss_prealloc.ko",
+        "cnss_utils.ko",
+        "google_wlan_mac.ko",
+        "mhi.ko",
+        "qmi_helpers.ko",
+        "qrtr.ko",
+        "qrtr-mhi.ko",
+        "wlan_firmware_service.ko",
+    ],
+    kernel_build = "//private/google-modules/soc/gs:gs_kernel_build",
+    visibility = [
+        "//private/devices/google:__subpackages__",
+        "//private/google-modules/soc/gs:__pkg__",
+        "//private/google-modules/wlan/wcn6740/wlan/qcacld-3.0:__pkg__",
+    ],
+    deps = [
+        "//private/google-modules/soc/gs:gs_soc_module",
+    ],
+)

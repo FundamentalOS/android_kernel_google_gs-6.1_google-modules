@@ -7,10 +7,22 @@
 #include <linux/mm.h>
 #include <linux/err.h>
 #include <linux/of.h>
+#include <linux/version.h>
 #ifdef CONFIG_CNSS_OUT_OF_TREE
 #include "cnss_prealloc.h"
 #else
 #include <net/cnss_prealloc.h>
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
+/* Ideally header should be from standard include path. So this is not an
+ * ideal way of header inclusion but use of slab struct to derive cache
+ * from a mem ptr helps in avoiding additional tracking and/or adding headroom
+ * of 8 bytes for cache in the beginning of buffer and wasting extra memory,
+ * particulary in the case when size of memory requested falls around the edge
+ * of a page boundary. We also have precedence of minidump_memory.c which
+ * includes mm/slab.h using this style.
+ */
+#include "../mm/slab.h"
 #endif
 
 MODULE_LICENSE("GPL v2");
@@ -151,6 +163,34 @@ static void cnss_pool_deinit(void)
  * value with error code in case of failure.
  *
  */
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
+static int cnss_pool_get_index(void *mem)
+{
+	struct slab *slab;
+	struct kmem_cache *cache;
+	int i;
+
+	if (!virt_addr_valid(mem))
+		return -EINVAL;
+
+	/* mem -> slab -> cache */
+	slab = virt_to_slab(mem);
+	if (!slab)
+		return -ENOENT;
+
+	cache = slab->slab_cache;
+	if (!cache)
+		return -ENOENT;
+
+	/* Check if memory belongs to a pool */
+	for (i = 0; i < ARRAY_SIZE(cnss_pools); i++) {
+		if (cnss_pools[i].cache == cache)
+			return i;
+	}
+
+	return -ENOENT;
+}
+#else
 static int cnss_pool_get_index(void *mem)
 {
 	struct page *page;
@@ -178,6 +218,7 @@ static int cnss_pool_get_index(void *mem)
 
 	return -ENOENT;
 }
+#endif
 
 /**
  * wcnss_prealloc_get() - Get preallocated memory from a pool
