@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 
-ccflags-y += -I$(srctree)/../private/google-modules/display
-ccflags-y += -I$(srctree)/../private/google-modules/display/include/uapi
-ccflags-y += -I$(srctree)/../private/google-modules/touch/common
-ccflags-y += -I$(srctree)/../private/google-modules/touch/common/include
+ccflags-y += -I$(srctree)/../private/google-modules/whi-staging/display
+ccflags-y += -I$(srctree)/../private/google-modules/whi-staging/display/include/uapi
+ccflags-y += -I$(srctree)/../private/google-modules/whi-staging/touch/common
+ccflags-y += -I$(srctree)/../private/google-modules/whi-staging/touch/common/include
 
 obj-$(CONFIG_TOUCHSCREEN_NT36xxx_HOSTDL_SPI) = nvt_touch.o
 nvt_touch-objs += nt36xxx.o nt36xxx_fw_update.o nt36xxx_ext_proc.o \
