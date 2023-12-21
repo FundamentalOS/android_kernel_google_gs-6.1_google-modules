@@ -4,9 +4,9 @@ load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
 filegroup(
     name = "sscoredump.kconfig",
-    srcs = glob([
+    srcs = [
         "Kconfig",
-    ]),
+    ],
     visibility = [
         "//private/devices/google:__subpackages__",
     ],
@@ -16,8 +16,8 @@ kernel_module(
     name = "sscoredump",
     srcs = glob([
         "*.c",
-        "Makefile",
     ]) + [
+        "Makefile",
         "//private/google-modules/soc/gs:gs_soc_headers",
     ],
     outs = [
