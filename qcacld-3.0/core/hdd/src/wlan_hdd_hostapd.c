@@ -2092,7 +2092,7 @@ QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 					adapter->device_mode,
 					adapter->vdev_id,
 					WLAN_IPA_AP_CONNECT,
-					adapter->dev->dev_addr,
+					(uint8_t *) adapter->dev->dev_addr,
 					WLAN_REG_IS_24GHZ_CH_FREQ(
 						ap_ctx->operating_chan_freq));
 			if (status)

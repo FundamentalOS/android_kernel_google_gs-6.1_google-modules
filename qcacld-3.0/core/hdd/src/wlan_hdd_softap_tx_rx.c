@@ -1497,7 +1497,7 @@ QDF_STATUS hdd_softap_stop_bss(struct hdd_adapter *adapter)
 				      adapter->device_mode,
 				      adapter->vdev_id,
 				      WLAN_IPA_AP_DISCONNECT,
-				      adapter->dev->dev_addr,
+				      (uint8_t *) adapter->dev->dev_addr,
 				      false) != QDF_STATUS_SUCCESS)
 			hdd_err("WLAN_AP_DISCONNECT event failed");
 	}
