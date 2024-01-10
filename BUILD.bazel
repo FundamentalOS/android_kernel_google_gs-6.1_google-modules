@@ -2,24 +2,23 @@
 
 load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
+filegroup(
+    name = "cnss2_headers",
+    srcs = glob([
+        "inc/**/*.h",
+    ]),
+    visibility = [
+        "//private/google-modules/wlan/wcn6740/wlan/qcacld-3.0:__pkg__",
+    ],
+)
+
 kernel_module(
     name = "cnss2",
     srcs = glob([
         "**/Makefile",
         "**/Kbuild",
-        "inc/*.h",
-        "cnss_utils/*.c",
-        "cnss_utils/*.h",
-        "qmi/*.c",
-        "mhi/core/*.h",
-        "mhi/core/*.c",
-        "qrtr/*.h",
-        "qrtr/*.c",
-        "cnss_prealloc/*.c",
-        "cnss_genl/*.c",
-        "cnss2/*.h",
-        "cnss2/*.c",
-        "wlan_mac/*.c",
+        "**/*.h",
+        "**/*.c",
     ]) + [
         "//private/google-modules/soc/gs:gs_soc_headers",
     ],
