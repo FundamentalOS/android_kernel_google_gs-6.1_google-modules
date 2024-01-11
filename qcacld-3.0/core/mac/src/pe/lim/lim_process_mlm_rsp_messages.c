@@ -46,7 +46,11 @@
 #include "wlan_lmac_if_def.h"
 #include <lim_mlo.h>
 #include "wlan_mlo_mgr_sta.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include "../../../../qca-wifi-host-cmn/umac/mlo_mgr/inc/utils_mlo.h"
+#else
+#include <utils_mlo.h>
+#endif
 
 #define MAX_SUPPORTED_PEERS_WEP 16
 
