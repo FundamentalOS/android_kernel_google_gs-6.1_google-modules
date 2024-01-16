@@ -53,7 +53,7 @@ gxp-objs += $(GCIP_DIR)/gcip.o
 endif
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
-include $(KERNEL_SRC)/../private/google-modules/whi-staging/soc/gs/Makefile.include
+include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 M ?= $(shell pwd)
 
 # Obtain the current git commit hash for logging on probe
