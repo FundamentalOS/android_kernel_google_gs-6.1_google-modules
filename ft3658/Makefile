@@ -10,9 +10,9 @@ EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_PANEL_BRIDGE
 EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_TBN
 EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_HEATMAP
 EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_OFFLOAD
-EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/whi-staging/touch/common/Module.symvers
+EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/touch/common/Module.symvers
 
-include $(KERNEL_SRC)/../private/google-modules/whi-staging/soc/gs/Makefile.include
+include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 
 modules modules_install clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) \
