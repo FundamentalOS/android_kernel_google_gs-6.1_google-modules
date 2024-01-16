@@ -8,8 +8,8 @@ M ?= $(shell pwd)
 
 KBUILD_OPTIONS += CONFIG_JANEIRO=m
 
--include $(KERNEL_SRC)/../private/google-modules/whi-staging/soc/gs/Makefile.include
-EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/whi-staging/power/mitigation/Module.symvers
+-include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
+EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/power/mitigation/Module.symvers
 
 modules modules_install clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 $(KBUILD_OPTIONS) \
