@@ -30,7 +30,11 @@
 
 #ifdef WLAN_FEATURE_NAN
 
+#if !defined(CONFIG_WCN_GOOGLE)
 #include "../src/nan_main_i.h"
+#else
+#include "nan_main_i.h"
+#endif
 
 struct wlan_objmgr_psoc;
 

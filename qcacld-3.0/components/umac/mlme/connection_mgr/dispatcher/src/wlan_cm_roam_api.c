@@ -26,13 +26,21 @@
 #include "wlan_mlme_main.h"
 #include "wlan_policy_mgr_api.h"
 #include <wmi_unified_priv.h>
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include "wlan_crypto_global_api.h"
 #include <wlan_cm_api.h>
 #include "connection_mgr/core/src/wlan_cm_roam.h"
 #include "wlan_cm_roam_api.h"
 #include "wlan_blm_api.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_roam_i.h>
+#else
+#include "wlan_cm_roam_i.h"
+#endif
 #include "wlan_reg_ucfg_api.h"
 #include "wlan_connectivity_logging.h"
 

@@ -25,7 +25,11 @@
 #define WLAN_CM_ROAM_API_H__
 
 #include "wlan_mlme_dbg.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include "../../core/src/wlan_cm_roam_offload.h"
+#else
+#include "wlan_cm_roam_offload.h"
+#endif
 #include "wlan_mlme_main.h"
 #include "wlan_mlme_api.h"
 #include "wlan_reg_ucfg_api.h"

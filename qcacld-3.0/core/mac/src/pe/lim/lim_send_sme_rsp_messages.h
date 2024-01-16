@@ -34,7 +34,11 @@
 #include "sir_common.h"
 #include "sir_api.h"
 #include "sir_mac_prot_def.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 
 /* Functions for sending responses up the stack */
 

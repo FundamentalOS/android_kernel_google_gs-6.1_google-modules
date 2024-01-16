@@ -28,7 +28,11 @@
 #include "target_if_cm_roam_event.h"
 #include "wlan_psoc_mlme_api.h"
 #include "wlan_mlme_main.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_roam_i.h>
+#else
+#include "wlan_cm_roam_i.h"
+#endif
 #include "wlan_cm_roam_api.h"
 #include "target_if_cm_roam_offload.h"
 

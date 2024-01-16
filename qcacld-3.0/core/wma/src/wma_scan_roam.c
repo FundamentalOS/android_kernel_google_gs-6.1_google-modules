@@ -87,7 +87,11 @@
 #ifdef FEATURE_WLAN_DIAG_SUPPORT    /* FEATURE_WLAN_DIAG_SUPPORT */
 #include "host_diag_core_log.h"
 #endif /* FEATURE_WLAN_DIAG_SUPPORT */
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_roam_i.h>
+#else
+#include "wlan_cm_roam_i.h"
+#endif
 #include "wlan_cm_roam_api.h"
 #include "wlan_mlo_mgr_roam.h"
 #ifdef FEATURE_WLAN_EXTSCAN

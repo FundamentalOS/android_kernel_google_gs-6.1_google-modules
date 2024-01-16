@@ -73,7 +73,11 @@
 #include "wlan_mlme_twt_api.h"
 #include "wlan_mlme_twt_ucfg_api.h"
 #include "parser_api.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include <wlan_mlme_twt_api.h>
 #include "wlan_cm_roam_ucfg_api.h"
 #include <cm_utf.h>

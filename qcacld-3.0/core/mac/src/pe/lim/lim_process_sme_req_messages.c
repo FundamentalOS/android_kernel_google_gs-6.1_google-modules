@@ -57,7 +57,11 @@
 #include <wlan_crypto_global_api.h>
 #include "../../core/src/vdev_mgr_ops.h"
 #include "wma.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include <wlan_action_oui_ucfg_api.h>
 #include <wlan_cm_api.h>
 #include <wlan_mlme_api.h>

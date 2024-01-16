@@ -35,7 +35,11 @@
 #include "wlan_reg_services_api.h"
 #include "wlan_crypto_global_api.h"
 #include "wlan_cm_roam_api.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include <wlan_mlo_mgr_public_structs.h>
 #include "wlan_objmgr_vdev_obj.h"
 
