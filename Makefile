@@ -36,10 +36,12 @@ KBUILD_OPTIONS += CONFIG_QRTR_WAKEUP_MS=0
 # WLAN_MAC
 KBUILD_OPTIONS += CONFIG_GOOGLE_WLAN_MAC=m
 
+EXTRA_SYMBOLS +=$(OUT_DIR)/../private/google-modules/soc/gs/Module.symvers
+
 endif
 
 all:
-	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS) KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)"
 
 modules_install:
 	$(MAKE) INSTALL_MOD_STRIP=1 -C $(KERNEL_SRC) M=$(M) modules_install
