@@ -23,7 +23,11 @@
 #include <wlan_mlo_mgr_cmn.h>
 #include <wlan_mlo_mgr_public_structs.h>
 #include <wlan_cm_roam_public_struct.h>
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_roam_i.h>
+#else
+#include "wlan_cm_roam_i.h"
+#endif
 
 #ifdef WLAN_FEATURE_11BE_MLO
 /**

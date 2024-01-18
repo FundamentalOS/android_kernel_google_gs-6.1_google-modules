@@ -69,7 +69,11 @@
 #include "wlan_p2p_cfg_api.h"
 #include "cfg_nan_api.h"
 #include "nan_ucfg_api.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include "wlan_reg_ucfg_api.h"
 
 #include <ol_defines.h>
@@ -2668,7 +2672,6 @@ QDF_STATUS csr_roam_process_command(struct mac_context *mac, tSmeCmd *pCommand)
 		break;
 	case eCsrStartBss:
 		/* for success case */
-		/* fallthrough */
 	default:
 		csr_roam_state_change(mac, eCSR_ROAMING_STATE_JOINING,
 				sessionId);

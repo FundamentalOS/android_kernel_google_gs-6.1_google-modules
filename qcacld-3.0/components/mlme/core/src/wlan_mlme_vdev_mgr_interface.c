@@ -32,7 +32,11 @@
 #include "target_if_cm_roam_offload.h"
 #include "wlan_crypto_global_api.h"
 #include "target_if_wfa_testcmd.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include "csr_api.h"
 #include <cm_utf.h>
 #include "target_if_cm_roam_event.h"

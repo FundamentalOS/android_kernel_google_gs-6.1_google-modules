@@ -92,7 +92,11 @@
 #include <wlan_cp_stats_mc_ucfg_api.h>
 #include "wmi_unified_vdev_api.h"
 #include <wlan_cm_api.h>
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 #include "wlan_nan_api.h"
 #include "wlan_mlo_mgr_peer.h"
 #ifdef DCS_INTERFERENCE_DETECTION

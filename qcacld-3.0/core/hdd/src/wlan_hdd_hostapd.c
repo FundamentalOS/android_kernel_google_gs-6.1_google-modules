@@ -67,6 +67,7 @@
 #include "qdf_str.h"
 #include "qdf_types.h"
 #include "qdf_trace.h"
+#include "qdf_net_if.h"
 #include "wlan_hdd_cfg.h"
 #include "wlan_policy_mgr_api.h"
 #include "wlan_hdd_tsf.h"
@@ -781,7 +782,8 @@ static int __hdd_hostapd_set_mac_address(struct net_device *dev, void *addr)
 
 	hdd_update_dynamic_mac(hdd_ctx, &adapter->mac_addr, &mac_addr);
 	memcpy(&adapter->mac_addr, psta_mac_addr->sa_data, ETH_ALEN);
-	memcpy(dev->dev_addr, psta_mac_addr->sa_data, ETH_ALEN);
+	qdf_net_update_net_device_dev_addr(dev, psta_mac_addr->sa_data,
+					   ETH_ALEN);
 	hdd_exit();
 	return 0;
 }
@@ -998,7 +1000,7 @@ QDF_STATUS hdd_chan_change_notify(struct hdd_adapter *adapter,
 	hdd_debug("notify: chan:%d width:%d freq1:%d freq2:%d",
 		  chandef.chan->center_freq, chandef.width,
 		  chandef.center_freq1, chandef.center_freq2);
-	cfg80211_ch_switch_notify(dev, &chandef);
+	wlan_cfg80211_ch_switch_notify(dev, &chandef, 0);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -2090,7 +2092,7 @@ QDF_STATUS hdd_hostapd_sap_event_cb(struct sap_event *sap_event,
 					adapter->device_mode,
 					adapter->vdev_id,
 					WLAN_IPA_AP_CONNECT,
-					adapter->dev->dev_addr,
+					(uint8_t *) adapter->dev->dev_addr,
 					WLAN_REG_IS_24GHZ_CH_FREQ(
 						ap_ctx->operating_chan_freq));
 			if (status)
@@ -4142,7 +4144,7 @@ struct hdd_adapter *hdd_wlan_create_ap_dev(struct hdd_context *hdd_ctx,
 	dev->mtu = HDD_DEFAULT_MTU;
 	dev->tx_queue_len = HDD_NETDEV_TX_QUEUE_LEN;
 
-	qdf_mem_copy(dev->dev_addr, mac_addr, sizeof(tSirMacAddr));
+	qdf_net_update_net_device_dev_addr(dev, mac_addr, sizeof(tSirMacAddr));
 	qdf_mem_copy(adapter->mac_addr.bytes, mac_addr, sizeof(tSirMacAddr));
 
 	adapter->offloads_configured = false;
@@ -6574,15 +6576,12 @@ exit:
 	return 0;
 }
 
-/**
- * wlan_hdd_cfg80211_stop_ap() - stop sap
- * @wiphy: Pointer to wiphy
- * @dev: Pointer to netdev
- *
- * Return: zero for success non-zero for failure
- */
-int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy,
-				struct net_device *dev)
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev,
+			      unsigned int link_id)
+#else
+int wlan_hdd_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *dev)
+#endif
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
@@ -6893,6 +6892,31 @@ wlan_hdd_update_twt_responder(struct hdd_context *hdd_ctx,
 {}
 #endif
 
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+static inline uint32_t
+wlan_util_get_centre_freq(struct wireless_dev *wdev, unsigned int link_id)
+{
+	return wdev->links[link_id].ap.chandef.chan->center_freq;
+}
+
+static inline struct cfg80211_chan_def
+wlan_util_get_chan_def(struct wireless_dev *wdev, unsigned int link_id)
+{
+	return wdev->links[link_id].ap.chandef;
+}
+#else
+static inline struct cfg80211_chan_def
+wlan_util_get_chan_def(struct wireless_dev *wdev, unsigned int link_id)
+{
+	return wdev->chandef;
+}
+
+static inline uint32_t
+wlan_util_get_centre_freq(struct wireless_dev *wdev, unsigned int link_id)
+{
+	return wdev->chandef.chan->center_freq;
+}
+#endif
 /**
  * __wlan_hdd_cfg80211_start_ap() - start soft ap mode
  * @wiphy: Pointer to wiphy structure
@@ -7210,9 +7234,9 @@ static int __wlan_hdd_cfg80211_start_ap(struct wiphy *wiphy,
 			goto err_start_bss;
 		}
 
-		if (wdev->chandef.chan->center_freq !=
+		if (wlan_util_get_centre_freq(wdev, 0) !=
 				params->chandef.chan->center_freq)
-			params->chandef = wdev->chandef;
+			params->chandef = wlan_util_get_chan_def(wdev, 0);
 		/*
 		 * If Do_Not_Break_Stream enabled send avoid channel list
 		 * to application.

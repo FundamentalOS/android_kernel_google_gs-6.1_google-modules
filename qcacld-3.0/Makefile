@@ -23,7 +23,8 @@ WLAN_SELECT += CONFIG_BUS_AUTO_SUSPEND=y
 KBUILD_OPTIONS += CONFIG_QCA_WIFI_ISOC=0
 KBUILD_OPTIONS += CONFIG_QCA_WIFI_2_0=1
 KBUILD_OPTIONS += CONFIG_CNSS_OUT_OF_TREE=y
-KBUILD_EXTRA := KBUILD_EXTRA_SYMBOLS=$(O)/../google-modules/wlan/wcn6740/cnss2/Module.symvers
+#KBUILD_EXTRA := KBUILD_EXTRA_SYMBOLS=$(O)/../google-modules/wlan/wcn6740/cnss2/Module.symvers
+EXTRA_SYMBOLS +=$(OUT_DIR)/../private/google-modules/wlan/wcn6740/cnss2/Module.symvers
 KBUILD_OPTIONS += CONFIG_ARCH_MSM=n
 KBUILD_OPTIONS += CONFIG_ARCH_QCOM=n
 KBUILD_OPTIONS += CONFIG_CNSS2=m
@@ -36,7 +37,7 @@ KBUILD_OPTIONS += $(KBUILD_EXTRA) # Extra config if any
 endif
 
 all:
-	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS) KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)"
 
 modules_install:
 	$(MAKE) INSTALL_MOD_STRIP=1 M=$(M) -C $(KERNEL_SRC) modules_install

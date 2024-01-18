@@ -1047,7 +1047,7 @@ static QDF_STATUS ol_fw_populate_clk_settings(enum a_refclk_speed_t refclk,
 		clock_s->wlan_pll.outdiv = 0;
 		clock_s->pll_settling_time = 1024;
 		clock_s->refclk_hz = 0;
-		/* fallthrough */
+		fallthrough;
 	default:
 		return QDF_STATUS_E_FAILURE;
 	}

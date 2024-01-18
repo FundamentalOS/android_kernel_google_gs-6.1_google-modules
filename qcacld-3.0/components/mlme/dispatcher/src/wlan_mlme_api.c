@@ -31,7 +31,11 @@
 #include "wlan_utility.h"
 #include "wlan_policy_mgr_ucfg.h"
 #include "wlan_vdev_mgr_utils_api.h"
+#if !defined(CONFIG_WCN_GOOGLE)
 #include <../../core/src/wlan_cm_vdev_api.h>
+#else
+#include "wlan_cm_vdev_api.h"
+#endif
 
 /* quota in milliseconds */
 #define MCC_DUTY_CYCLE 70

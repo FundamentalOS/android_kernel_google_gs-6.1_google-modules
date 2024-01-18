@@ -54,6 +54,7 @@
 #include "qdf_str.h"
 #include "qdf_trace.h"
 #include "qdf_types.h"
+#include "qdf_net_if.h"
 #include "cds_utils.h"
 #include "cds_sched.h"
 #include "wlan_hdd_scan.h"
@@ -177,6 +178,7 @@
 #include "wlan_hdd_mdns_offload.h"
 #include "wlan_pkt_capture_ucfg_api.h"
 #include "os_if_pkt_capture.h"
+#include "wlan_osif_features.h"
 
 #define g_mode_rates_size (12)
 #define a_mode_rates_size (8)
@@ -19492,6 +19494,7 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 	bool ap_random_bssid_enabled;
 	QDF_STATUS status;
 	int errno;
+	uint8_t mac_addr[QDF_MAC_ADDR_SIZE];
 
 	hdd_enter();
 
@@ -19574,13 +19577,20 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 				 * a randomized MAC address of the
 				 * form 02:1A:11:Fx:xx:xx
 				 */
-				get_random_bytes(&ndev->dev_addr[3], 3);
-				ndev->dev_addr[0] = 0x02;
-				ndev->dev_addr[1] = 0x1A;
-				ndev->dev_addr[2] = 0x11;
-				ndev->dev_addr[3] |= 0xF0;
-				memcpy(adapter->mac_addr.bytes, ndev->dev_addr,
+				memcpy(mac_addr, ndev->dev_addr,
 				       QDF_MAC_ADDR_SIZE);
+
+				get_random_bytes(&mac_addr[3], 3);
+				mac_addr[0] = 0x02;
+				mac_addr[1] = 0x1A;
+				mac_addr[2] = 0x11;
+				mac_addr[3] |= 0xF0;
+				memcpy(adapter->mac_addr.bytes, mac_addr,
+				       QDF_MAC_ADDR_SIZE);
+				qdf_net_update_net_device_dev_addr(ndev,
+								   mac_addr,
+								   QDF_MAC_ADDR_SIZE);
+
 				pr_info("wlan: Generated HotSpot BSSID "
 					QDF_MAC_ADDR_FMT "\n",
 					QDF_MAC_ADDR_REF(ndev->dev_addr));
@@ -20140,21 +20150,55 @@ static int wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 
 	return errno;
 }
-#else
-#ifdef CFG80211_SET_KEY_WITH_SRC_MAC
+#elif defined(CFG80211_SET_KEY_WITH_SRC_MAC)
 static int wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 				     struct net_device *ndev,
 				     u8 key_index, bool pairwise,
 				     const u8 *src_addr,
 				     const u8 *mac_addr,
 				     struct key_params *params)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(ndev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_cfg80211_add_key(wiphy, ndev, key_index, pairwise,
+					    mac_addr, params);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
+#elif defined(CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
+static int wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
+				     struct net_device *ndev,
+				     int link_id, u8 key_index, bool pairwise,
+				     const u8 *mac_addr,
+				     struct key_params *params)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(ndev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_cfg80211_add_key(wiphy, ndev, key_index, pairwise,
+					    mac_addr, params);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
 #else
 static int wlan_hdd_cfg80211_add_key(struct wiphy *wiphy,
 				     struct net_device *ndev,
 				     u8 key_index, bool pairwise,
 				     const u8 *mac_addr,
 				     struct key_params *params)
-#endif
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
@@ -20292,6 +20336,29 @@ static int wlan_hdd_cfg80211_get_key(struct wiphy *wiphy,
 
 	return errno;
 }
+#elif defined(CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
+static int wlan_hdd_cfg80211_get_key(struct wiphy *wiphy,
+				     struct net_device *ndev,
+				     int link_id, u8 key_index, bool pairwise,
+				     const u8 *mac_addr, void *cookie,
+				     void (*callback)(void *cookie,
+						      struct key_params *)
+				     )
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(ndev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_cfg80211_get_key(wiphy, ndev, key_index, pairwise,
+					    mac_addr, cookie, callback);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
 #else
 static int wlan_hdd_cfg80211_get_key(struct wiphy *wiphy,
 				     struct net_device *ndev,
@@ -20380,6 +20447,26 @@ static int wlan_hdd_cfg80211_del_key(struct wiphy *wiphy,
 		return errno;
 
 	errno = __wlan_hdd_cfg80211_del_key(wiphy, adapter->dev, key_index,
+					    pairwise, mac_addr);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
+#elif defined(CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
+static int wlan_hdd_cfg80211_del_key(struct wiphy *wiphy,
+				     struct net_device *dev,
+				     int link_id, u8 key_index,
+				     bool pairwise, const u8 *mac_addr)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(dev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_cfg80211_del_key(wiphy, dev, key_index,
 					    pairwise, mac_addr);
 
 	osif_vdev_sync_op_stop(vdev_sync);
@@ -20523,6 +20610,26 @@ static int wlan_hdd_cfg80211_set_default_key(struct wiphy *wiphy,
 
 	return errno;
 }
+#elif defined(CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
+static int wlan_hdd_cfg80211_set_default_key(struct wiphy *wiphy,
+					     struct net_device *ndev,
+					     int link_id, u8 key_index,
+					     bool unicast, bool multicast)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(ndev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_cfg80211_set_default_key(wiphy, ndev, key_index,
+						    unicast, multicast);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
 #else
 static int wlan_hdd_cfg80211_set_default_key(struct wiphy *wiphy,
 					     struct net_device *ndev,
@@ -20574,6 +20681,25 @@ static int wlan_hdd_cfg80211_set_default_beacon_key(struct wiphy *wiphy,
 		return errno;
 
 	errno = _wlan_hdd_cfg80211_set_default_beacon_key(wiphy, adapter->dev,
+							  key_index);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
+#elif defined(CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
+static int wlan_hdd_cfg80211_set_default_beacon_key(struct wiphy *wiphy,
+						    struct net_device *ndev,
+						    int link_id, u8 key_index)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(ndev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = _wlan_hdd_cfg80211_set_default_beacon_key(wiphy, ndev,
 							  key_index);
 
 	osif_vdev_sync_op_stop(vdev_sync);
@@ -20904,6 +21030,24 @@ static int wlan_hdd_set_default_mgmt_key(struct wiphy *wiphy,
 		return errno;
 
 	errno = __wlan_hdd_set_default_mgmt_key(wiphy, adapter->dev, key_index);
+
+	osif_vdev_sync_op_stop(vdev_sync);
+
+	return errno;
+}
+#elif defined(CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT)
+static int wlan_hdd_set_default_mgmt_key(struct wiphy *wiphy,
+					 struct net_device *netdev,
+					 int link_id, u8 key_index)
+{
+	int errno;
+	struct osif_vdev_sync *vdev_sync;
+
+	errno = osif_vdev_sync_op_start(netdev, &vdev_sync);
+	if (errno)
+		return errno;
+
+	errno = __wlan_hdd_set_default_mgmt_key(wiphy, netdev, key_index);
 
 	osif_vdev_sync_op_stop(vdev_sync);
 
@@ -22675,14 +22819,23 @@ __wlan_hdd_cfg80211_set_ap_channel_width(struct wiphy *wiphy,
  * wlan_hdd_cfg80211_set_ap_channel_width() - set ap channel bandwidth
  * @wiphy: Pointer to wiphy
  * @dev: Pointer to network device
+ * @link_id: Link id for which channel width has to be applied
  * @chandef: Pointer to channel definition parameter
  *
  * Return: 0 for success, non-zero for failure
  */
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+static int
+wlan_hdd_cfg80211_set_ap_channel_width(struct wiphy *wiphy,
+				       struct net_device *dev,
+				       unsigned int link_id,
+				       struct cfg80211_chan_def *chandef)
+#else
 static int
 wlan_hdd_cfg80211_set_ap_channel_width(struct wiphy *wiphy,
 				       struct net_device *dev,
 				       struct cfg80211_chan_def *chandef)
+#endif
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
@@ -23933,9 +24086,16 @@ static int __wlan_hdd_cfg80211_get_channel(struct wiphy *wiphy,
  *
  * Return: 0 for success, non zero for failure
  */
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+static int wlan_hdd_cfg80211_get_channel(struct wiphy *wiphy,
+					 struct wireless_dev *wdev,
+					 unsigned int link_id,
+					 struct cfg80211_chan_def *chandef)
+#else
 static int wlan_hdd_cfg80211_get_channel(struct wiphy *wiphy,
 					 struct wireless_dev *wdev,
 					 struct cfg80211_chan_def *chandef)
+#endif
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
@@ -24113,10 +24273,18 @@ configure_fw:
 	return errno;
 }
 
+#ifdef CFG80211_SINGLE_NETDEV_MULTI_LINK_SUPPORT
+static int wlan_hdd_cfg80211_set_bitrate_mask(struct wiphy *wiphy,
+					      struct net_device *netdev,
+					      unsigned int link_id,
+					      const u8 *peer,
+				       const struct cfg80211_bitrate_mask *mask)
+#else
 static int wlan_hdd_cfg80211_set_bitrate_mask(struct wiphy *wiphy,
 					      struct net_device *netdev,
 					      const u8 *peer,
 				       const struct cfg80211_bitrate_mask *mask)
+#endif
 {
 	int errno;
 	struct osif_vdev_sync *vdev_sync;
@@ -24210,29 +24378,16 @@ static int _wlan_hdd_cfg80211_tx_control_port(struct wiphy *wiphy,
 	return errno;
 }
 
-#if defined(CFG80211_CTRL_FRAME_SRC_ADDR_TA_ADDR)
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) || \
+	defined(CFG80211_TX_CONTROL_PORT_LINK_SUPPORT))
 static int wlan_hdd_cfg80211_tx_control_port(struct wiphy *wiphy,
 					     struct net_device *dev,
 					     const u8 *buf,
-					     size_t len, const u8 *src,
-					     const u8 *dest, __be16 proto,
-					     bool unencrypted, u64 *cookie)
-#else
-static int wlan_hdd_cfg80211_tx_control_port(struct wiphy *wiphy,
-					     struct net_device *dev,
-					     const u8 *buf,
-					     size_t len, const u8 *src,
-					     const u8 *dest, __be16 proto,
-					     bool unencrypted)
-#endif
-{
-	return _wlan_hdd_cfg80211_tx_control_port(wiphy, dev, buf, len, src,
-						  dest, proto, unencrypted);
-}
-
-#else
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
+					     size_t len,
+					     const u8 *dest, const __be16 proto,
+					     bool unencrypted, int link_id,
+					     u64 *cookie)
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0))
 static int wlan_hdd_cfg80211_tx_control_port(struct wiphy *wiphy,
 					     struct net_device *dev,
 					     const u8 *buf, size_t len,
@@ -24252,7 +24407,6 @@ static int wlan_hdd_cfg80211_tx_control_port(struct wiphy *wiphy,
 						  adapter->mac_addr.bytes,
 						  dest, proto, unencrypted);
 }
-#endif
 
 #if defined(CFG80211_CTRL_FRAME_SRC_ADDR_TA_ADDR)
 bool wlan_hdd_cfg80211_rx_control_port(struct net_device *dev,
