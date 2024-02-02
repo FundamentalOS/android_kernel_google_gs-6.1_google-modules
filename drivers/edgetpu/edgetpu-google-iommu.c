@@ -5,6 +5,7 @@
  * Copyright (C) 2019 Google, Inc.
  */
 
+#include <linux/bits.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/idr.h>
@@ -21,6 +22,13 @@
 
 #if !defined(EDGETPU_NUM_PREALLOCATED_DOMAINS)
 #define EDGETPU_NUM_PREALLOCATED_DOMAINS 0
+#endif
+
+#define HAS_BEST_FIT_ALGO                                                                          \
+	(IS_ENABLED(CONFIG_ANDROID) && LINUX_VERSION_CODE <= KERNEL_VERSION(5, 15, 0))
+
+#if HAS_BEST_FIT_ALGO
+#include <linux/dma-iommu.h>
 #endif
 
 struct edgetpu_iommu {
@@ -43,7 +51,7 @@ struct edgetpu_iommu {
 	 * The implementation will fall back to dynamically allocated domains otherwise.
 	 */
 	struct edgetpu_domain_pool domain_pool;
-	struct ida pasid_pool;
+
 };
 
 struct edgetpu_iommu_map_params {
@@ -169,8 +177,8 @@ static void edgetpu_init_etdomain(struct edgetpu_iommu_domain *etdomain,
 }
 
 /*
- * Expect a default domain was already allocated for the group. If not try to
- * use the domain AUX feature to allocate one.
+ * Expect a default domain was already allocated for the group. If not try to allocate and attach
+ * one.
  */
 static int check_default_domain(struct edgetpu_dev *etdev,
 				struct edgetpu_iommu *etiommu)
@@ -191,7 +199,6 @@ static int check_default_domain(struct edgetpu_dev *etdev,
 		etdev_warn(etdev, "iommu domain alloc failed");
 		return -EINVAL;
 	}
-
 	ret = iommu_attach_device(domain, etdev->dev);
 	if (ret) {
 		etdev_warn(etdev, "Attach default domain failed: %d", ret);
@@ -208,6 +215,7 @@ out:
 int edgetpu_mmu_attach(struct edgetpu_dev *etdev, void *mmu_info)
 {
 	struct edgetpu_iommu *etiommu;
+	u32 num_bits, num_pasids;
 	int ret;
 
 	etiommu = kzalloc(sizeof(*etiommu), GFP_KERNEL);
@@ -215,6 +223,24 @@ int edgetpu_mmu_attach(struct edgetpu_dev *etdev, void *mmu_info)
 		return -ENOMEM;
 	ret = edgetpu_domain_pool_init(etdev, &etiommu->domain_pool,
 				       EDGETPU_NUM_PREALLOCATED_DOMAINS);
+	if (ret) {
+		etdev_err(etdev, "Unable to create domain pool (%d)\n", ret);
+		goto err_free_etiommu;
+	}
+
+	ret = of_property_read_u32(etdev->dev->of_node, "pasid-num-bits", &num_bits);
+	if (ret || num_bits > 31) {
+		/* TODO(b/285949227) remove fallback once device-trees are updated */
+		etdev_warn(etdev, "Failed to fetch pasid-num-bits, defaulting to 8 PASIDs (%d)\n",
+			   ret);
+		num_pasids = 8;
+	} else {
+		num_pasids = BIT(num_bits);
+	}
+
+	/* PASID 0 is reserved for the default domain */
+	edgetpu_domain_pool_set_pasid_range(&etiommu->domain_pool, 1, num_pasids - 1);
+
 	idr_init(&etiommu->domain_id_pool);
 	mutex_init(&etiommu->pool_lock);
 	etiommu->iommu_group = iommu_group_get(etdev->dev);
@@ -223,7 +249,7 @@ int edgetpu_mmu_attach(struct edgetpu_dev *etdev, void *mmu_info)
 	else
 		dev_warn(etdev->dev, "device has no iommu group\n");
 
-#if IS_ENABLED(CONFIG_ANDROID)
+#if HAS_BEST_FIT_ALGO
 	/* Enable best fit algorithm to minimize fragmentation */
 	ret = iommu_dma_enable_best_fit_algo(etdev->dev);
 	if (ret)
@@ -232,20 +258,20 @@ int edgetpu_mmu_attach(struct edgetpu_dev *etdev, void *mmu_info)
 
 	ret = check_default_domain(etdev, etiommu);
 	if (ret)
-		goto err_free;
+		goto err_destroy_pool;
 
 	ret = edgetpu_register_iommu_device_fault_handler(etdev);
 	if (ret)
 		etdev_warn(etdev, "Failed to register fault handler! (%d)\n",
 			   ret);
 
-	ida_init(&etiommu->pasid_pool);
-
 	/* etiommu initialization done */
 	etdev->mmu_cookie = etiommu;
 	return 0;
 
-err_free:
+err_destroy_pool:
+	edgetpu_domain_pool_destroy(&etiommu->domain_pool);
+err_free_etiommu:
 	kfree(etiommu);
 	return ret;
 }
@@ -270,10 +296,10 @@ void edgetpu_mmu_detach(struct edgetpu_dev *etdev)
 			   ret);
 	edgetpu_mmu_reset(etdev);
 
-	for (i = etiommu->context_0_default ? 1 : 0; i < EDGETPU_NCONTEXTS;
-	     i++) {
+	for (i = etiommu->context_0_default ? 1 : 0; i < EDGETPU_NCONTEXTS; i++) {
 		if (etiommu->domains[i])
-			iommu_detach_device_pasid(etiommu->domains[i], etdev->dev, i);
+			edgetpu_domain_pool_detach_domain(&etiommu->domain_pool,
+							  etiommu->domains[i], i);
 	}
 
 	if (etiommu->iommu_group)
@@ -287,7 +313,6 @@ void edgetpu_mmu_detach(struct edgetpu_dev *etdev)
 		     etiommu);
 	idr_destroy(&etiommu->domain_id_pool);
 	edgetpu_domain_pool_destroy(&etiommu->domain_pool);
-	ida_destroy(&etiommu->pasid_pool);
 	kfree(etiommu);
 	etdev->mmu_cookie = NULL;
 }
@@ -366,6 +391,9 @@ int edgetpu_mmu_map(struct edgetpu_dev *etdev, struct edgetpu_mapping *map,
 	}
 
 	map->device_address = iova;
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad dma=%pad size=%#x flags=%#x\n",
+		  __func__, context_id, &map->device_address, &sg_dma_address(map->sgt.sgl),
+		  sg_dma_len(map->sgt.sgl), mmu_flags);
 	return 0;
 }
 
@@ -377,6 +405,7 @@ void edgetpu_mmu_unmap(struct edgetpu_dev *etdev, struct edgetpu_mapping *map,
 	struct iommu_domain *default_domain =
 		iommu_get_domain_for_dev(etdev->dev);
 
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad\n", __func__, context_id, &map->device_address);
 	ret = get_iommu_map_params(etdev, map, context_id, &params, 0);
 	if (!ret && params.domain != default_domain) {
 		/*
@@ -408,6 +437,8 @@ int edgetpu_mmu_map_iova_sgt(struct edgetpu_dev *etdev, tpu_addr_t iova,
 			goto error;
 		iova += sg->length;
 	}
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad size=%#llx dir=%d\n", __func__, context_id,
+		  &sg_dma_address(sgt->sgl), iova - orig_iova, dir);
 	return 0;
 
 error:
@@ -428,6 +459,7 @@ void edgetpu_mmu_unmap_iova_sgt_attrs(struct edgetpu_dev *etdev,
 
 	for_each_sg(sgt->sgl, sg, sgt->orig_nents, i)
 		size += sg->length;
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad size=%#zx\n", __func__, context_id, &iova, size);
 	edgetpu_mmu_remove_translation(etdev, iova, size, context_id);
 }
 
@@ -456,6 +488,8 @@ int edgetpu_mmu_add_translation(struct edgetpu_dev *etdev, unsigned long iova,
 	domain = get_domain_by_context_id(etdev, context_id);
 	if (!domain)
 		return -ENODEV;
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad paddr=%pap size=%#zx prot=%#x\n",
+		  __func__, context_id, &iova, &paddr, size, prot);
 	return iommu_map(domain, iova, paddr, size, prot);
 }
 
@@ -465,6 +499,7 @@ void edgetpu_mmu_remove_translation(struct edgetpu_dev *etdev,
 {
 	struct iommu_domain *domain;
 
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad size=%#zx\n", __func__, context_id, &iova, size);
 	domain = get_domain_by_context_id(etdev, context_id);
 	if (domain)
 		iommu_unmap(domain, iova, size);
@@ -497,6 +532,8 @@ tpu_addr_t edgetpu_mmu_tpu_map(struct edgetpu_dev *etdev, dma_addr_t down_addr,
 	paddr = iommu_iova_to_phys(default_domain, down_addr);
 	if (!paddr)
 		return 0;
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad size=%zx flags=%#x\n",
+		  __func__, context_id, &down_addr, size, mmu_flags);
 	/* Map the address to the context-specific domain */
 	if (iommu_map(domain, down_addr, paddr, size, prot))
 		return 0;
@@ -512,6 +549,8 @@ void edgetpu_mmu_tpu_unmap(struct edgetpu_dev *etdev, tpu_addr_t tpu_addr,
 	struct iommu_domain *default_domain =
 		iommu_get_domain_for_dev(etdev->dev);
 
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad\n",
+		  __func__, context_id, &tpu_addr);
 	domain = get_domain_by_context_id(etdev, context_id);
 	/*
 	 * Either we don't have per-context domains or this mapping
@@ -555,6 +594,8 @@ tpu_addr_t edgetpu_mmu_tpu_map_sgt(struct edgetpu_dev *etdev,
 	 */
 	if (!domain || domain == default_domain)
 		return iova;
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad size=%#x flags=%#x\n",
+		  __func__, context_id, &iova, sg_dma_len(sgt->sgl), mmu_flags);
 	cur_iova = iova;
 	for_each_sg(sgt->sgl, sg, sgt->orig_nents, i) {
 		/* ignore sg->offset */
@@ -584,6 +625,7 @@ void edgetpu_mmu_tpu_unmap_sgt(struct edgetpu_dev *etdev, tpu_addr_t tpu_addr,
 	domain = get_domain_by_context_id(etdev, context_id);
 	if (!domain || domain == default_domain)
 		return;
+	etdev_dbg(etdev, "%s: ctx=%x iova=%pad\n", __func__, context_id, &tpu_addr);
 	/*
 	 * We have checked sgt->nents == 1 on map, sg_dma_len(sgt->sgl) should
 	 * equal the total size.
@@ -652,25 +694,20 @@ int edgetpu_mmu_attach_domain(struct edgetpu_dev *etdev,
 {
 	struct edgetpu_iommu *etiommu = etdev->mmu_cookie;
 	struct iommu_domain *domain;
-	int ret;
 	int pasid;
 
-	if (etdomain->pasid != IOMMU_PASID_INVALID)
+	if (etdomain->pasid != (ioasid_t)IOMMU_PASID_INVALID) {
+		etdev_err(etdev, "Attempt to attach already-attached domain with PASID=%u",
+			  etdomain->pasid);
 		return -EINVAL;
-
-	/* PASID=0 is reserved for the default domain */
-	pasid = ida_alloc_range(&etiommu->pasid_pool, 1, EDGETPU_NCONTEXTS - 1, GFP_KERNEL);
-	if (pasid <= 0) {
-		etdev_warn(etdev, "No pasid available for attaching domain: %d", pasid);
-		return pasid;
 	}
 
 	domain = etdomain->iommu_domain;
-	ret = iommu_attach_device_pasid(domain, etdev->dev, pasid);
-	if (ret) {
-		etdev_warn(etdev, "Attach IOMMU domain to pasid=%d failed: %d", pasid, ret);
-		ida_free(&etiommu->pasid_pool, pasid);
-		return ret;
+
+	pasid = edgetpu_domain_pool_attach_domain(&etiommu->domain_pool, domain);
+	if (pasid < 0) {
+		etdev_warn(etdev, "Attach IOMMU domain failed (%d)\n", pasid);
+		return pasid;
 	}
 
 	etiommu->domains[pasid] = domain;
@@ -686,8 +723,8 @@ void edgetpu_mmu_detach_domain(struct edgetpu_dev *etdev,
 
 	if (pasid <= 0 || pasid >= EDGETPU_NCONTEXTS)
 		return;
+
 	etiommu->domains[pasid] = NULL;
 	etdomain->pasid = IOMMU_PASID_INVALID;
-	iommu_detach_device_pasid(etdomain->iommu_domain, etdev->dev, pasid);
-	ida_free(&etiommu->pasid_pool, pasid);
+	edgetpu_domain_pool_detach_domain(&etiommu->domain_pool, etdomain->iommu_domain, pasid);
 }

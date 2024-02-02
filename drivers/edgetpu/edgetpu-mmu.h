@@ -16,12 +16,6 @@
 #include "edgetpu-internal.h"
 #include "edgetpu.h"
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0)
-#ifndef IOMMU_PASID_INVALID
-#define IOMMU_PASID_INVALID	(-1U)
-#endif
-#endif
-
 #define IS_MIRRORED(flag) (!((flag) & EDGETPU_MAP_NONMIRRORED))
 
 /* flags for MMU operations */
@@ -50,7 +44,7 @@ struct edgetpu_iommu_domain {
 	 * This field should be set as IOMMU_PASID_INVALID in
 	 * edgetpu_mmu_detach_domain().
 	 */
-	uint pasid;
+	ioasid_t pasid;
 	struct iommu_domain *iommu_domain;
 	/*
 	 * A token set by edgetpu_mmu_alloc_domain(). See the description of
