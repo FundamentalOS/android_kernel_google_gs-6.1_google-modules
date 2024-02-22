@@ -183,9 +183,16 @@ wl_escan_check_sync_id(struct bcm_cfg80211 *cfg, s32 status, u16 result_id, u16 
 		return 0;
 	}
 }
+
+#ifdef SYNCID_MISMATCH_DEBUG
+#define wl_escan_increment_sync_id(a, b) \
+	((u8)((a)->escan_info.cur_sync_id + b) == 0 ? \
+	((a)->escan_info.cur_sync_id = 1) : ((a)->escan_info.cur_sync_id += b))
+#define wl_escan_init_sync_id(a) ((a)->escan_info.cur_sync_id = 1)
+#else
 #define wl_escan_increment_sync_id(a, b) ((a)->escan_info.cur_sync_id += b)
-// get a new sync id
-#define wl_escan_init_sync_id(a) ((a)->escan_info.cur_sync_id = 0x1234)
+#define wl_escan_init_sync_id(a) ((a)->escan_info.cur_sync_id = 0)
+#endif /* SYNCID_MISMATCH_DEBUG */
 #else
 #define wl_escan_get_buf(a, b) ((wl_scan_results_t *) (a)->escan_info.escan_buf)
 #define wl_escan_check_sync_id(a, b, c, d) 0
@@ -1071,17 +1078,6 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			list->version = dtoh32(bi->version);
 			list->buflen += bi_length;
 			list->count++;
-
-			/*
-			 * !Broadcast && number of ssid = 1 && number of channels =1
-			 * means specific scan to association
-			 */
-			if (wl_cfgp2p_is_p2p_specific_scan(cfg->scan_request)) {
-				WL_ERR(("P2P assoc scan fast aborted.\n"));
-				wl_cfgscan_scan_abort(cfg);
-				wl_notify_escan_complete(cfg, cfg->escan_info.ndev, false);
-				goto exit;
-			}
 		}
 	}
 	else if (status == WLC_E_STATUS_SUCCESS) {
@@ -1128,8 +1124,15 @@ wl_escan_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 			if (cfg->afx_hdl->peer_chan == WL_INVALID)
 				complete(&cfg->act_frm_scan);
 		} else if ((likely(cfg->scan_request)) || (cfg->sched_scan_running)) {
-			WL_INFORM_MEM(("ESCAN ABORTED\n"));
-
+			WL_INFORM_MEM(("ESCAN ABORTED - reason:%d\n", status));
+#ifdef SYNCID_MISMATCH_DEBUG
+			if (cfg->escan_info.ndev != ndev) {
+				/* Ignore events coming for older scan reqs */
+				WL_INFORM_MEM(("abort event doesn't match on going scan req\n"));
+				err = BCME_ERROR;
+				goto exit;
+			}
+#endif
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
 			if (p2p_scan(cfg) && cfg->scan_request &&
 				(cfg->scan_request->flags & NL80211_SCAN_FLAG_FLUSH)) {
@@ -3737,6 +3740,9 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		goto exit;
 	}
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)) && (defined(SUPPORT_RANDOM_MAC_SCAN)) */
+#ifdef PNO_DISABLE_EL
+	dhd_dbg_set_configuration_pno(dhdp, TRUE);
+#endif /* PNO_DISABLE_EL */
 
 exit:
 	if (event_data) {
@@ -3787,6 +3793,10 @@ wl_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 	cfg->sched_scan_req = NULL;
 	cfg->sched_scan_running = FALSE;
 	mutex_unlock(&cfg->scan_sync);
+
+#ifdef PNO_DISABLE_EL
+	dhd_dbg_set_configuration_pno(dhdp, FALSE);
+#endif /* PNO_DISABLE_EL */
 
 	return 0;
 }

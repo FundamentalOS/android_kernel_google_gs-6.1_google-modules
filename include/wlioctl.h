@@ -13015,7 +13015,9 @@ enum wl_nan_sub_cmd_xtlv_id {
 	WL_NAN_CMD_CFG_FASTDISC = NAN_CMD(WL_NAN_CMD_CFG_COMP_ID, 0x1C),
 	WL_NAN_CMD_CFG_MIN_TX_RATE = NAN_CMD(WL_NAN_CMD_CFG_COMP_ID, 0x1D),
 	WL_NAN_CMD_CFG_FSM_TIMEOUT = NAN_CMD(WL_NAN_CMD_CFG_COMP_ID, 0x1E),
-	WL_NAN_CMD_CFG_MAX = WL_NAN_CMD_CFG_FSM_TIMEOUT,
+	WL_NAN_CMD_CFG_REKEY = NAN_CMD(WL_NAN_CMD_CFG_COMP_ID, 0x1F), /* REKEY */
+	WL_NAN_CMD_CFG_INSTANT_CHAN = NAN_CMD(WL_NAN_CMD_CFG_COMP_ID, 0x20),
+	WL_NAN_CMD_CFG_MAX = WL_NAN_CMD_CFG_INSTANT_CHAN,
 
 	/* Add new commands before and update */
 
@@ -13616,31 +13618,55 @@ enum wl_nan_cfg_ctrl2_flags1 {
 	/* Allows unicast SDF TX while local device is under NDP/NDL negotiation,
 	 * but Not with the peer SDF destined to.
 	 */
-	WL_NAN_CTRL2_FLAG1_ALLOW_SDF_TX_UCAST_IN_PROG	= 0x00000001,
+	WL_NAN_CTRL2_FLAG1_ALLOW_SDF_TX_UCAST_IN_PROG		= 0x00000001,
 	/* Allows broadcast SDF TX while local device is under NDP/NDL negotiation */
-	WL_NAN_CTRL2_FLAG1_ALLOW_SDF_TX_BCAST_IN_PROG	= 0x00000002,
+	WL_NAN_CTRL2_FLAG1_ALLOW_SDF_TX_BCAST_IN_PROG		= 0x00000002,
 	/* Allows the device to send schedule update automatically on local schedule change */
-	WL_NAN_CTRL2_FLAG1_AUTO_SCHEDUPD		= 0x00000004,
+	WL_NAN_CTRL2_FLAG1_AUTO_SCHEDUPD			= 0x00000004,
 	/* Allows the device to handle slot pre_close operations */
-	WL_NAN_CTRL2_FLAG1_SLOT_PRE_CLOSE		= 0x00000008,
+	WL_NAN_CTRL2_FLAG1_SLOT_PRE_CLOSE			= 0x00000008,
 	/* Control flag to enable/disable NDPE capability */
-	WL_NAN_CTRL2_FLAG1_NDPE_CAP			= 0x000000010,
+	WL_NAN_CTRL2_FLAG1_NDPE_CAP				= 0x00000010,
 	/* Control flag to enable/disable AUTO DAM LWT mode */
-	WL_NAN_CTRL2_FLAG1_AUTODAM_LWT_MODE		= 0x000000020,
+	WL_NAN_CTRL2_FLAG1_AUTODAM_LWT_MODE			= 0x00000020,
 	/* Control flag to enable/disable PMK per NDP */
-	WL_NAN_CTRL2_FLAG1_PMK_PER_NDP			= 0x000000040,
+	WL_NAN_CTRL2_FLAG1_PMK_PER_NDP				= 0x00000040,
 	/* Control flag to enable/disable allowing clear Schedule Update on Secured connection */
-	WL_NAN_CTRL2_FLAG1_SEC_ALLOW_CLEAR_SCHED_UPD_PKT    = 0x000000080,
+	WL_NAN_CTRL2_FLAG1_SEC_ALLOW_CLEAR_SCHED_UPD_PKT	= 0x00000080,
 	/* Control flag to disable/enable 5G FAW */
-	WL_NAN_CTRL2_FLAG1_DISABLE_5G_FAW		    = 0x000000100,
+	WL_NAN_CTRL2_FLAG1_DISABLE_5G_FAW			= 0x00000100,
 	/* Control flag to disable/enable AUTO DAM 6G CAP */
-	WL_NAN_CTRL2_FLAG1_DISABLE_AUTODAM_6G_CAP	    = 0x000000200,
+	WL_NAN_CTRL2_FLAG1_DISABLE_AUTODAM_6G_CAP		= 0x00000200,
 	/* Control flag to disable/enable allowing of unsecured OOB AF in a secured connection */
-	WL_NAN_CTRL2_FLAG1_ALLOW_UNSECURED_OOB_AF	    = 0x000000400,
+	WL_NAN_CTRL2_FLAG1_ALLOW_UNSECURED_OOB_AF		= 0x00000400,
 	/* Control flag to enable/disable 6G FULL avail */
-	WL_NAN_CTRL2_FLAG1_6G_FULL_AVAIL		    = 0x000000800
+	WL_NAN_CTRL2_FLAG1_6G_FULL_AVAIL			= 0x00000800,
+	/* Control flag to enable/disable PTK REKEY */
+	WL_NAN_CTRL2_FLAG1_PTK_REKEY				= 0x00001000,
+	/* Control flag to enable/disable GRP REKEY */
+	WL_NAN_CTRL2_FLAG1_GTK_REKEY				= 0x00002000,
+	/* Control flag to enable/disable GTK */
+	WL_NAN_CTRL2_FLAG1_GTK					= 0x00004000,
+	/* Control flag to enable/disable IGTK */
+	WL_NAN_CTRL2_FLAG1_IGTK					= 0x00008000,
+	/* Control flag to enable/disable BIGTK */
+	WL_NAN_CTRL2_FLAG1_BIGTK				= 0x00010000,
+	/* Control flag to enable/disable BIP_CMAC_128 */
+	WL_NAN_CTRL2_FLAG1_BIP_CMAC_128				= 0x00020000,
+	/* Control flag to enable/disable BIP_GMAC_256 */
+	WL_NAN_CTRL2_FLAG1_BIP_GMAC_256				= 0x00040000,
+	/* Control flag to enable/disable Notifs to BTcoex */
+	WL_NAN_CTRL2_FLAG1_BTCX_NOTIF				= 0x00080000,
+	/* Control flag to enable/disable NAN 3.1 Instant mode */
+	WL_NAN_CTRL2_FLAG1_INSTANT_MODE				= 0x00100000,
+	/* Control flag to disable/enable AUTO DAM dynamic schedule upgrade/downgrade */
+	WL_NAN_CTRL2_FLAG1_DISABLE_AUTODAM_DYN_UPDOWN		= 0x00200000,
+	/* Control flag to reject group addressed AFs w/o IGTK */
+	WL_NAN_CTRL2_FLAG1_IGTK_REJECT_UNPROT			= 0x00400000,
+	/* Control flag to reject bcn w/o BIGTK */
+	WL_NAN_CTRL2_FLAG1_BIGTK_REJECT_UNPROT			= 0x00800000
 };
-#define WL_NAN_CTRL2_FLAGS1_MASK	0x00000FFF
+#define WL_NAN_CTRL2_FLAGS1_MASK	0x00FFFFFF
 
 #define WL_NAN_CTRL2_FLAGS2_MASK	0x00000000
 
@@ -14969,8 +14995,14 @@ typedef struct wl_nan_fw_cap_v2 {
 } wl_nan_fw_cap_v2_t;
 
 /* nan cipher suite support mask bits */
-#define WL_NAN_CIPHER_SUITE_SHARED_KEY_128_MASK  0x01
-#define WL_NAN_CIPHER_SUITE_SHARED_KEY_256_MASK  0x02
+#define WL_NAN_CIPHER_SUITE_SHARED_KEY_128_MASK		0x01u
+#define WL_NAN_CIPHER_SUITE_SHARED_KEY_256_MASK		0x02u
+#define WL_NAN_CIPHER_SUITE_PUBLIC_KEY_128_MASK		0x04u
+#define WL_NAN_CIPHER_SUITE_PUBLIC_KEY_256_MASK		0x08u
+#define WL_NAN_CIPHER_SUITE_GROUP_KEY_128_MASK		0x10u
+#define WL_NAN_CIPHER_SUITE_GROUP_KEY_256_MASK		0x20u
+#define WL_NAN_CIPHER_SUITE_BIP_KEY_128_MASK		0x40u
+#define WL_NAN_CIPHER_SUITE_BIP_KEY_256_MASK		0x80u
 
 /* NAN Save Restore */
 #define WL_NAN_NSR2_INFO_MAX_SIZE	2048 /* arbitrary */

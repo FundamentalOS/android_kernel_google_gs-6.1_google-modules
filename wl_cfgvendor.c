@@ -1989,7 +1989,7 @@ wl_cfgvendor_rtt_set_config(struct wiphy *wiphy, struct wireless_dev *wdev,
 						rtt_target->LCI_request = nla_get_u8(iter2);
 						break;
 					case RTT_ATTRIBUTE_TARGET_LCR:
-						rtt_target->LCI_request = nla_get_u8(iter2);
+						rtt_target->LCR_request = nla_get_u8(iter2);
 						break;
 					case RTT_ATTRIBUTE_TARGET_BURST_DURATION:
 						if ((nla_get_u32(iter2) > 1 &&
@@ -2018,7 +2018,7 @@ wl_cfgvendor_rtt_set_config(struct wiphy *wiphy, struct wireless_dev *wdev,
 				/* convert to chanspec value */
 				rtt_target->chanspec =
 					dhd_rtt_convert_to_chspec(rtt_target->channel);
-				if (rtt_target->chanspec == 0) {
+				if (rtt_target->chanspec == INVCHANSPEC) {
 					WL_ERR(("Channel is not valid \n"));
 					err = -EINVAL;
 					goto exit;
@@ -3513,6 +3513,10 @@ nan_attr_to_str(u16 cmd)
 	C2S(NAN_ATTRIBUTE_CHANNEL_INFO);
 		break;
 	C2S(NAN_ATTRIBUTE_NUM_CHANNELS);
+		break;
+	C2S(NAN_ATTRIBUTE_INSTANT_MODE_ENABLE);
+		break;
+	C2S(NAN_ATTRIBUTE_INSTANT_COMM_CHAN);
 		break;
 	default:
 		id2str = "NAN_ATTRIBUTE_UNKNOWN";
@@ -5286,7 +5290,14 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 				ret = -EINVAL;
 				goto exit;
 			}
-			cmd_data->instant_chan = nla_get_u32(iter);
+			cmd_data->instant_chspec = wl_freq_to_chanspec((int)nla_get_u32(iter));
+			if (cmd_data->instant_chspec <= 0) {
+				WL_ERR((" Instant mode Channel is not valid \n"));
+				ret = -EINVAL;
+				break;
+			}
+			WL_INFORM_MEM(("[NAN Instant mode] Freq %d chanspec %x \n",
+					nla_get_u32(iter), cmd_data->instant_chspec));
 			break;
 		case NAN_ATTRIBUTE_ENABLE_MERGE:
 			if (nla_len(iter) != sizeof(uint8)) {
@@ -5317,7 +5328,7 @@ wl_cfgvendor_nan_parse_args(struct wiphy *wiphy, const void *buf,
 				ret = -EINVAL;
 				goto exit;
 			}
-			cfg->nancfg->ranging_enable = nla_get_u32(iter);
+			cfg->nancfg->ranging_enable = nla_get_u32(iter) != 0 ? TRUE : FALSE;
 			break;
 		case NAN_ATTRIBUTE_DW_EARLY_TERM:
 			if (nla_len(iter) != sizeof(uint32)) {
@@ -5718,11 +5729,11 @@ wl_cfgvendor_nan_sub_match_event_filler(struct sk_buff *msg,
 		goto fail;
 	}
 #ifdef WL_NAN_INSTANT_MODE
-		ret = nla_put_u8(msg, NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, event_data->peer_cipher_suite);
-		if (unlikely(ret)) {
-			WL_ERR(("Failed to put CSID, ret=%d\n", ret));
-			goto fail;
-		}
+	ret = nla_put_u8(msg, NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, event_data->peer_cipher_suite);
+	if (unlikely(ret)) {
+		WL_ERR(("Failed to put CSID, ret=%d\n", ret));
+		goto fail;
+	}
 #endif /* WL_NAN_INSTANT_MODE */
 	if (event_data->publish_rssi) {
 		event_data->publish_rssi = -event_data->publish_rssi;
@@ -7285,6 +7296,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 		chan_stats = (wifi_channel_stat*)MALLOCZ(cfg->osh, chan_stats_size);
 		if (chan_stats == NULL) {
 			WL_ERR(("chan_stats alloc failed\n"));
+			err = BCME_NOMEM;
 			goto exit;
 		}
 		bzero(chan_stats, chan_stats_size);
@@ -7296,6 +7308,7 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 			MALLOCZ(cfg->osh, per_chspec_stats_size);
 		if (per_chspec_stats == NULL) {
 			WL_ERR(("per_chspec_stats alloc failed\n"));
+			err = BCME_NOMEM;
 			goto exit;
 		}
 		(void) memcpy_s(per_chspec_stats, per_chspec_stats_size,
@@ -10888,7 +10901,7 @@ wl_cfgvendor_twt_setup(struct wiphy *wiphy,
 				if (nla_get_u8(iter) == 1) {
 					val.desc.flow_flags |= WL_TWT_FLOW_FLAG_TRIGGER;
 				}
-				fallthrough;
+				break;
 			case ANDR_TWT_ATTR_WAKE_DURATION:
 				/* Wake Duration */
 				val.desc.wake_dur = nla_get_u32(iter);

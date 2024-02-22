@@ -833,6 +833,9 @@ extern void dhd_dbg_detach(dhd_pub_t *dhdp);
 extern int dhd_dbg_start(dhd_pub_t *dhdp, bool start);
 extern int dhd_dbg_set_configuration(dhd_pub_t *dhdp, int ring_id,
 		int log_level, int flags, uint32 threshold);
+#ifdef PNO_DISABLE_EL
+extern int dhd_dbg_set_configuration_pno(dhd_pub_t *dhdp, bool pno_enable);
+#endif /* PNO_DISABLE_EL */
 extern int dhd_dbg_find_ring_id(dhd_pub_t *dhdp, char *ring_name);
 extern dhd_dbg_ring_t *dhd_dbg_get_ring_from_ring_id(dhd_pub_t *dhdp, int ring_id);
 extern void *dhd_dbg_get_priv(dhd_pub_t *dhdp);

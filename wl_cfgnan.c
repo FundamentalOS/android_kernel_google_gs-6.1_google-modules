@@ -1917,6 +1917,43 @@ wl_cfgnan_enable_handler(wl_nan_iov_t *nan_iov_data, bool val)
 }
 
 static int
+wl_cfgnan_set_instant_chanspec(nan_config_cmd_data_t *cmd_data, wl_nan_iov_t *nan_iov_data)
+{
+	s32 ret = BCME_OK;
+	bcm_iov_batch_subcmd_t *sub_cmd = NULL;
+	chanspec_t chspec;
+	uint16 subcmd_len;
+	NAN_DBG_ENTER();
+
+	sub_cmd = (bcm_iov_batch_subcmd_t*)(nan_iov_data->nan_iov_buf);
+
+	ret = wl_cfg_nan_check_cmd_len(nan_iov_data->nan_iov_len,
+			sizeof(chanspec_t), &subcmd_len);
+	if (unlikely(ret)) {
+		WL_ERR(("nan_sub_cmd check failed\n"));
+		return ret;
+	}
+	/* Fill the sub_command block */
+	sub_cmd->id = htod16(WL_NAN_CMD_CFG_INSTANT_CHAN);
+	sub_cmd->len = sizeof(sub_cmd->u.options) + sizeof(chspec);
+	sub_cmd->u.options = htol32(BCM_XTLV_OPTION_ALIGN32);
+	chspec = cmd_data->instant_chspec;
+
+	ret = memcpy_s(sub_cmd->data, sizeof(chanspec_t),
+			(uint8*)&chspec, sizeof(chanspec_t));
+	if (ret != BCME_OK) {
+		WL_ERR(("Failed to copy enab instant chspec\n"));
+		return ret;
+	}
+
+	nan_iov_data->nan_iov_len -= subcmd_len;
+	nan_iov_data->nan_iov_buf += subcmd_len;
+
+	NAN_DBG_EXIT();
+	return ret;
+}
+
+static int
 wl_cfgnan_warmup_time_handler(nan_config_cmd_data_t *cmd_data,
 		wl_nan_iov_t *nan_iov_data)
 {
@@ -2106,8 +2143,8 @@ wl_cfgnan_set_rssi_mid_or_close(nan_config_cmd_data_t *cmd_data,
 	return ret;
 }
 
-static int
-check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
+int
+wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan)
 {
 	s32 ret = BCME_OK;
 	uint bitmap;
@@ -2205,9 +2242,9 @@ wl_cfgnan_set_nan_soc_chans(struct net_device *ndev, nan_config_cmd_data_t *cmd_
 		} else {
 			soc_chans->soc_chan_5g = NAN_DEF_SOCIAL_CHAN_5G;
 		}
-		ret = check_for_valid_5gchan(ndev, soc_chans->soc_chan_5g);
+		ret = wl_cfgnan_check_for_valid_5gchan(ndev, soc_chans->soc_chan_5g);
 		if (ret != BCME_OK) {
-			ret = check_for_valid_5gchan(ndev, NAN_DEF_SEC_SOCIAL_CHAN_5G);
+			ret = wl_cfgnan_check_for_valid_5gchan(ndev, NAN_DEF_SEC_SOCIAL_CHAN_5G);
 			if (ret == BCME_OK) {
 				soc_chans->soc_chan_5g = NAN_DEF_SEC_SOCIAL_CHAN_5G;
 			} else {
@@ -2876,6 +2913,7 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	nan_hal_capabilities_t capabilities;
 	uint32 cfg_ctrl1_flags = 0;
 	uint32 cfg_ctrl2_flags1 = 0;
+	uint32 cfg_ctrl2_reset_flags1 = 0;
 	wl_nancfg_t *nancfg = cfg->nancfg;
 
 	NAN_DBG_ENTER();
@@ -3115,6 +3153,15 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		goto fail;
 	}
 	nan_buf->count++;
+
+	if (cmd_data->instant_chspec) {
+		ret = wl_cfgnan_set_instant_chanspec(cmd_data, nan_iov_data);
+		if (unlikely(ret)) {
+			WL_ERR(("NAN 3.1 Instant disc channel sub_cmd set failed\n"));
+			goto fail;
+		}
+		nan_buf->count++;
+	}
 	nan_buf->is_set = true;
 
 	nan_buf_size -= nan_iov_data->nan_iov_len;
@@ -3207,10 +3254,23 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		nancfg->ndpe_enabled = true;
 	} else {
 		/* reset NDPE capability in FW */
-		ret = wl_cfgnan_config_control_flag(ndev, cfg, WL_NAN_CTRL2_FLAG1_NDPE_CAP,
+		cfg_ctrl2_reset_flags1 |= WL_NAN_CTRL2_FLAG1_NDPE_CAP;
+		nancfg->ndpe_enabled = false;
+	}
+
+	/* NAN 3.1 Instant communication config mode */
+	if (cmd_data->instant_mode_en) {
+		cfg_ctrl2_flags1 |= WL_NAN_CTRL2_FLAG1_INSTANT_MODE;
+	} else {
+		/* reset NAN 3.1 Instant communication mode in FW */
+		cfg_ctrl2_reset_flags1 |= WL_NAN_CTRL2_FLAG1_INSTANT_MODE;
+	}
+
+	/* Reset ctrl2 flags */
+	if (cfg_ctrl2_reset_flags1) {
+		ret = wl_cfgnan_config_control_flag(ndev, cfg, cfg_ctrl2_reset_flags1,
 				0, WL_NAN_CMD_CFG_NAN_CONFIG2,
 				&(cmd_data->status), false);
-		nancfg->ndpe_enabled = false;
 		if (unlikely(ret) || unlikely(cmd_data->status)) {
 			WL_ERR((" nan ctrl2 config flags resetting failed, ret = %d status = %d \n",
 					ret, cmd_data->status));
@@ -3670,6 +3730,17 @@ wl_cfgnan_config_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 			goto fail;
 		}
 	}
+
+	/* Set NAN 3.1 Instant channel */
+	if (cmd_data->instant_chspec) {
+		ret = wl_cfgnan_set_instant_chanspec(cmd_data, nan_iov_data);
+		if (unlikely(ret)) {
+			WL_ERR(("NAN 3.1 Instant communication channel sub_cmd set failed\n"));
+			goto fail;
+		}
+		nan_buf->count++;
+	}
+
 	nan_buf->is_set = true;
 	nan_buf_size -= nan_iov_data->nan_iov_len;
 
@@ -3685,6 +3756,27 @@ wl_cfgnan_config_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		}
 	} else {
 		WL_DBG(("No commands to send\n"));
+	}
+
+	/* NAN 3.1 Instant communication config mode */
+	if (nan_attr_mask & NAN_ATTR_INSTANT_MODE_CONFIG) {
+		uint8 set;
+		uint32 flags1 = WL_NAN_CTRL2_FLAG1_INSTANT_MODE;
+
+		if (cmd_data->instant_mode_en) {
+			set = TRUE;
+		} else {
+			set = FALSE;
+		}
+		/* trigger nan ctrl2 iovar to config NAN 3.1 instant mode */
+		ret = wl_cfgnan_config_control_flag(ndev, cfg, flags1,
+				0, WL_NAN_CMD_CFG_NAN_CONFIG2,
+				&(cmd_data->status), set);
+		if (unlikely(ret) || unlikely(cmd_data->status)) {
+			WL_ERR(("nan ctrl2 config flags setting failed, ret = %d status = %d \n",
+					ret, cmd_data->status));
+			goto fail;
+		}
 	}
 
 	if ((!cmd_data->bmap) || (cmd_data->avail_params.duration == NAN_BAND_INVALID) ||
@@ -9922,4 +10014,62 @@ sched:
 	/* As FW is busy, retry NMI change after 60sec */
 	schedule_delayed_work(&cfg->nancfg->nan_nmi_rand, msecs_to_jiffies(60 * 1000));
 }
+#ifdef WL_NAN_INSTANT_MODE
+void wl_cfgnan_inst_chan_support(struct bcm_cfg80211 *cfg,
+	wl_chanspec_list_v1_t *chan_list, u32 band_mask,
+	uint8 *nan_2g, uint8 *nan_pri_5g, uint8 *nan_sec_5g)
+{
+	int ret = BCME_OK;
+	uint16 list_count = 0, i = 0;
+	uint8 channel = 0;
+	chanspec_t chanspec = INVCHANSPEC;
+
+	list_count = chan_list->count;
+	for (i = 0; i < list_count; i++) {
+		chanspec = dtoh32(((wl_chanspec_list_v1_t *)chan_list)->chspecs[i].chanspec);
+		chanspec = wl_chspec_driver_to_host(chanspec);
+
+		if (!wf_chspec_malformed(chanspec)) {
+			channel = CHSPEC_CHANNEL(chanspec);
+
+			if ((band_mask & WLAN_MAC_5_0_BAND) &&
+				(channel == NAN_DEF_SOCIAL_CHAN_5G)) {
+				/* Check nan operatability in the current locale */
+				ret = wl_cfgnan_check_for_valid_5gchan(bcmcfg_to_prmry_ndev(cfg),
+					channel);
+				if (ret != BCME_OK) {
+					WL_DBG_MEM(("Current locale doesn't support 5G op"
+						"continuing with 2G only operation\n"));
+					*nan_pri_5g = 0;
+				} else {
+					WL_DBG_MEM(("Found prim inst mode 5g chan!!\n"));
+					*nan_pri_5g = channel;
+				}
+			}
+
+			if ((band_mask & WLAN_MAC_5_0_BAND) &&
+				(channel == NAN_DEF_SEC_SOCIAL_CHAN_5G)) {
+				/* Check nan operatability in the current locale */
+				ret = wl_cfgnan_check_for_valid_5gchan(bcmcfg_to_prmry_ndev(cfg),
+					channel);
+				if (ret != BCME_OK) {
+					WL_DBG_MEM(("Current locale doesn't support 5G op"
+						"continuing with 2G only operation\n"));
+					*nan_sec_5g = 0;
+				} else {
+					WL_DBG_MEM(("Found sec inst mode 5g chan!!\n"));
+					*nan_sec_5g = channel;
+				}
+			}
+
+			if ((band_mask & WLAN_MAC_2_4_BAND) &&
+				(channel == NAN_DEF_SOCIAL_CHAN_2G)) {
+				WL_DBG_MEM(("Found instant mode 2g channel!!\n"));
+				*nan_2g = channel;
+			}
+		}
+	}
+	return;
+}
+#endif /* WL_NAN_INSTANT_MODE */
 #endif /* WL_NAN */

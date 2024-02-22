@@ -148,6 +148,21 @@ struct log_level_table fw_verbose_level_map[] = {
 	{2, EVENT_LOG_TAG_SCAN_TRACE_HIGH, "SCAN_TRACE_HIGH"},
 };
 
+#ifdef PNO_DISABLE_EL
+int log_level_fw_verbose;
+struct log_level_table fw_verbose_level_map_pno_enable[] = {
+	{3, EVENT_LOG_TAG_SCAN_WARN, "SCAN_WARN"},
+	{3, EVENT_LOG_TAG_SCAN_TRACE_LOW, "SCAN_TRACE_LOW"},
+	{3, EVENT_LOG_TAG_SCAN_TRACE_HIGH, "SCAN_TRACE_HIGH"},
+};
+
+struct log_level_table fw_verbose_level_map_pno_disable[] = {
+	{1, EVENT_LOG_TAG_SCAN_WARN, "SCAN_WARN"},
+	{2, EVENT_LOG_TAG_SCAN_TRACE_LOW, "SCAN_TRACE_LOW"},
+	{2, EVENT_LOG_TAG_SCAN_TRACE_HIGH, "SCAN_TRACE_HIGH"},
+};
+#endif /* PNO_DISABLE_EL */
+
 /* reference tab table */
 uint ref_tag_tbl[EVENT_LOG_TAG_MAX + 1] = {0};
 
@@ -1379,6 +1394,10 @@ dhd_dbg_set_event_log_tag(dhd_pub_t *dhdp, uint16 tag, uint8 set)
 	pars.tag = tag;
 	pars.set = set;
 	pars.flags = EVENT_LOG_TAG_FLAG_LOG;
+#ifdef PNO_DISABLE_EL
+	if (!set)
+		pars.flags = EVENT_LOG_TAG_FLAG_NONE;
+#endif /* PNO_DISABLE_EL */
 
 	if (!bcm_mkiovar(cmd, (char *)&pars, sizeof(pars), iovbuf, sizeof(iovbuf))) {
 		DHD_ERROR(("%s mkiovar failed\n", __FUNCTION__));
@@ -1415,6 +1434,9 @@ dhd_dbg_set_configuration(dhd_pub_t *dhdp, int ring_id, int log_level, int flags
 	if (ring->id == FW_VERBOSE_RING_ID) {
 		log_level_tbl = fw_verbose_level_map;
 		array_len = ARRAYSIZE(fw_verbose_level_map);
+#ifdef PNO_DISABLE_EL
+		log_level_fw_verbose = log_level;
+#endif /* PNO_DISABLE_EL */
 	}
 
 	for (i = 0; i < array_len; i++) {
@@ -1432,6 +1454,47 @@ dhd_dbg_set_configuration(dhd_pub_t *dhdp, int ring_id, int log_level, int flags
 	}
 	return BCME_OK;
 }
+
+#ifdef PNO_DISABLE_EL
+int
+dhd_dbg_set_configuration_pno(dhd_pub_t *dhdp, bool pno_enable)
+{
+	dhd_dbg_ring_t *ring;
+	uint8 set = 1;
+	int i, array_len = 0;
+	struct log_level_table *log_level_tbl = NULL;
+	int ring_id = FW_VERBOSE_RING_ID;
+	int log_level = log_level_fw_verbose;
+
+	if (!dhdp || !dhdp->dbg)
+		return BCME_BADADDR;
+
+	ring = &dhdp->dbg->dbg_rings[FW_VERBOSE_RING_ID];
+
+	if (pno_enable) {
+		log_level_tbl = fw_verbose_level_map_pno_enable;
+		array_len = ARRAYSIZE(fw_verbose_level_map_pno_enable);
+	} else {
+		log_level_tbl = fw_verbose_level_map_pno_disable;
+		array_len = ARRAYSIZE(fw_verbose_level_map_pno_disable);
+	}
+
+	for (i = 0; i < array_len; i++) {
+		if (log_level == 0 || (log_level_tbl[i].log_level > log_level)) {
+			/* clear the reference per ring */
+			ref_tag_tbl[log_level_tbl[i].tag] &= ~(1 << ring_id);
+		} else {
+			/* set the reference per ring */
+			ref_tag_tbl[log_level_tbl[i].tag] |= (1 << ring_id);
+		}
+		set = (ref_tag_tbl[log_level_tbl[i].tag])? 1 : 0;
+		DHD_DBGIF(("%s TAG(%s) is %s for the ring(%s)\n", __FUNCTION__,
+			log_level_tbl[i].desc, (set)? "SET" : "CLEAR", ring->name));
+		dhd_dbg_set_event_log_tag(dhdp, log_level_tbl[i].tag, set);
+	}
+	return BCME_OK;
+}
+#endif /* PNO_DISABLE_EL */
 
 int
 __dhd_dbg_get_ring_status(dhd_dbg_ring_t *ring, dhd_dbg_ring_status_t *get_ring_status)

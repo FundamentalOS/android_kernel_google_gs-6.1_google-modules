@@ -539,7 +539,7 @@ typedef struct nan_config_cmd_data {
 	wl_nan_disc_bcn_interval_t disc_bcn_interval;
 	uint32 dw_early_termination;
 	uint32 instant_mode_en;
-	uint32 instant_chan;
+	chanspec_t instant_chspec;
 } nan_config_cmd_data_t;
 
 typedef struct nan_event_hdr {
@@ -814,6 +814,13 @@ int wl_cfgnan_set_enable_merge(struct net_device *ndev,
 int wl_cfgnan_attach(struct bcm_cfg80211 *cfg);
 void wl_cfgnan_detach(struct bcm_cfg80211 *cfg);
 int wl_cfgnan_get_status(struct net_device *ndev, wl_nan_conf_status_t *nan_status);
+#ifdef WL_NAN_INSTANT_MODE
+extern void wl_cfgnan_inst_chan_support(struct bcm_cfg80211 *cfg,
+	wl_chanspec_list_v1_t *chan_list, uint32 band_mask,
+	uint8 *nan_2g, uint8 *nan_pri_5g, uint8* nan_sec_5g);
+#endif /* WL_NAN_INSTANT_MODE */
+int
+wl_cfgnan_check_for_valid_5gchan(struct net_device *ndev, uint8 chan);
 
 #ifdef RTT_SUPPORT
 int wl_cfgnan_trigger_ranging(struct net_device *ndev,
