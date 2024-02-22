@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * GXP mailbox.
  *
@@ -12,9 +12,12 @@
 #include <linux/kthread.h>
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 #include <uapi/linux/sched/types.h>
 
-#include "gxp-config.h" /* GXP_USE_LEGACY_MAILBOX */
+#include <gcip/gcip-mailbox.h>
+
+#include "gxp-config.h"
 #include "gxp-dma.h"
 #include "gxp-internal.h"
 #include "gxp-mailbox.h"
@@ -22,15 +25,12 @@
 #include "gxp-pm.h"
 #include "gxp.h"
 
-#if GXP_USE_LEGACY_MAILBOX
-#include "gxp-mailbox-impl.h"
-#else
-#include <gcip/gcip-mailbox.h>
+#if GXP_HAS_MCU
 #include <gcip/gcip-kci.h>
 
 #include "gxp-kci.h"
 #include "gxp-mcu-telemetry.h"
-#endif
+#endif /* GXP_HAS_MCU */
 
 /* Timeout of 1s by default */
 int gxp_mbx_timeout = 2000;
@@ -49,20 +49,12 @@ static void gxp_mailbox_consume_responses_work(struct kthread_work *work)
 	struct gxp_mailbox *mailbox =
 		container_of(work, struct gxp_mailbox, response_work);
 
-#if GXP_USE_LEGACY_MAILBOX
-	gxp_mailbox_consume_responses(mailbox);
-#else
-	switch (mailbox->type) {
-	case GXP_MBOX_TYPE_GENERAL:
+	if (gxp_is_direct_mode(mailbox->gxp))
 		gcip_mailbox_consume_responses_work(mailbox->mbx_impl.gcip_mbx);
-		break;
-	case GXP_MBOX_TYPE_KCI:
-		gcip_kci_handle_irq(mailbox->mbx_impl.gcip_kci);
-		gxp_mcu_telemetry_irq_handler(
-			((struct gxp_kci *)mailbox->data)->mcu);
-		break;
-	}
-#endif
+#if GXP_HAS_MCU
+	else if (mailbox->type == GXP_MBOX_TYPE_KCI)
+		gxp_mcu_telemetry_irq_handler(((struct gxp_kci *)mailbox->data)->mcu);
+#endif /* GXP_HAS_MCU */
 }
 
 /*
@@ -70,9 +62,20 @@ static void gxp_mailbox_consume_responses_work(struct kthread_work *work)
  *
  * Puts the gxp_mailbox_consume_responses_work() into the system work queue.
  */
-static inline void gxp_mailbox_handle_irq(struct gxp_mailbox *mailbox)
+static void gxp_mailbox_handle_irq(struct gxp_mailbox *mailbox)
 {
-	kthread_queue_work(&mailbox->response_worker, &mailbox->response_work);
+	if (gxp_is_direct_mode(mailbox->gxp)) {
+		kthread_queue_work(&mailbox->response_worker, &mailbox->response_work);
+		return;
+	}
+#if GXP_HAS_MCU
+	if (mailbox->type == GXP_MBOX_TYPE_KCI) {
+		gcip_kci_handle_irq(mailbox->mbx_impl.gcip_kci);
+		kthread_queue_work(&mailbox->response_worker, &mailbox->response_work);
+	} else if (mailbox->type == GXP_MBOX_TYPE_GENERAL) {
+		gcip_mailbox_consume_responses_work(mailbox->mbx_impl.gcip_mbx);
+	}
+#endif /* GXP_HAS_MCU */
 }
 
 /* Priority level for realtime worker threads */
@@ -145,7 +148,6 @@ static struct gxp_mailbox *create_mailbox(struct gxp_mailbox_manager *mgr,
 	mailbox->queue_wrap_bit = args->queue_wrap_bit;
 	mailbox->cmd_elem_size = args->cmd_elem_size;
 	mailbox->resp_elem_size = args->resp_elem_size;
-	mailbox->ignore_seq_order = args->ignore_seq_order;
 	gxp_mailbox_set_data(mailbox, args->data);
 
 	ret = gxp_mailbox_set_ops(mailbox, args->ops);
@@ -157,7 +159,7 @@ static struct gxp_mailbox *create_mailbox(struct gxp_mailbox_manager *mgr,
 		goto err_allocate_resources;
 
 	mutex_init(&mailbox->cmd_queue_lock);
-	mutex_init(&mailbox->resp_queue_lock);
+	spin_lock_init(&mailbox->resp_queue_lock);
 	kthread_init_worker(&mailbox->response_worker);
 	mailbox->response_thread = create_response_rt_thread(
 		mailbox->gxp->dev, &mailbox->response_worker, core_id);
@@ -193,7 +195,6 @@ static void release_mailbox(struct gxp_mailbox *mailbox,
 	kfree(mailbox);
 }
 
-#if !GXP_USE_LEGACY_MAILBOX
 static int init_gcip_mailbox(struct gxp_mailbox *mailbox)
 {
 	const struct gcip_mailbox_args args = {
@@ -206,7 +207,6 @@ static int init_gcip_mailbox(struct gxp_mailbox *mailbox)
 		.timeout = MAILBOX_TIMEOUT,
 		.ops = mailbox->ops->gcip_ops.mbx,
 		.data = mailbox,
-		.ignore_seq_order = mailbox->ignore_seq_order,
 	};
 	struct gcip_mailbox *gcip_mbx;
 	int ret;
@@ -238,6 +238,8 @@ static void release_gcip_mailbox(struct gxp_mailbox *mailbox)
 	kfree(gcip_mbx);
 	mailbox->mbx_impl.gcip_mbx = NULL;
 }
+
+#if GXP_HAS_MCU
 
 static int init_gcip_kci(struct gxp_mailbox *mailbox)
 {
@@ -281,44 +283,35 @@ static void release_gcip_kci(struct gxp_mailbox *mailbox)
 	kfree(gcip_kci);
 	mailbox->mbx_impl.gcip_kci = NULL;
 }
-#endif /* !GXP_USE_LEGACY_MAILBOX */
+
+#endif /* GXP_HAS_MCU */
 
 /*
  * Initializes @mailbox->mbx_impl to start waiting and consuming responses.
  * This will initializes GCIP mailbox modules according to the type of @mailbox.
  * - GENERAL: will initialize @mailbox->mbx_impl.gcip_mbx
  * - KCI: will initialize @mailbox->mbx_impl.kci_mbx
- *
- * Note: On `GXP_USE_LEGACY_MAILBOX`, it will initialize @mailbox itself as its
- * queuing logic is implemented in `gxp-mailbox-impl.c`.
  */
 static int init_mailbox_impl(struct gxp_mailbox *mailbox)
 {
 	int ret;
 
-#if GXP_USE_LEGACY_MAILBOX
-	if (mailbox->type != GXP_MBOX_TYPE_GENERAL)
-		return -EOPNOTSUPP;
-
-	ret = gxp_mailbox_init_consume_responses(mailbox);
-	if (ret)
-		return ret;
-#else
 	switch (mailbox->type) {
 	case GXP_MBOX_TYPE_GENERAL:
 		ret = init_gcip_mailbox(mailbox);
 		if (ret)
 			return ret;
 		break;
+#if GXP_HAS_MCU
 	case GXP_MBOX_TYPE_KCI:
 		ret = init_gcip_kci(mailbox);
 		if (ret)
 			return ret;
 		break;
+#endif /* GXP_HAS_MCU */
 	default:
 		return -EOPNOTSUPP;
 	}
-#endif /* GXP_USE_LEGACY_MAILBOX */
 
 	return 0;
 }
@@ -328,17 +321,14 @@ static int enable_mailbox(struct gxp_mailbox *mailbox)
 	int ret;
 
 	gxp_mailbox_write_descriptor(mailbox, mailbox->descriptor_buf.dsp_addr);
-	gxp_mailbox_write_cmd_queue_head(mailbox, 0);
-	gxp_mailbox_write_cmd_queue_tail(mailbox, 0);
-	gxp_mailbox_write_resp_queue_head(mailbox, 0);
-	gxp_mailbox_write_resp_queue_tail(mailbox, 0);
+	gxp_mailbox_reset(mailbox);
 
 	ret = init_mailbox_impl(mailbox);
 	if (ret)
 		return ret;
 
 	mailbox->handle_irq = gxp_mailbox_handle_irq;
-	mutex_init(&mailbox->wait_list_lock);
+	spin_lock_init(&mailbox->wait_list_lock);
 	kthread_init_work(&mailbox->response_work,
 			  gxp_mailbox_consume_responses_work);
 
@@ -377,24 +367,21 @@ struct gxp_mailbox *gxp_mailbox_alloc(struct gxp_mailbox_manager *mgr,
  * This releases GCIP mailbox modules according to the type of @mailbox.
  * - GENERAL: will release @mailbox->mbx_impl.gcip_mbx
  * - KCI: will release @mailbox->mbx_impl.kci_mbx
- *
- * Note: On `GXP_USE_LEGACY_MAILBOX`, it will release @mailbox itself as its
- * queuing logic is implemented in `gxp-mailbox-impl.c`.
  */
 static void release_mailbox_impl(struct gxp_mailbox *mailbox)
 {
-#if GXP_USE_LEGACY_MAILBOX
-	gxp_mailbox_release_consume_responses(mailbox);
-#else
 	switch (mailbox->type) {
 	case GXP_MBOX_TYPE_GENERAL:
 		release_gcip_mailbox(mailbox);
 		break;
+#if GXP_HAS_MCU
 	case GXP_MBOX_TYPE_KCI:
 		release_gcip_kci(mailbox);
 		break;
+#endif /* GXP_HAS_MCU */
+	default:
+		break;
 	}
-#endif
 }
 
 void gxp_mailbox_release(struct gxp_mailbox_manager *mgr,
@@ -446,7 +433,12 @@ void gxp_mailbox_release(struct gxp_mailbox_manager *mgr,
 
 void gxp_mailbox_reset(struct gxp_mailbox *mailbox)
 {
-	dev_notice(mailbox->gxp->dev, "%s not yet implemented\n", __func__);
+	gxp_mailbox_write_cmd_queue_head(mailbox, 0);
+	gxp_mailbox_write_cmd_queue_tail(mailbox, 0);
+	gxp_mailbox_write_resp_queue_head(mailbox, 0);
+	gxp_mailbox_write_resp_queue_tail(mailbox, 0);
+	mailbox->cmd_queue_tail = 0;
+	mailbox->resp_queue_head = 0;
 }
 
 int gxp_mailbox_register_interrupt_handler(struct gxp_mailbox *mailbox,
@@ -474,30 +466,30 @@ int gxp_mailbox_unregister_interrupt_handler(struct gxp_mailbox *mailbox,
 	return 0;
 }
 
-#if !GXP_USE_LEGACY_MAILBOX
 int gxp_mailbox_send_cmd(struct gxp_mailbox *mailbox, void *cmd, void *resp)
 {
 	switch (mailbox->type) {
 	case GXP_MBOX_TYPE_GENERAL:
-		return gcip_mailbox_send_cmd(mailbox->mbx_impl.gcip_mbx, cmd,
-					     resp);
+		return gcip_mailbox_send_cmd(mailbox->mbx_impl.gcip_mbx, cmd, resp, 0);
+#if GXP_HAS_MCU
 	case GXP_MBOX_TYPE_KCI:
 		return gcip_kci_send_cmd(mailbox->mbx_impl.gcip_kci, cmd);
+#endif /* GXP_HAS_MCU */
+	default:
+		return -EOPNOTSUPP;
 	}
-	return -EOPNOTSUPP;
 }
 
-struct gcip_mailbox_resp_awaiter *
-gxp_mailbox_put_cmd(struct gxp_mailbox *mailbox, void *cmd, void *resp,
-		    void *data)
+struct gcip_mailbox_resp_awaiter *gxp_mailbox_put_cmd(struct gxp_mailbox *mailbox, void *cmd,
+						      void *resp, void *data,
+						      gcip_mailbox_cmd_flags_t flags)
 {
 	switch (mailbox->type) {
 	case GXP_MBOX_TYPE_GENERAL:
-		return gcip_mailbox_put_cmd(mailbox->mbx_impl.gcip_mbx, cmd,
-					    resp, data);
+		return gcip_mailbox_put_cmd_flags(mailbox->mbx_impl.gcip_mbx, cmd, resp, data,
+						  flags);
 	default:
 		break;
 	}
 	return ERR_PTR(-EOPNOTSUPP);
 }
-#endif /* !GXP_USE_LEGACY_MAILBOX */

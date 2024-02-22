@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP driver common internal definitions.
  *
@@ -8,6 +8,7 @@
 #define __GXP_INTERNAL_H__
 
 #include <linux/atomic.h>
+#include <linux/cdev.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/firmware.h>
@@ -15,7 +16,6 @@
 #include <linux/io.h>
 #include <linux/iommu.h>
 #include <linux/list.h>
-#include <linux/miscdevice.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -23,9 +23,12 @@
 #include <linux/rwsem.h>
 #include <linux/spinlock.h>
 
+#include <gcip/gcip-resource-accessor.h>
 #include <gcip/gcip-thermal.h>
+#include <iif/iif-manager.h>
 
 #include "gxp-config.h"
+#include "gxp.h"
 
 #define IS_GXP_TEST IS_ENABLED(CONFIG_GXP_TEST)
 
@@ -52,6 +55,13 @@ struct gxp_mapped_resource {
 	resource_size_t size;		 /* size in bytes */
 };
 
+/* device properties */
+struct gxp_dev_prop {
+	struct mutex lock; /* protects initialized and opaque */
+	bool initialized;
+	u8 opaque[GXP_DEV_PROP_SIZE];
+};
+
 /* Structure to hold TPU device info */
 struct gxp_tpu_dev {
 	struct device *dev;
@@ -59,7 +69,8 @@ struct gxp_tpu_dev {
 };
 
 /* Forward declarations from submodules */
-struct gcip_domain_pool;
+struct gcip_iommu_domain_pool;
+struct gcip_iommu_domain;
 struct gxp_client;
 struct gxp_mailbox_manager;
 struct gxp_debug_dump_manager;
@@ -67,14 +78,15 @@ struct gxp_dma_manager;
 struct gxp_fw_data_manager;
 struct gxp_power_manager;
 struct gxp_core_telemetry_manager;
+struct gxp_soc_data;
 struct gxp_thermal_manager;
 struct gxp_usage_stats;
 struct gxp_power_states;
-struct gxp_iommu_domain;
 
 struct gxp_dev {
 	struct device *dev;		 /* platform bus device */
-	struct miscdevice misc_dev;	 /* misc device structure */
+	struct cdev char_dev; /* char device structure */
+	dev_t char_dev_no;
 	struct dentry *d_entry;		 /* debugfs dir for this device */
 	struct gxp_mapped_resource regs; /* ioremapped CSRs */
 	struct gxp_mapped_resource lpm_regs; /* ioremapped LPM CSRs, may be equal to @regs */
@@ -87,6 +99,8 @@ struct gxp_dev {
 	struct gxp_debug_dump_manager *debug_dump_mgr;
 	struct gxp_firmware_loader_manager *fw_loader_mgr;
 	struct gxp_firmware_manager *firmware_mgr;
+	/* SoC-specific data */
+	struct gxp_soc_data *soc_data;
 	/*
 	 * Lock to ensure only one thread at a time is ever calling
 	 * `pin_user_pages_fast()` during mapping, otherwise it will fail.
@@ -111,15 +125,17 @@ struct gxp_dev {
 	struct gxp_fw_data_manager *data_mgr;
 	struct gxp_tpu_dev tpu_dev;
 	struct gxp_core_telemetry_manager *core_telemetry_mgr;
-	struct gxp_iommu_domain *default_domain;
+	struct gcip_iommu_domain *default_domain;
 	struct gcip_thermal *thermal;
+	/* The accessor to register resources to the debugfs interface. */
+	struct gcip_resource_accessor *resource_accessor;
 	/*
 	 * Pointer to GSA device for firmware authentication.
 	 * May be NULL if the chip does not support firmware authentication
 	 */
 	struct device *gsa_dev;
 	u32 memory_per_core;
-	struct gcip_domain_pool *domain_pool;
+	struct gcip_iommu_domain_pool *domain_pool;
 	struct list_head client_list;
 	struct mutex client_list_lock;
 	/* Pointer and mutex of secure virtual device */
@@ -143,6 +159,12 @@ struct gxp_dev {
 
 	/* To manage DMA fences. */
 	struct gcip_dma_fence_manager *gfence_mgr;
+
+	/* To save device properties */
+	struct gxp_dev_prop device_prop;
+
+	/* To manage IIF fences. */
+	struct iif_manager *iif_mgr;
 
 	/* callbacks for chip-dependent implementations */
 
@@ -253,6 +275,13 @@ struct gxp_dev {
 	 */
 	void (*before_unmap_tpu_mbx_queue)(struct gxp_dev *gxp,
 					   struct gxp_client *client);
+	/*
+	 * Called as the first step in gxp_lpm_init(), to perform chip-specific initialization if
+	 * any.
+	 *
+	 * This callback is optional.
+	 */
+	void (*lpm_init)(struct gxp_dev *gxp);
 };
 
 /* GXP device IO functions */
@@ -282,6 +311,9 @@ static inline int gxp_acquire_rmem_resource(struct gxp_dev *gxp,
 
 	ret = of_address_to_resource(np, 0, r);
 	of_node_put(np);
+
+	if (!ret && !IS_ERR_OR_NULL(gxp->resource_accessor))
+		gcip_register_accessible_resource(gxp->resource_accessor, r);
 
 	return ret;
 }

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP kernel-userspace interface definitions.
  *
@@ -13,25 +13,18 @@
 
 /* Interface Version */
 #define GXP_INTERFACE_VERSION_MAJOR 1
-#define GXP_INTERFACE_VERSION_MINOR 11
+#define GXP_INTERFACE_VERSION_MINOR 26
 #define GXP_INTERFACE_VERSION_BUILD 0
-
-/*
- * Legacy mmap offsets for core logging and tracing buffers
- * Requested size will be divided evenly among all cores. The whole buffer
- * must be page-aligned, and the size of each core's buffer must be a multiple
- * of PAGE_SIZE.
- */
-#define GXP_MMAP_CORE_LOG_BUFFER_OFFSET_LEGACY 0x10000
-#define GXP_MMAP_CORE_TRACE_BUFFER_OFFSET_LEGACY 0x20000
 
 /* mmap offsets for MCU logging and tracing buffers */
 #define GXP_MMAP_MCU_LOG_BUFFER_OFFSET 0x30000
 #define GXP_MMAP_MCU_TRACE_BUFFER_OFFSET 0x40000
 
-/* mmap offsets for core logging and tracing buffers */
+/* mmap offsets for core telemetry buffers */
 #define GXP_MMAP_CORE_LOG_BUFFER_OFFSET 0x50000
-#define GXP_MMAP_CORE_TRACE_BUFFER_OFFSET 0x60000
+
+/* mmap offset for secure core logging and tracing */
+#define GXP_MMAP_SECURE_CORE_LOG_BUFFER_OFFSET 0x70000
 
 #define GXP_IOCTL_BASE 0xEE
 
@@ -90,7 +83,20 @@ struct gxp_map_ioctl {
 	 *   [31:3]  - RESERVED
 	 */
 	__u32 flags;
-	__u64 device_address; /* returned device address */
+	/*
+	 * - GXP_MAP_BUFFER (Input / Output):
+	 * If the value is 0, the buffer will be mapped to any free location of
+	 * the unreserved region and its device address will be returned to this
+	 * field.
+	 *
+	 * If the value is non-zero, the buffer will be mapped to the passed
+	 * specific address. The user must reserve an IOVA region which can map
+	 * the buffer to the address first. (See GXP_RESERVE_IOVA_REGION)
+	 *
+	 * - GXP_UNMAP_BUFFER (Input):
+	 * The device address of the buffer to be unmapped.
+	 */
+	__u64 device_address;
 };
 
 /*
@@ -216,8 +222,16 @@ struct gxp_specs_ioctl {
 	 * units of GXP_CORE_TELEMETRY_BUFFER_UNIT_SIZE.
 	 */
 	__u8 secure_telemetry_buffer_size;
+	/*
+	 * The number of virtual devices can be allocated at the same time.
+	 */
+	__u8 max_vd_allocation;
+	/*
+	 * The number of virtual devices can acquire wakelock at the same time.
+	 */
+	__u8 max_vd_activation;
 	/* Deprecated fields that should be ignored */
-	__u8 reserved[8];
+	__u8 reserved[6];
 	/*
 	 * Amount of "tightly-coupled memory" or TCM available to each core.
 	 * The value returned will be in kB, or 0 if the value was not
@@ -245,16 +259,8 @@ struct gxp_virtual_device_ioctl {
 	 *   [31:1]  - RESERVED
 	 */
 	__u8 flags;
-	/*
-	 * Input:
-	 * The number of threads requested per core.
-	 */
-	__u16 threads_per_core;
-	/*
-	 * Input:
-	 * The amount of memory requested per core, in kB.
-	 */
-	__u32 memory_per_core;
+	/* Deprecated field that should be ignored. */
+	__u8 reserved[6];
 	/*
 	 * Output:
 	 * The ID assigned to the virtual device and shared with its cores.
@@ -379,35 +385,6 @@ struct gxp_etm_get_trace_info_ioctl {
 #define GXP_TELEMETRY_TYPE_LOGGING (0)
 #define GXP_TELEMETRY_TYPE_TRACING (1)
 
-/*
- * Enable either logging or software tracing for all cores.
- * Accepts either `GXP_TELEMETRY_TYPE_LOGGING` or `GXP_TELEMETRY_TYPE_TRACING`
- * to specify whether logging or software tracing is to be enabled.
- *
- * Buffers for logging or tracing must have already been mapped via an `mmap()`
- * call with the respective offset and initialized by the client, prior to
- * calling this ioctl.
- *
- * If firmware is already running on any cores, they will be signaled to begin
- * logging/tracing to their buffers. Any cores booting after this call will
- * begin logging/tracing as soon as their firmware is able to.
- */
-#define GXP_ENABLE_CORE_TELEMETRY _IOWR(GXP_IOCTL_BASE, 11, __u8)
-
-/*
- * Disable either logging or software tracing for all cores.
- * Accepts either `GXP_TELEMETRY_TYPE_LOGGING` or `GXP_TELEMETRY_TYPE_TRACING`
- * to specify whether logging or software tracing is to be disabled.
- *
- * This call will block until any running cores have been notified and ACKed
- * that they have disabled the specified telemetry type.
- */
-#define GXP_DISABLE_CORE_TELEMETRY _IOWR(GXP_IOCTL_BASE, 12, __u8)
-
-/* For backward compatibility. */
-#define GXP_ENABLE_TELEMETRY GXP_ENABLE_CORE_TELEMETRY
-#define GXP_DISABLE_TELEMETRY GXP_DISABLE_CORE_TELEMETRY
-
 struct gxp_tpu_mbx_queue_ioctl {
 	__u32 tpu_fd; /* TPU virtual device group fd */
 	/*
@@ -530,11 +507,17 @@ struct gxp_map_dmabuf_ioctl {
 	 */
 	__u32 flags;
 	/*
-	 * Device address the dmabuf is mapped to.
-	 * - GXP_MAP_DMABUF uses this field to return the address the dma-buf
-	 *   can be accessed from by the device.
-	 * - GXP_UNMAP_DMABUF expects this field to contain the value from the
-	 *   mapping call, and uses it to determine which dma-buf to unmap.
+	 * - GXP_MAP_DMABUF (Input / Output):
+	 * If the value is 0, the dma-buf will be mapped to any free location of
+	 * the unreserved region and its device address will be returned to this
+	 * field.
+	 *
+	 * If the value is non-zero, the dma-buf will be mapped to the passed
+	 * specific address. The user must reserve an IOVA region which can map
+	 * the dma-buf to the address first. (See GXP_RESERVE_IOVA_REGION)
+	 *
+	 * - GXP_UNMAP_DMABUF (Input):
+	 * The device address of the dma-buf to be unmapped.
 	 */
 	__u64 device_address;
 };
@@ -874,7 +857,9 @@ struct gxp_interface_version_ioctl {
 #define GXP_UNREGISTER_MCU_TELEMETRY_EVENTFD                                   \
 	_IOW(GXP_IOCTL_BASE, 29, struct gxp_register_telemetry_eventfd_ioctl)
 
-struct gxp_mailbox_uci_command_ioctl {
+#define GXP_UCI_CMD_OPAQUE_SIZE 48
+
+struct gxp_mailbox_uci_command_compat_ioctl {
 	/*
 	 * Output:
 	 * The sequence number assigned to this command. The caller can use
@@ -888,16 +873,19 @@ struct gxp_mailbox_uci_command_ioctl {
 	 * Input:
 	 * Will be copied to the UCI command without modification.
 	 */
-	__u8 opaque[48];
+	__u8 opaque[GXP_UCI_CMD_OPAQUE_SIZE];
 };
 
 /*
  * Push an element to the UCI command queue.
  *
  * The client must hold a BLOCK wakelock.
+ *
+ * Note that this ioctl is deprecated and the runtime should use
+ * GXP_MAILBOX_UCI_COMMAND instead.
  */
-#define GXP_MAILBOX_UCI_COMMAND                                                \
-	_IOWR(GXP_IOCTL_BASE, 30, struct gxp_mailbox_uci_command_ioctl)
+#define GXP_MAILBOX_UCI_COMMAND_COMPAT                                         \
+	_IOWR(GXP_IOCTL_BASE, 30, struct gxp_mailbox_uci_command_compat_ioctl)
 
 struct gxp_mailbox_uci_response_ioctl {
 	/*
@@ -907,10 +895,7 @@ struct gxp_mailbox_uci_response_ioctl {
 	__u64 sequence_number;
 	/*
 	 * Output:
-	 * Driver error code.
-	 * Indicates if the response was obtained successfully,
-	 * `GXP_RESPONSE_ERROR_NONE`, or what error prevented the command
-	 * from completing successfully.
+	 * Error code propagated from the MCU firmware side.
 	 */
 	__u16 error_code;
 	/* reserved fields */
@@ -918,7 +903,7 @@ struct gxp_mailbox_uci_response_ioctl {
 	/*
 	 * Output:
 	 * Is copied from the UCI response without modification.
-	 * Only valid if `error_code` == GXP_RESPONSE_ERROR_NONE
+	 * Only valid if this IOCTL returns 0.
 	 */
 	__u8 opaque[16];
 };
@@ -928,6 +913,13 @@ struct gxp_mailbox_uci_response_ioctl {
  * is available.
  *
  * The client must hold a BLOCK wakelock.
+ *
+ * Returns:
+ *  0          - A response arrived from the MCU firmware. Note that this doesn't guarantee the
+ *               success of the UCI command. The runtime must refer to @error_code field to check
+ *               whether there was an error from the MCU side while processing the request.
+ *
+ *  -ETIMEDOUT - MCU firmware is not responding.
  */
 #define GXP_MAILBOX_UCI_RESPONSE                                               \
 	_IOR(GXP_IOCTL_BASE, 31, struct gxp_mailbox_uci_response_ioctl)
@@ -1015,5 +1007,241 @@ struct gxp_register_invalidated_eventfd_ioctl {
 
 #define GXP_UNREGISTER_INVALIDATED_EVENTFD                                     \
 	_IOW(GXP_IOCTL_BASE, 36, struct gxp_register_invalidated_eventfd_ioctl)
+
+/* The size of device properties pre-agreed with firmware */
+#define GXP_DEV_PROP_SIZE 256
+/*
+ * struct gxp_set_device_properties_ioctl
+ * @opaque:		Device properties defined by runtime and firmware.
+ */
+struct gxp_set_device_properties_ioctl {
+	__u8 opaque[GXP_DEV_PROP_SIZE];
+};
+
+/*
+ * Registers device properties which will be passed down to firmware on every
+ * MCU boot.
+ */
+#define GXP_SET_DEVICE_PROPERTIES                                              \
+	_IOW(GXP_IOCTL_BASE, 37, struct gxp_set_device_properties_ioctl)
+
+/*
+ * The reason why the device is invalidated.
+ * - GXP_INVALIDATED_NONE: The device is not invalidated.
+ * - GXP_INVALIDATED_MCU_CRASH: The device is invalidated because the MCU is broken.
+ * - GXP_INVALIDATED_CLIENT_CRASH: The device is invalidated because the client is broken.
+ * - GXP_INVALIDATED_VMBOX_RELEASE_FAILED: The vmbox is not released successfully.
+ */
+#define GXP_INVALIDATED_NONE 0
+#define GXP_INVALIDATED_MCU_CRASH 1
+#define GXP_INVALIDATED_CLIENT_CRASH 2
+#define GXP_INVALIDATED_VMBOX_RELEASE_FAILED 3
+
+/* Provides the reason why the device is invalidated.  */
+#define GXP_GET_INVALIDATED_REASON _IOR(GXP_IOCTL_BASE, 38, __u32)
+
+#define GXP_MAX_FENCES_PER_UCI_COMMAND 4
+
+/*
+ * Indicates the end of the fence FD array. This macro will be used by the
+ * ioctls which receive multiple fence FDs as an array.
+ */
+#define GXP_FENCE_ARRAY_TERMINATION (~0u)
+
+struct gxp_mailbox_uci_command_ioctl {
+	/*
+	 * Output:
+	 * The sequence number assigned to this command. The caller can use
+	 * this value to match responses fetched via `GXP_MAILBOX_UCI_RESPONSE`
+	 * with this command.
+	 */
+	__u64 sequence_number;
+	/*
+	 * Input:
+	 * The FDs of in-fences that this command will waits for. The kernel
+	 * driver will read FDs from this array until it meets
+	 * `GXP_FENCE_ARRAY_TERMINATION` or end-of-array. (i.e., reads at most
+	 * GXP_MAX_FENCES_PER_UCI_COMMAND fences) The fences can be either IIF
+	 * or in-kernel fence.
+	 *
+	 * Note that the type of fences must be the same.
+	 */
+	__u32 in_fences[GXP_MAX_FENCES_PER_UCI_COMMAND];
+	/*
+	 * Input:
+	 * The concept is the same with `in_fences`, but these are out-fences
+	 * that this command will signal once its job is finished.
+	 *
+	 * Note that the type of fences can be mixed.
+	 */
+	__u32 out_fences[GXP_MAX_FENCES_PER_UCI_COMMAND];
+	/*
+	 * Input:
+	 * The user-defined timeout in milliseconds.
+	 */
+	__u32 timeout_ms;
+	/*
+	 * Input:
+	 * Flags indicating attribute of the command.
+	 *
+	 * Bitfields:
+	 *    [0:0]    - Nullity of the command. The purpose of this is to
+	 *               support a command which requires more than 4 fan-in or
+	 *               fan-out fences. By having a NULL command which does
+	 *               NO-OP, but waits on / signals fences, we can achieve
+	 *               that as a workaround.
+	 *                 0 = normal command
+	 *                 1 = NULL command
+	 *    [31:1]   - RESERVED
+	 *
+	 */
+	__u32 flags;
+	/*
+	 * Input:
+	 * RuntimeCommand which will be copied to the UCI command without
+	 * modification by the kernel driver.
+	 */
+	__u8 opaque[GXP_UCI_CMD_OPAQUE_SIZE];
+	/* Reserved fields. */
+	__u8 reserved[32];
+};
+
+/*
+ * Push an element to the UCI command queue.
+ *
+ * The client must hold a BLOCK wakelock.
+ */
+#define GXP_MAILBOX_UCI_COMMAND                                                \
+	_IOWR(GXP_IOCTL_BASE, 39, struct gxp_mailbox_uci_command_ioctl)
+
+/* The type of IP for IIF. Must be synced with IIF driver. */
+enum gxp_iif_ip_type {
+	GXP_IIF_IP_DSP,
+	GXP_IIF_IP_TPU,
+	GXP_IIF_IP_GPU,
+};
+
+struct gxp_create_iif_fence_ioctl {
+	/*
+	 * Input:
+	 * The type of the fence signaler IP. (See enum gxp_iif_ip_type)
+	 */
+	__u8 signaler_ip;
+	/*
+	 * Input:
+	 * The number of the signalers.
+	 */
+	__u16 total_signalers;
+	/*
+	 * Output:
+	 * The file descriptor of the created fence.
+	 */
+	__s32 fence;
+};
+
+/* Create an IIF fence. */
+#define GXP_CREATE_IIF_FENCE                                                   \
+	_IOWR(GXP_IOCTL_BASE, 40, struct gxp_create_iif_fence_ioctl)
+
+/*
+ * The ioctl won't register @eventfd and will simply return the number of remaining signalers of
+ * each fence. Must be synced with IIF driver.
+ *
+ * The value must be synced with `GCIP_FENCE_REMAINING_SIGNALERS_NO_REGISTER_EVENTFD`.
+ */
+#define GXP_FENCE_REMAINING_SIGNALERS_NO_REGISTER_EVENTFD (~0u)
+
+struct gxp_fence_remaining_signalers_ioctl {
+	/*
+	 * Input:
+	 * Array of fence file descriptors to check whether there are remaining
+	 * signalers to be submitted or not. The fences must be IIF. The
+	 * kernel driver will read FDs from this array until it meets
+	 * `GXP_FENCE_ARRAY_TERMINATION` or end-of-array. (i.e., reads at most
+	 * GXP_MAX_FENCES_PER_UCI_COMMAND fences)
+	 */
+	__u32 fences[GXP_MAX_FENCES_PER_UCI_COMMAND];
+	/*
+	 * Input:
+	 * The eventfd which will be triggered if there were fence(s) which
+	 * haven't finished the signaler submission yet when the ioctl is called
+	 * and when they eventually have finished the submission. Note that if
+	 * all fences already finished the submission (i.e., all values in the
+	 * returned @remaining_signalers are 0), this eventfd will be ignored.
+	 *
+	 * Note that if `GXP_FENCE_REMAINING_SIGNALERS_NO_REGISTER_EVENTFD` is
+	 * passed, this ioctl will simply return the number of remaining
+	 * signalers of each fence to @remaining_signalers.
+	 */
+	__u32 eventfd;
+	/*
+	 * Output:
+	 * The number of remaining signalers to be submitted per fence. The
+	 * order should be same with @fences.
+	 */
+	__u32 remaining_signalers[GXP_MAX_FENCES_PER_UCI_COMMAND];
+};
+
+/*
+ * Check whether there are remaining signalers to be submitted to fences.
+ * If all signalers have been submitted, the runtime is expected to send UCI
+ * commands right away. Otherwise, it will listen the eventfd to wait signaler
+ * submission to be finished.
+ */
+#define GXP_FENCE_REMAINING_SIGNALERS                                          \
+	_IOWR(GXP_IOCTL_BASE, 41, struct gxp_fence_remaining_signalers_ioctl)
+
+struct gxp_reserve_iova_region_ioctl {
+	/*
+	 * Input (GXP_RESERVE_IOVA_REGION):
+	 * The size of region to reserve. It should be page-aligned.
+	 */
+	__u64 size;
+	/*
+	 * Output (GXP_RESERVE_IOVA_REGION):
+	 * The start IOVA address of the reserved region.
+	 *
+	 * Input (GXP_RETIRE_IOVA_REGION):
+	 * The start IOVA address of the region to be retired.
+	 */
+	__u64 device_address;
+};
+
+/*
+ * Reserves an IOVA region from the virtual device's IOMMU domain.
+ *
+ * The runtime can use `GXP_MAP_{BUFFER,DMABUF}` ioctls with specifying
+ * the address inside of the reserved region to map to @device_address
+ * field of those ioctl.
+ *
+ * The reserved region can be returned using `GXP_RETIRE_IOVA_REGION` ioctl.
+ * Otherwise, the regions will be returned when the virtual device is going to
+ * be destroyed.
+ *
+ * The client must have allocated a virtual device.
+ */
+#define GXP_RESERVE_IOVA_REGION                                                \
+	_IOWR(GXP_IOCTL_BASE, 42, struct gxp_reserve_iova_region_ioctl)
+
+/*
+ * Retires the reserved IOVA region.
+ *
+ * If there are buffers or dma-bufs which are not yet unmapped from the region,
+ * this ioctl will try to unmap all of them. If all mappings have been unmapped
+ * normally, it will return the reserved region eventually.
+ *
+ * However, if there are mapping(s) which are still accessed by other threads
+ * by the race condition and are not unmapped even after this ioctl, the region
+ * will be returned later once all mappings are not in use.
+ *
+ * The runtime must not map any buffers/dma-bufs to the retired region and not
+ * access the mappings of the region after this ioctl is called.
+ *
+ * Only the @device_address field will be used.
+ *
+ * The client must have allocated a virtual device.
+ */
+#define GXP_RETIRE_IOVA_REGION                                                 \
+	_IOW(GXP_IOCTL_BASE, 43, struct gxp_reserve_iova_region_ioctl)
 
 #endif /* __GXP_H__ */

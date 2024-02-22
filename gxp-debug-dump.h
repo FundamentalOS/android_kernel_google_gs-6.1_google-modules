@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP debug dump handler
  *
@@ -12,23 +12,32 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
+#include "gxp-config.h"
 #include "gxp-dma.h"
 #include "gxp-internal.h"
 
-#define HAS_COREDUMP                                                           \
-	(IS_ENABLED(CONFIG_GXP_TEST) || IS_ENABLED(CONFIG_SUBSYSTEM_COREDUMP))
+#define HAS_COREDUMP (IS_GXP_TEST || IS_ENABLED(CONFIG_SUBSYSTEM_COREDUMP))
 
 #if HAS_COREDUMP
 #include <linux/platform_data/sscoredump.h>
 #endif
 
+#if GXP_HAS_MCU
+/* Additional +1 is for the MCU core. */
+#define GXP_NUM_DEBUG_DUMP_CORES (GXP_NUM_CORES + 1)
+#else
+#define GXP_NUM_DEBUG_DUMP_CORES GXP_NUM_CORES
+#endif
+
 #define GXP_NUM_COMMON_SEGMENTS 2
 #define GXP_NUM_CORE_SEGMENTS 8
+/* 1 segment for RO and 1 for RW */
+#define GXP_NUM_CORE_DATA_SEGMENTS 2
 #define GXP_NUM_BUFFER_MAPPINGS 32
 #define GXP_SEG_HEADER_NAME_LENGTH 32
-#define GXP_NUM_SEGMENTS_PER_CORE                                              \
-	(GXP_NUM_COMMON_SEGMENTS + GXP_NUM_CORE_SEGMENTS +                     \
-	 GXP_NUM_BUFFER_MAPPINGS + 1)
+#define GXP_NUM_SEGMENTS_PER_CORE                                                       \
+	(GXP_NUM_COMMON_SEGMENTS + GXP_NUM_CORE_SEGMENTS + GXP_NUM_CORE_DATA_SEGMENTS + \
+	 GXP_NUM_BUFFER_MAPPINGS)
 
 #define GXP_Q7_ICACHE_SIZE 131072 /* I-cache size in bytes */
 #define GXP_Q7_ICACHE_LINESIZE 64 /* I-cache line size in bytes */
@@ -49,6 +58,9 @@
 #define GXP_DEBUG_DUMP_INT 0x1
 #define GXP_DEBUG_DUMP_INT_MASK BIT(GXP_DEBUG_DUMP_INT)
 #define GXP_DEBUG_DUMP_RETRY_NUM 5
+
+/* Only one segment i.e. MCU log buffer needs to be dumped during the MCU crash. */
+#define GXP_NUM_MCU_TELEMETRY_SEGMENTS 1
 
 /*
  * For debug dump, the kernel driver header file version must be the same as
@@ -126,6 +138,17 @@ struct gxp_lpm_registers {
 	struct gxp_lpm_psm_registers psm_regs[PSM_COUNT];
 };
 
+struct gxp_mailbox_queue_desc {
+	u16 cmd_queue_head;
+	u16 cmd_queue_tail;
+	u16 resp_queue_head;
+	u16 resp_queue_tail;
+	u32 cmd_queue_size;
+	u32 cmd_elem_size;
+	u32 resp_queue_size;
+	u32 resp_elem_size;
+};
+
 struct gxp_user_buffer {
 	u64 device_addr; /* Device address of user buffer */
 	u32 size; /* Size of user buffer */
@@ -192,8 +215,8 @@ struct gxp_debug_dump_manager {
 	 */
 	struct mutex debug_dump_lock;
 #if HAS_COREDUMP
-	struct sscd_segment segs[GXP_NUM_CORES][GXP_NUM_SEGMENTS_PER_CORE];
-#endif
+	struct sscd_segment segs[GXP_NUM_DEBUG_DUMP_CORES][GXP_NUM_SEGMENTS_PER_CORE];
+#endif /* HAS_COREDUMP */
 };
 
 int gxp_debug_dump_init(struct gxp_dev *gxp, void *sscd_dev, void *sscd_pdata);
@@ -230,5 +253,11 @@ void gxp_debug_dump_invalidate_segments(struct gxp_dev *gxp, uint32_t core_id);
  */
 int gxp_debug_dump_process_dump_mcu_mode(struct gxp_dev *gxp, uint core_list,
 					 struct gxp_virtual_device *crashed_vd);
+
+/**
+ * gxp_debug_dump_report_mcu_crash() - Reports the SSCD module about the MCU crash.
+ * @gxp: The GXP device to obtain the handler for
+ */
+void gxp_debug_dump_report_mcu_crash(struct gxp_dev *gxp);
 
 #endif /* __GXP_DEBUG_DUMP_H__ */

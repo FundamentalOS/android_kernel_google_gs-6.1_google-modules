@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Platform device driver for GXP.
+ * Platform device driver for Amalthea.
  *
- * Copyright (C) 2021 Google LLC
+ * Copyright (C) 2021-2023 Google LLC
  */
 
 #include <linux/device.h>
@@ -56,14 +56,19 @@ static struct platform_driver gxp_platform_driver = {
 
 static int __init gxp_platform_init(void)
 {
-	gxp_common_platform_reg_sscd();
+	int ret;
+
+	ret = gxp_common_platform_init();
+	if (ret)
+		return ret;
+
 	return platform_driver_register(&gxp_platform_driver);
 }
 
 static void __exit gxp_platform_exit(void)
 {
 	platform_driver_unregister(&gxp_platform_driver);
-	gxp_common_platform_unreg_sscd();
+	gxp_common_platform_exit();
 }
 
 bool gxp_is_direct_mode(struct gxp_dev *gxp)
@@ -78,6 +83,8 @@ enum gxp_chip_revision gxp_get_chip_revision(struct gxp_dev *gxp)
 
 MODULE_DESCRIPTION("Google GXP platform driver");
 MODULE_LICENSE("GPL v2");
+#ifdef GIT_REPO_TAG
 MODULE_INFO(gitinfo, GIT_REPO_TAG);
+#endif
 module_init(gxp_platform_init);
 module_exit(gxp_platform_exit);

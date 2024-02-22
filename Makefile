@@ -3,9 +3,10 @@
 # Makefile for GXP driver.
 #
 
-GXP_CHIP ?= AMALTHEA
+GXP_CHIP := AMALTHEA
 CONFIG_$(GXP_CHIP) ?= m
 GCIP_DIR := gcip-kernel-driver/drivers/gcip
+CURRENT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 obj-$(CONFIG_$(GXP_CHIP)) += gxp.o
 
@@ -13,8 +14,8 @@ gxp-objs += \
 		gxp-bpm.o \
 		gxp-client.o \
 		gxp-core-telemetry.o \
+		gxp-dci.o \
 		gxp-debug-dump.o \
-		gxp-debugfs.o \
 		gxp-dma-fence.o \
 		gxp-dma-iommu.o \
 		gxp-dmabuf.o \
@@ -30,16 +31,31 @@ gxp-objs += \
 		gxp-mapping.o \
 		gxp-mb-notification.o \
 		gxp-pm.o \
-		gxp-ssmt.o \
 		gxp-thermal.o \
+		gxp-trace.o \
 		gxp-vd.o
+
+gxp-mcu-objs := \
+		gxp-kci.o \
+		gxp-mcu-firmware.o \
+		gxp-mcu-fs.o \
+		gxp-mcu-platform.o \
+		gxp-mcu-telemetry.o \
+		gxp-mcu.o \
+		gxp-uci.o \
+		gxp-usage-stats.o
+
+gsx01-objs := \
+		gxp-gsx01-mailbox.o \
+		gxp-gsx01-ssmt.o \
+		mobile-soc-gsx01.o
 
 ifeq ($(GXP_CHIP),AMALTHEA)
 
-gxp-objs +=	\
-		gsx01-mailbox-driver.o \
-		gxp-platform.o \
-		gxp-mailbox-impl.o
+gxp-objs += \
+		$(gsx01-objs) \
+		amalthea-platform.o \
+		amalthea-pm.o \
 
 GMODULE_PATH := $(OUT_DIR)/../private/google-modules
 EDGETPU_CHIP := janeiro
@@ -53,16 +69,16 @@ gxp-objs += $(GCIP_DIR)/gcip.o
 endif
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
-include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
+-include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 M ?= $(shell pwd)
 
 # Obtain the current git commit hash for logging on probe
 GIT_PATH=$(shell cd $(KERNEL_SRC); readlink -e $(M))
-ifeq ($(shell git --git-dir=$(GIT_PATH)/.git rev-parse --is-inside-work-tree),true)
-        GIT_REPO_STATE=$(shell (git --git-dir=$(GIT_PATH)/.git --work-tree=$(GIT_PATH) status --porcelain | grep -q .) && echo -dirty)
-        ccflags-y       += -DGIT_REPO_TAG=\"$(shell git --git-dir=$(GIT_PATH)/.git rev-parse --short HEAD)$(GIT_REPO_STATE)\"
-else
-        ccflags-y       += -DGIT_REPO_TAG=\"Not\ a\ git\ repository\"
+GIT_BIN=/usr/bin/git
+GIT=$(GIT_BIN) -C $(GIT_PATH)
+ifeq ($(shell $(GIT) rev-parse --is-inside-work-tree),true)
+        GIT_REPO_STATE=$(shell ($(GIT) --work-tree=$(GIT_PATH) status --porcelain | grep -q .) && echo -dirty)
+        ccflags-y       += -DGIT_REPO_TAG=\"$(shell $(GIT) rev-parse --short HEAD)$(GIT_REPO_STATE)\"
 endif
 
 # If building via make directly, specify target platform by adding
@@ -76,16 +92,25 @@ endif
 GXP_PLATFORM ?= SILICON
 
 gxp-flags := -DCONFIG_GXP_$(GXP_PLATFORM) -DCONFIG_$(GXP_CHIP)=1 \
-	     -I$(M)/include -I$(M)/gcip-kernel-driver/include \
-	     -I$(srctree)/$(M)/include \
-	     -I$(srctree)/$(M)/gcip-kernel-driver/include \
-	     -I$(srctree)/drivers/gxp/include
+	     -I$(CURRENT_DIR)/include -I$(CURRENT_DIR)/gcip-kernel-driver/include \
+	     -I$(KERNEL_SRC)/../private/google-modules/power/mitigation
+# TODO(b/325705995): Add path for standalone IIF
+gxp-flags += -I$(CURRENT_DIR)/gcip-kernel-driver/drivers/gcip/iif/include
+
 ccflags-y += $(EXTRA_CFLAGS) $(gxp-flags)
+# Flags needed for external modules.
+ccflags-y += -DCONFIG_GOOGLE_BCL
 
 KBUILD_OPTIONS += GXP_CHIP=$(GXP_CHIP) GXP_PLATFORM=$(GXP_PLATFORM)
 
+ifneq ($(OUT_DIR),)
 # Access TPU driver's exported symbols.
 EXTRA_SYMBOLS += $(GMODULE_PATH)/edgetpu/$(EDGETPU_CHIP)/drivers/edgetpu/Module.symvers
+
+ifneq ($(GXP_POWER_MITIGATION), false)
+EXTRA_SYMBOLS += $(GMODULE_PATH)/power/mitigation/Module.symvers
+endif
+endif
 
 modules modules_install:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M)/$(GCIP_DIR) gcip.o

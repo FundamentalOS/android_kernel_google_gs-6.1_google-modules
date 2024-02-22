@@ -13,6 +13,7 @@
 #include <linux/thermal.h>
 #include <linux/version.h>
 
+#include <gcip/gcip-config.h>
 #include <gcip/gcip-pm.h>
 #include <gcip/gcip-thermal.h>
 
@@ -175,7 +176,7 @@ static const struct thermal_cooling_device_ops gcip_thermal_ops = {
 };
 
 /* This API was removed, but Android still uses it to update thermal request. */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) && IS_ENABLED(CONFIG_ANDROID)
+#if GCIP_IS_GKI
 void thermal_cdev_update(struct thermal_cooling_device *cdev);
 #endif
 
@@ -185,7 +186,7 @@ static void gcip_thermal_update(struct gcip_thermal *thermal)
 
 	cdev->updated = false;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 12, 0) || IS_ENABLED(CONFIG_ANDROID)
+#if GCIP_IS_GKI
 	thermal_cdev_update(cdev);
 #elif IS_ENABLED(CONFIG_THERMAL)
 	dev_err_once(thermal->dev, "Thermal update not implemented");
@@ -271,6 +272,24 @@ struct notifier_block *gcip_thermal_get_notifier_block(struct gcip_thermal *ther
 
 	return &thermal->nb;
 }
+
+static ssize_t state2power_table_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct gcip_thermal *thermal = to_gcip_thermal(dev);
+	ssize_t count = 0;
+	int i;
+	u32 power;
+
+	for (i = 0; i < thermal->num_states; i++) {
+		gcip_thermal_state2power(thermal->cdev, i, &power);
+		count += sysfs_emit_at(buf, count, "%u ", power);
+	}
+	count += sysfs_emit_at(buf, count, "\n");
+
+	return count;
+}
+
+static DEVICE_ATTR_RO(state2power_table);
 
 void gcip_thermal_destroy(struct gcip_thermal *thermal)
 {
@@ -391,6 +410,10 @@ static int gcip_thermal_cooling_register(struct gcip_thermal *thermal, const cha
 	if (ret)
 		thermal_cooling_device_unregister(thermal->cdev);
 
+	ret = device_create_file(&thermal->cdev->device, &dev_attr_state2power_table);
+	if (ret)
+		thermal_cooling_device_unregister(thermal->cdev);
+
 	return ret;
 }
 
@@ -500,7 +523,6 @@ int gcip_thermal_restore_on_powering(struct gcip_thermal *thermal)
 	if (IS_ERR_OR_NULL(thermal))
 		return 0;
 
-	gcip_pm_lockdep_assert_held(thermal->pm);
 	mutex_lock(&thermal->lock);
 
 	if (!thermal->enabled)

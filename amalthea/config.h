@@ -26,12 +26,9 @@
 /* At most GXP_NUM_CORES VDs can be supported on Amalthea. */
 #define GXP_NUM_SHARED_SLICES GXP_NUM_CORES
 
-/* Max number of IOMMU domains that can be attached at once */
-#define GXP_MAX_PASID 8
-
-#define GXP_USE_LEGACY_MAILBOX 1
-
 #define GXP_HAS_MCU 0
+
+#define GXP_ENABLE_DEBUG_DUMP 0
 
 #include "config-pwr-state.h"
 #include "context.h"

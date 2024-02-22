@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP client structure.
  *
@@ -46,13 +46,14 @@ struct gxp_client {
 	/* client process ID is really the thread ID, may be transient. */
 	pid_t pid;
 
-	/*
-	 * Indicates whether the driver needs to disable core telemetry when
-	 * this client closes. For when the client fails to disable core
-	 * telemetry itself.
-	 */
-	bool enabled_core_telemetry_logging;
-	bool enabled_core_telemetry_tracing;
+	struct work_struct uci_worker;
+	/* Protects @uci_cb_disabled, @uci_cb_list and @uci_work_list. */
+	spinlock_t uci_cb_list_lock;
+	bool uci_cb_disabled;
+	struct list_head uci_cb_list;
+	/* Protects @uci_work_list. */
+	spinlock_t uci_work_list_lock;
+	struct list_head uci_work_list;
 };
 
 /*
@@ -65,6 +66,21 @@ struct gxp_client *gxp_client_create(struct gxp_dev *gxp);
  * TPU mailboxes it holds.
  */
 void gxp_client_destroy(struct gxp_client *client);
+
+/**
+ * gxp_client_get() - Increases the reference count for the target client.
+ * @client: The client to increase the reference count.
+ *
+ * Return: The target client.
+ */
+struct gxp_client *gxp_client_get(struct gxp_client *client);
+
+/**
+ * gxp_client_put() - Decreases the reference count for the target client.
+ * @client: The client to decrease the reference count.
+ */
+void gxp_client_put(struct gxp_client *client);
+
 /**
  * gxp_client_allocate_virtual_device() - Allocates a virtual device for the
  * client.
@@ -90,6 +106,8 @@ int gxp_client_allocate_virtual_device(struct gxp_client *client,
  *
  * The caller must have locked client->semaphore.
  *
+ * Note that this function won't increase the PM count. (i.e., won't call gcip_pm_get)
+ *
  * Return:
  * * 0          - Success
  * * Otherwise  - Errno returned by block wakelock acquisition
@@ -101,8 +119,12 @@ int gxp_client_acquire_block_wakelock(struct gxp_client *client,
  * revokes the power votes.
  *
  * The caller must have locked client->semaphore.
+ *
+ * Note that this function won't decrease the PM count. (i.e., won't call gcip_pm_put)
+ *
+ * Return: false only when @client hasn't held the block wakelock.
  */
-void gxp_client_release_block_wakelock(struct gxp_client *client);
+bool gxp_client_release_block_wakelock(struct gxp_client *client);
 /**
  * gxp_client_acquire_vd_wakelock() - Acquires a VD wakelock for the current
  * virtual device to start the virtual device or resume it if it's suspended.
@@ -112,6 +134,7 @@ void gxp_client_release_block_wakelock(struct gxp_client *client);
  * @requested_states: The requested power states.
  *
  * The caller must have locked client->semaphore.
+ * This function is only meaningful in direct mode. On MCU mode it returns 0 directly.
  *
  * Return:
  * * 0          - Success
@@ -121,10 +144,11 @@ void gxp_client_release_block_wakelock(struct gxp_client *client);
 int gxp_client_acquire_vd_wakelock(struct gxp_client *client,
 				   struct gxp_power_states requested_states);
 /**
- * gxp_client_release_vd_wakelock() - Releases the holded VD wakelock to suspend
- * the current virtual device.
+ * gxp_client_release_vd_wakelock() - Releases the held VD wakelock to suspend the current virtual
+ * device.
  *
  * The caller must have locked client->semaphore.
+ * This function is only meaningful in direct mode. On MCU mode it returns directly.
  */
 void gxp_client_release_vd_wakelock(struct gxp_client *client);
 

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Records the mapped device addresses.
  *
@@ -8,15 +8,19 @@
 #define __GXP_MAPPING_H__
 
 #include <linux/dma-direction.h>
+#include <linux/mm_types.h>
 #include <linux/mutex.h>
 #include <linux/rbtree.h>
 #include <linux/refcount.h>
 #include <linux/scatterlist.h>
 #include <linux/types.h>
 
+#include <gcip/gcip-iommu-reserve.h>
+#include <gcip/gcip-iommu.h>
+
 #include "gxp-internal.h"
 
-#if IS_ENABLED(CONFIG_GXP_TEST)
+#if IS_GXP_TEST
 /* expose this variable to have unit tests set it dynamically */
 extern bool gxp_log_iova;
 #endif
@@ -27,6 +31,7 @@ extern bool gxp_log_iova;
 #define GXP_IOVA_LOG_DMABUF (1u << 1)
 
 struct gxp_mapping {
+	struct gcip_iommu_mapping *gcip_mapping;
 	struct rb_node node;
 	refcount_t refcount;
 	void (*destructor)(struct gxp_mapping *mapping);
@@ -37,20 +42,7 @@ struct gxp_mapping {
 	 */
 	u64 host_address;
 	struct gxp_dev *gxp;
-	struct gxp_iommu_domain *domain;
-	/*
-	 * `device_address` and `size` are the base address and size of the
-	 * user buffer a mapping represents.
-	 *
-	 * Due to alignment requirements from hardware, the actual IOVA space
-	 * allocated may be larger and start at a different address, but that
-	 * information is contained in the scatter-gather table, `sgt` below.
-	 */
-	dma_addr_t device_address;
-	size_t size;
 	uint gxp_dma_flags;
-	enum dma_data_direction dir;
-	struct sg_table sgt;
 	/* A mapping can only be synced by one thread at a time */
 	struct mutex sync_lock;
 	/*
@@ -79,11 +71,15 @@ void gxp_mapping_iova_log(struct gxp_client *client, struct gxp_mapping *map,
 /**
  * gxp_mapping_create() - Create a mapping for a user buffer
  * @gxp: The GXP device to create the mapping for
+ * @mgr: The manager of reserved IOVA regions. It can be NULL, if the buffer is going to be mapped
+ *       to the non-reserved region (i.e., @iova_hint is 0).
  * @domain: The iommu domain the mapping for
  * @user_address: The user-space address of the buffer to map
  * @size: The size of the buffer to be mapped
  * @flags: Flags describing the type of mapping to create; currently unused
  * @dir: DMA direction
+ * @iova_hint: If non-zero, the buffer will be mapped to the specific IOVA address indicated via
+ *             this param. A region which can cover the buffer must be pre-reserved from @mgr.
  *
  * Upon successful creation, the mapping will be created with a reference count
  * of 1.
@@ -95,10 +91,10 @@ void gxp_mapping_iova_log(struct gxp_client *client, struct gxp_mapping *map,
  * * -EINVAL: Attempting to map read-only pages for writing by device or failed
  *            to map the buffer for the device.
  */
-struct gxp_mapping *gxp_mapping_create(struct gxp_dev *gxp,
-				       struct gxp_iommu_domain *domain,
-				       u64 user_address, size_t size, u32 flags,
-				       enum dma_data_direction dir);
+struct gxp_mapping *gxp_mapping_create(struct gxp_dev *gxp, struct gcip_iommu_reserve_manager *mgr,
+				       struct gcip_iommu_domain *domain, u64 user_address,
+				       size_t size, u32 flags, enum dma_data_direction dir,
+				       dma_addr_t iova_hint);
 
 /**
  * gxp_mapping_get() - Increment a mapping's reference count
@@ -134,7 +130,8 @@ int gxp_mapping_sync(struct gxp_mapping *mapping, u32 offset, u32 size,
 
 /**
  * gxp_mapping_vmap() - Map a mapping's buffer into kernel address space
- * @mapping: Tha mapping to map into kernel space
+ * @mapping: The mapping to map into kernel space
+ * @is_dmabuf: Whether or not the mapping is for a dmabuf
  *
  * If the buffer is already mapped, increments a reference count and returns
  * the existing virtual address instead.
@@ -144,8 +141,9 @@ int gxp_mapping_sync(struct gxp_mapping *mapping, u32 offset, u32 size,
  * Return: A pointer to the mapped buffer if successful; otherwise an ERR_PTR:
  * * -ENODEV: A reference to the mapping could not be obtained
  * * -ENOMEM: Insufficient memory to map the buffer
+ * * -EINVAL: No valid sgt found.
  */
-void *gxp_mapping_vmap(struct gxp_mapping *mapping);
+void *gxp_mapping_vmap(struct gxp_mapping *mapping, bool is_dmabuf);
 
 /**
  * gxp_mapping_vunmap() - Unmap a mapping from kernel address space

@@ -13,8 +13,9 @@
 #include <linux/types.h>
 
 #define GCIP_FW_NUM_VERSIONS 4
-#define GCIP_IMG_CFG_MAX_IOMMU_MAPPINGS 22
+#define GCIP_IMG_CFG_MAX_IOMMU_MAPPINGS 20
 #define GCIP_IMG_CFG_MAX_NS_IOMMU_MAPPINGS 5
+#define GCIP_IMG_CFG_MAX_PROTECTED_MEMORY_MAPPINGS 3
 
 #define GCIP_FW_PRIV_LEVEL_GSA 0
 #define GCIP_FW_PRIV_LEVEL_TZ 1
@@ -43,6 +44,8 @@ struct gcip_image_config {
 		 */
 		__u32 image_config_value;
 	} iommu_mappings[GCIP_IMG_CFG_MAX_IOMMU_MAPPINGS];
+	__u32 protected_memory_regions[GCIP_IMG_CFG_MAX_PROTECTED_MEMORY_MAPPINGS];
+	__u32 secure_telemetry_region_start;
 	__u32 remapped_data_start;
 	__u32 remapped_data_size;
 	__u32 num_ns_iommu_mappings;
@@ -80,6 +83,8 @@ struct gcip_image_config_parser {
 	const struct gcip_image_config_ops *ops;
 	/* The last image config being successfully parsed. */
 	struct gcip_image_config last_config;
+	/* true == last_config is valid, false == never parsed a valid image config or cleared. */
+	bool last_config_valid;
 };
 
 #define GCIP_IMG_CFG_ADDR_SHIFT 12

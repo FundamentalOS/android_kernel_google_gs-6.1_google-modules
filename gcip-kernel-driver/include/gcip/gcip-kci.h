@@ -17,22 +17,6 @@
 #include <gcip/gcip-mailbox.h>
 
 /*
- * The status field in a firmware response is set to this by us when the response is fetched from
- * the queue.
- */
-#define GCIP_KCI_STATUS_OK GCIP_MAILBOX_STATUS_OK
-/*
- * gcip_kci#mailbox.wait_list uses this value to record the status of responses that haven't been
- * received yet.
- */
-#define GCIP_KCI_STATUS_WAITING_RESPONSE GCIP_MAILBOX_STATUS_WAITING_RESPONSE
-/*
- * Used when an expected response is not received, see the documentation of
- * gcip_mailbox_handle_response() for details.
- */
-#define GCIP_KCI_STATUS_NO_RESPONSE GCIP_MAILBOX_STATUS_NO_RESPONSE
-
-/*
  * Command/response sequence numbers capped at half the range of the 64-bit value range. The second
  * half is reserved for incoming requests from firmware.
  * These are tagged with the MSB set.
@@ -62,9 +46,9 @@ struct gcip_kci_response_element {
 	u64 seq;
 	u16 code;
 	/*
-	 * Reserved for host use - firmware can't touch this.
-	 * If a value is written here it will be discarded and overwritten during response
-	 * processing.  However, when repurposed as an RKCI command, the FW can set this field.
+	 * Firmware can set some data according to the type of the response.
+	 * TODO(b/279386960): as we don't manage the status of responses using this field anymore,
+	 *                    rename this field to more reasonable name.
 	 */
 	u16 status;
 	/*
@@ -89,7 +73,10 @@ enum gcip_kci_code {
 	GCIP_KCI_CODE_GET_DEBUG_DUMP = 8,
 	GCIP_KCI_CODE_OPEN_DEVICE = 9,
 	GCIP_KCI_CODE_CLOSE_DEVICE = 10,
-	GCIP_KCI_CODE_FIRMWARE_INFO = 11,
+	GCIP_KCI_CODE_EXCHANGE_INFO = 11,
+	/* TODO(b/271372136): remove v1 when v1 firmware no longer in use. */
+	GCIP_KCI_CODE_GET_USAGE_V1 = 12,
+	/* Backward compatible define, also update when v1 firmware no longer in use. */
 	GCIP_KCI_CODE_GET_USAGE = 12,
 	GCIP_KCI_CODE_NOTIFY_THROTTLING = 13,
 	GCIP_KCI_CODE_BLOCK_BUS_SPEED_CONTROL = 14,
@@ -99,9 +86,15 @@ enum gcip_kci_code {
 	GCIP_KCI_CODE_UNLINK_OFFLOAD_VMBOX = 18,
 	GCIP_KCI_CODE_FIRMWARE_TRACING_LEVEL = 19,
 	GCIP_KCI_CODE_THERMAL_CONTROL = 20,
+	GCIP_KCI_CODE_GET_USAGE_V2 = 21,
+	GCIP_KCI_CODE_SET_DEVICE_PROPERTIES = 22,
+	GCIP_KCI_CODE_FAULT_INJECTION = 23,
+	GCIP_KCI_CODE_SET_FREQ_LIMITS = 24,
 
 	GCIP_KCI_CODE_RKCI_ACK = 256,
 };
+/* TODO(308903519) Remove once clients have adopted the new name. */
+#define GCIP_KCI_CODE_SET_POWER_LIMITS GCIP_KCI_CODE_SET_FREQ_LIMITS
 
 /*
  * Definition of reverse KCI request code ranges.
@@ -244,6 +237,16 @@ struct gcip_kci_ops {
 	 * Context: normal.
 	 */
 	int (*update_usage)(struct gcip_kci *kci);
+	/*
+	 * Checks if the block is off.
+	 * Context: in_interrupt().
+	 */
+	bool (*is_block_off)(struct gcip_kci *kci);
+	/*
+	 * Called when a command fails to be sent.
+	 * Context: normal.
+	 */
+	void (*on_error)(struct gcip_kci *kci, int err);
 };
 
 struct gcip_kci {
@@ -255,6 +258,8 @@ struct gcip_kci {
 	struct mutex cmd_queue_lock;
 	/* Protects resp_queue. */
 	spinlock_t resp_queue_lock;
+	/* Context flags when locks resp_queue_lock. */
+	unsigned long resp_queue_lock_flags;
 	/* Queue for waiting for the response doorbell to be rung. */
 	wait_queue_head_t resp_doorbell_waitq;
 	/* Protects wait_list. */

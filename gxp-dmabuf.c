@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Support for using dma-bufs.
  *
@@ -6,117 +6,88 @@
  */
 
 #include <linux/dma-buf.h>
-#include <linux/scatterlist.h>
+#include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/version.h>
 
+#include <gcip/gcip-config.h>
+#include <gcip/gcip-iommu-reserve.h>
+#include <gcip/gcip-iommu.h>
+
 #include "gxp-dma.h"
 #include "gxp-dmabuf.h"
-#include "gxp-vd.h"
 
-struct gxp_dmabuf_mapping {
-	struct gxp_mapping mapping;
-	struct dma_buf *dmabuf;
-	struct dma_buf_attachment *attachment;
-	/*
-	 * For normal mappings, the `sg_table` is embedded directly in the
-	 * `gxp_mapping` and populated by `sg_alloc_table_from_pages()`.
-	 * For dma-bufs however, a pointer to the `sg_table` is returned by
-	 * `dma_buf_map_attachment()`.
-	 *
-	 * Rather than manage the memory of `gxp_mapping`'s `sg_table`
-	 * independently so it can contain a pointer, dma-bufs store their
-	 * `sg_table` pointer here and ignore `mapping->sgt`.
-	 */
-	struct sg_table *sgt;
-};
+#include <trace/events/gxp.h>
 
 /* Mapping destructor for gxp_mapping_put() to call */
 static void destroy_dmabuf_mapping(struct gxp_mapping *mapping)
 {
-	struct gxp_dmabuf_mapping *dmabuf_mapping;
-	struct gxp_dev *gxp = mapping->gxp;
+	dma_addr_t device_address = mapping->gcip_mapping->device_address;
+	size_t size = mapping->gcip_mapping->size;
 
-	/* Unmap and detach the dma-buf */
-	dmabuf_mapping =
-		container_of(mapping, struct gxp_dmabuf_mapping, mapping);
+	trace_gxp_mapping_destroy_start(device_address, size);
 
-	gxp_dma_unmap_dmabuf_attachment(gxp, mapping->domain,
-					dmabuf_mapping->attachment,
-					dmabuf_mapping->sgt, mapping->dir);
-	dma_buf_detach(dmabuf_mapping->dmabuf, dmabuf_mapping->attachment);
-	dma_buf_put(dmabuf_mapping->dmabuf);
+	gcip_iommu_mapping_unmap(mapping->gcip_mapping);
+	kfree(mapping);
 
-	kfree(dmabuf_mapping);
+	trace_gxp_mapping_destroy_end(device_address, size);
 }
 
-struct gxp_mapping *gxp_dmabuf_map(struct gxp_dev *gxp,
-				   struct gxp_iommu_domain *domain, int fd,
-				   u32 flags, enum dma_data_direction dir)
+struct gxp_mapping *gxp_dmabuf_map(struct gxp_dev *gxp, struct gcip_iommu_reserve_manager *mgr,
+				   struct gcip_iommu_domain *domain, int fd, u32 flags,
+				   dma_addr_t iova_hint)
 {
+	struct gxp_mapping *mapping;
+	struct gcip_iommu_mapping *gcip_mapping;
 	struct dma_buf *dmabuf;
-	struct dma_buf_attachment *attachment;
-	struct sg_table *sgt;
-	struct gxp_dmabuf_mapping *dmabuf_mapping;
-	int ret = 0;
+	u64 gcip_map_flags;
+	int ret;
 
-	if (!valid_dma_direction(dir))
-		return ERR_PTR(-EINVAL);
+	trace_gxp_dmabuf_mapping_create_start(fd);
 
 	dmabuf = dma_buf_get(fd);
-	if (IS_ERR(dmabuf)) {
-		dev_err(gxp->dev, "Failed to get dma-buf to map (ret=%ld)\n",
-			PTR_ERR(dmabuf));
+	if (IS_ERR(dmabuf))
 		return ERR_CAST(dmabuf);
-	}
 
-	attachment = dma_buf_attach(dmabuf, gxp->dev);
-	if (IS_ERR(attachment)) {
-		dev_err(gxp->dev, "Failed to attach dma-buf to map (ret=%ld)\n",
-			PTR_ERR(attachment));
-		ret = PTR_ERR(attachment);
-		goto err_attach;
-	}
+	/* Skip CPU cache syncs while mapping this dmabuf. */
+	gcip_map_flags = gxp_dma_encode_gcip_map_flags(flags, 0) |
+			 GCIP_MAP_FLAGS_DMA_ATTR_TO_FLAGS(DMA_ATTR_SKIP_CPU_SYNC);
 
-	sgt = gxp_dma_map_dmabuf_attachment(gxp, domain, attachment, dir);
-	if (IS_ERR(sgt)) {
-		dev_err(gxp->dev,
-			"Failed to map dma-buf attachment (ret=%ld)\n",
-			PTR_ERR(sgt));
-		ret = PTR_ERR(sgt);
-		goto err_map_attachment;
-	}
-
-	dmabuf_mapping = kzalloc(sizeof(*dmabuf_mapping), GFP_KERNEL);
-	if (!dmabuf_mapping) {
+	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+	if (!mapping) {
 		ret = -ENOMEM;
-		goto err_alloc_mapping;
+		goto err_dma_buf_put;
 	}
+
+	if (!iova_hint)
+		gcip_mapping = gcip_iommu_domain_map_dma_buf(domain, dmabuf, gcip_map_flags);
+	else
+		gcip_mapping = gcip_iommu_reserve_map_dma_buf(mgr, dmabuf, gcip_map_flags,
+							      iova_hint, mapping);
+	if (IS_ERR(gcip_mapping)) {
+		ret = PTR_ERR(gcip_mapping);
+		dev_err(gxp->dev, "Failed to map dma-buf (ret=%d)\n", ret);
+		goto err_free_mapping;
+	}
+
+	dma_buf_put(dmabuf);
 
 	/* dma-buf mappings are indicated by a host_address of 0 */
-	refcount_set(&dmabuf_mapping->mapping.refcount, 1);
-	dmabuf_mapping->mapping.destructor = destroy_dmabuf_mapping;
-	dmabuf_mapping->mapping.host_address = 0;
-	dmabuf_mapping->mapping.gxp = gxp;
-	dmabuf_mapping->mapping.domain = domain;
-	dmabuf_mapping->mapping.device_address = sg_dma_address(sgt->sgl);
-	dmabuf_mapping->mapping.dir = dir;
-	dmabuf_mapping->mapping.size = dmabuf->size;
-	dmabuf_mapping->dmabuf = dmabuf;
-	dmabuf_mapping->attachment = attachment;
-	dmabuf_mapping->sgt = sgt;
+	mapping->host_address = 0;
+	mapping->gcip_mapping = gcip_mapping;
+	mapping->destructor = destroy_dmabuf_mapping;
+	mapping->gxp = gxp;
+	refcount_set(&mapping->refcount, 1);
 
-	return &dmabuf_mapping->mapping;
+	trace_gxp_dmabuf_mapping_create_end(gcip_mapping->device_address, gcip_mapping->size);
 
-err_alloc_mapping:
-	gxp_dma_unmap_dmabuf_attachment(gxp, domain, attachment, sgt, dir);
-err_map_attachment:
-	dma_buf_detach(dmabuf, attachment);
-err_attach:
+	return mapping;
+
+err_free_mapping:
+	kfree(mapping);
+err_dma_buf_put:
 	dma_buf_put(dmabuf);
 	return ERR_PTR(ret);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
 MODULE_IMPORT_NS(DMA_BUF);
-#endif

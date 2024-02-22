@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * GXP hardware-based mailbox driver implementation.
  *
@@ -12,10 +12,10 @@
 #include <linux/of_irq.h>
 #include <linux/spinlock.h>
 
-#include "gxp-config.h" /* GXP_USE_LEGACY_MAILBOX */
 #include "gxp-mailbox-driver.h"
 #include "gxp-mailbox-regs.h"
 #include "gxp-mailbox.h"
+#include "gxp-pm.h"
 
 static u32 data_read(struct gxp_mailbox *mailbox, uint reg_offset)
 {
@@ -28,40 +28,11 @@ static void data_write(struct gxp_mailbox *mailbox, uint reg_offset, u32 value)
 }
 
 /* IRQ Handling */
-
-/* Interrupt to signal a response from the device to host */
-#define MBOX_DEVICE_TO_HOST_RESPONSE_IRQ_MASK BIT(0)
-
 static irqreturn_t mailbox_irq_handler(int irq, void *arg)
 {
-	u32 masked_status;
 	struct gxp_mailbox *mailbox = (struct gxp_mailbox *)arg;
-	struct work_struct **handlers = mailbox->interrupt_handlers;
-	u32 next_int;
 
-	/* Contains only the non-masked, pending interrupt bits */
-	masked_status = gxp_mailbox_get_host_mask_status(mailbox);
-
-	/* Clear all pending IRQ bits */
-	gxp_mailbox_clear_host_interrupt(mailbox, masked_status);
-
-	if (masked_status & MBOX_DEVICE_TO_HOST_RESPONSE_IRQ_MASK) {
-		mailbox->handle_irq(mailbox);
-		masked_status &= ~MBOX_DEVICE_TO_HOST_RESPONSE_IRQ_MASK;
-	}
-
-	while ((next_int = ffs(masked_status))) {
-		next_int--; /* ffs returns 1-based indices */
-		masked_status &= ~BIT(next_int);
-
-		if (handlers[next_int])
-			schedule_work(handlers[next_int]);
-		else
-			pr_err_ratelimited(
-				"mailbox%d: received unknown interrupt bit 0x%X\n",
-				mailbox->core_id, next_int);
-	}
-
+	gxp_mailbox_chip_irq_handler(mailbox);
 	return IRQ_HANDLED;
 }
 
@@ -135,6 +106,7 @@ void gxp_mailbox_driver_exit(struct gxp_mailbox *mailbox)
 void gxp_mailbox_driver_enable_interrupts(struct gxp_mailbox *mailbox)
 {
 	register_irq(mailbox);
+	gxp_mailbox_enable_interrupt(mailbox);
 }
 
 void gxp_mailbox_driver_disable_interrupts(struct gxp_mailbox *mailbox)
@@ -301,6 +273,11 @@ void gxp_mailbox_set_resp_queue_head(struct gxp_mailbox *mailbox, u32 value)
 	gxp_mailbox_write_resp_queue_head(mailbox, value);
 }
 
+void gxp_mailbox_set_control(struct gxp_mailbox *mailbox, u32 val)
+{
+	data_write(mailbox, MBOX_DATA_CONTROL_OFFSET, val);
+}
+
 int gxp_mailbox_inc_cmd_queue_tail_nolock(struct gxp_mailbox *mailbox, u32 inc,
 					  u32 wrap_bit)
 {
@@ -361,7 +338,6 @@ int gxp_mailbox_inc_resp_queue_head_locked(struct gxp_mailbox *mailbox, u32 inc,
 	return gxp_mailbox_inc_resp_queue_head_nolock(mailbox, inc, wrap_bit);
 }
 
-#if !GXP_USE_LEGACY_MAILBOX
 u32 gxp_mailbox_gcip_ops_get_cmd_queue_head(struct gcip_mailbox *mailbox)
 {
 	struct gxp_mailbox *gxp_mbx = mailbox->data;
@@ -387,7 +363,7 @@ void gxp_mailbox_gcip_ops_inc_cmd_queue_tail(struct gcip_mailbox *mailbox,
 }
 
 int gxp_mailbox_gcip_ops_acquire_cmd_queue_lock(struct gcip_mailbox *mailbox,
-						bool try)
+						bool try, bool *atomic)
 {
 	struct gxp_mailbox *gxp_mbx = mailbox->data;
 
@@ -434,11 +410,17 @@ void gxp_mailbox_gcip_ops_inc_resp_queue_head(struct gcip_mailbox *mailbox,
 }
 
 int gxp_mailbox_gcip_ops_acquire_resp_queue_lock(struct gcip_mailbox *mailbox,
-						 bool try)
+						 bool try, bool *atomic)
 {
 	struct gxp_mailbox *gxp_mbx = mailbox->data;
 
-	mutex_lock(&gxp_mbx->resp_queue_lock);
+	*atomic = true;
+
+	if (try)
+		return spin_trylock_irqsave(&gxp_mbx->resp_queue_lock,
+					    gxp_mbx->resp_queue_lock_flags);
+
+	spin_lock_irqsave(&gxp_mbx->resp_queue_lock, gxp_mbx->resp_queue_lock_flags);
 	return 1;
 }
 
@@ -446,7 +428,7 @@ void gxp_mailbox_gcip_ops_release_resp_queue_lock(struct gcip_mailbox *mailbox)
 {
 	struct gxp_mailbox *gxp_mbx = mailbox->data;
 
-	mutex_unlock(&gxp_mbx->resp_queue_lock);
+	spin_unlock_irqrestore(&gxp_mbx->resp_queue_lock, gxp_mbx->resp_queue_lock_flags);
 }
 
 void gxp_mailbox_gcip_ops_acquire_wait_list_lock(struct gcip_mailbox *mailbox,
@@ -455,7 +437,7 @@ void gxp_mailbox_gcip_ops_acquire_wait_list_lock(struct gcip_mailbox *mailbox,
 {
 	struct gxp_mailbox *gxp_mbx = mailbox->data;
 
-	mutex_lock(&gxp_mbx->wait_list_lock);
+	spin_lock_irqsave(&gxp_mbx->wait_list_lock, *flags);
 }
 
 void gxp_mailbox_gcip_ops_release_wait_list_lock(struct gcip_mailbox *mailbox,
@@ -464,7 +446,7 @@ void gxp_mailbox_gcip_ops_release_wait_list_lock(struct gcip_mailbox *mailbox,
 {
 	struct gxp_mailbox *gxp_mbx = mailbox->data;
 
-	mutex_unlock(&gxp_mbx->wait_list_lock);
+	spin_unlock_irqrestore(&gxp_mbx->wait_list_lock, flags);
 }
 
 int gxp_mailbox_gcip_ops_wait_for_cmd_queue_not_full(
@@ -491,7 +473,8 @@ int gxp_mailbox_gcip_ops_after_enqueue_cmd(struct gcip_mailbox *mailbox,
 
 	/* triggers doorbell */
 	gxp_mailbox_generate_device_interrupt(gxp_mbx, BIT(0));
-	return 1;
+
+	return 0;
 }
 
 void gxp_mailbox_gcip_ops_after_fetch_resps(struct gcip_mailbox *mailbox,
@@ -508,4 +491,10 @@ void gxp_mailbox_gcip_ops_after_fetch_resps(struct gcip_mailbox *mailbox,
 	if (num_resps == size)
 		gxp_mailbox_generate_device_interrupt(gxp_mbx, BIT(0));
 }
-#endif /* !GXP_USE_LEGACY_MAILBOX */
+
+bool gxp_mailbox_gcip_ops_is_block_off(struct gcip_mailbox *mailbox)
+{
+	struct gxp_mailbox *gxp_mbx = mailbox->data;
+
+	return gxp_pm_is_blk_down(gxp_mbx->gxp);
+}

@@ -1,11 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Platform thermal driver for GXP.
  *
  * Copyright (C) 2021-2023 Google LLC
  */
 
-#include <linux/acpm_dvfs.h>
 #include <linux/device.h>
 #include <linux/minmax.h>
 
@@ -20,10 +19,11 @@
 #include "gxp-kci.h"
 #include "gxp-mcu.h"
 #endif /* GXP_HAS_MCU */
+#include "mobile-soc.h"
 
 static int gxp_thermal_get_rate(void *data, unsigned long *rate)
 {
-	*rate = exynos_acpm_get_rate(AUR_DVFS_DOMAIN, 0);
+	*rate = gxp_soc_pm_get_rate(AUR_DVFS_DOMAIN, 0);
 
 	return 0;
 }
@@ -33,6 +33,7 @@ static int gxp_thermal_set_rate(void *data, unsigned long rate)
 	struct gxp_dev *gxp = data;
 	int ret = 0;
 
+	dev_warn(gxp->dev, "Received thermal throttling requests %lu", rate);
 	if (!gxp_is_direct_mode(gxp)) {
 #if GXP_HAS_MCU
 		struct gxp_mcu *mcu = gxp_mcu_of(gxp);

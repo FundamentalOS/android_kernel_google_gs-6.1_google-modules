@@ -1,18 +1,17 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP mailbox driver.
  *
- * Copyright (C) 2020-2022 Google LLC
+ * Copyright (C) 2020-2024 Google LLC
  */
+
 #ifndef __GXP_MAILBOX_DRIVER_H__
 #define __GXP_MAILBOX_DRIVER_H__
 
+#include <gcip/gcip-mailbox.h>
+
 #include "gxp-config.h"
 #include "gxp-mailbox.h"
-
-#if !GXP_USE_LEGACY_MAILBOX
-#include <gcip/gcip-mailbox.h>
-#endif
 
 /* Utilities of circular queue operations */
 
@@ -40,15 +39,45 @@ void __iomem *gxp_mailbox_get_csr_base(struct gxp_dev *gxp, uint index);
 void __iomem *gxp_mailbox_get_data_base(struct gxp_dev *gxp, uint index);
 
 void gxp_mailbox_reset_hw(struct gxp_mailbox *mailbox);
-
+/**
+ * gxp_mailbox_generate_device_interrupt(): Trigger interrupt to device.
+ * @mailbox: Mailbox for which to generate interrupt.
+ * @int_mask: Bitset of interrupt line to trigger.
+ */
 void gxp_mailbox_generate_device_interrupt(struct gxp_mailbox *mailbox,
 					   u32 int_mask);
-u32 gxp_mailbox_get_device_mask_status(struct gxp_mailbox *mailbox);
-
-void gxp_mailbox_clear_host_interrupt(struct gxp_mailbox *mailbox,
-				      u32 int_mask);
-void gxp_mailbox_mask_host_interrupt(struct gxp_mailbox *mailbox, u32 int_mask);
-u32 gxp_mailbox_get_host_mask_status(struct gxp_mailbox *mailbox);
+/**
+ * gxp_mailbox_clear_interrupts() - Clear set bits corresponding to interrupts
+ *                                  coming to AP/Host.
+ * @mailbox: Mailbox for which to clear interrupts.
+ * @intr_bits: Bitset of interrupt lines to clear.
+ */
+void gxp_mailbox_clear_interrupts(struct gxp_mailbox *mailbox, u32 intr_bits);
+/**
+ * gxp_mailbox_enable_interrupt() - Enable the interrupt coming to AP/Host.
+ * @mailbox: Mailbox for which to enable interrupts.
+ */
+void gxp_mailbox_enable_interrupt(struct gxp_mailbox *mailbox);
+/**
+ * gxp_mailbox_get_interrupt_status() - Retrieve the set interrupt bits coming
+ *                                      to AP/Host.
+ * @mailbox: Mailbox for which to get interrupt status.
+ */
+u32 gxp_mailbox_get_interrupt_status(struct gxp_mailbox *mailbox);
+/* gxp_mailbox_wait_for_device_mailbox_init() - Wait for mailbox to get
+ *                                              enabled/initialised by device.
+ * @mailbox: Mailbox to get it enabled from device end.
+ *
+ * Return: 0 on success else -ETIMEDOUT.
+ */
+int gxp_mailbox_wait_for_device_mailbox_init(struct gxp_mailbox *mailbox);
+/**
+ * gxp_mailbox_chip_irq_handler() - IRQ handler based on chip.
+ * @mailbox: Mailbox on which interrupt received.
+ *
+ * Context: Interrupt context.
+ */
+void gxp_mailbox_chip_irq_handler(struct gxp_mailbox *mailbox);
 
 void gxp_mailbox_write_status(struct gxp_mailbox *mailbox, u32 status);
 void gxp_mailbox_write_descriptor(struct gxp_mailbox *mailbox,
@@ -74,6 +103,8 @@ void gxp_mailbox_set_cmd_queue_tail(struct gxp_mailbox *mailbox, u32 value);
 
 /* Sets mailbox->resp_queue_head and corresponding CSR on device. */
 void gxp_mailbox_set_resp_queue_head(struct gxp_mailbox *mailbox, u32 value);
+
+void gxp_mailbox_set_control(struct gxp_mailbox *mailbox, u32 val);
 
 /*
  * Increases the command queue tail by @inc.
@@ -133,7 +164,6 @@ int gxp_mailbox_inc_resp_queue_head_nolock(struct gxp_mailbox *mailbox, u32 inc,
 int gxp_mailbox_inc_resp_queue_head_locked(struct gxp_mailbox *mailbox, u32 inc,
 					   u32 wrap_bit);
 
-#if !GXP_USE_LEGACY_MAILBOX
 /*
  * Following functions are used when setting the operators of `struct gcip_mailbox_ops`.
  * To use these functions, @mailbox->data should be set as an instance of `struct gxp_mailbox`.
@@ -143,7 +173,7 @@ u32 gxp_mailbox_gcip_ops_get_cmd_queue_tail(struct gcip_mailbox *mailbox);
 void gxp_mailbox_gcip_ops_inc_cmd_queue_tail(struct gcip_mailbox *mailbox,
 					     u32 inc);
 int gxp_mailbox_gcip_ops_acquire_cmd_queue_lock(struct gcip_mailbox *mailbox,
-						bool try);
+						bool try, bool *atomic);
 void gxp_mailbox_gcip_ops_release_cmd_queue_lock(struct gcip_mailbox *mailbox);
 
 u32 gxp_mailbox_gcip_ops_get_resp_queue_size(struct gcip_mailbox *mailbox);
@@ -152,7 +182,7 @@ u32 gxp_mailbox_gcip_ops_get_resp_queue_tail(struct gcip_mailbox *mailbox);
 void gxp_mailbox_gcip_ops_inc_resp_queue_head(struct gcip_mailbox *mailbox,
 					      u32 inc);
 int gxp_mailbox_gcip_ops_acquire_resp_queue_lock(struct gcip_mailbox *mailbox,
-						 bool try);
+						 bool try, bool *atomic);
 void gxp_mailbox_gcip_ops_release_resp_queue_lock(struct gcip_mailbox *mailbox);
 
 void gxp_mailbox_gcip_ops_acquire_wait_list_lock(struct gcip_mailbox *mailbox,
@@ -168,6 +198,6 @@ int gxp_mailbox_gcip_ops_after_enqueue_cmd(struct gcip_mailbox *mailbox,
 					   void *cmd);
 void gxp_mailbox_gcip_ops_after_fetch_resps(struct gcip_mailbox *mailbox,
 					    u32 num_resps);
-#endif /* !GXP_USE_LEGACY_MAILBOX */
+bool gxp_mailbox_gcip_ops_is_block_off(struct gcip_mailbox *mailbox);
 
 #endif /* __GXP_MAILBOX_DRIVER_H__ */

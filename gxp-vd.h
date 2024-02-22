@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP virtual device manager.
  *
@@ -20,13 +20,13 @@
 #include <linux/wait.h>
 
 #include <gcip/gcip-image-config.h>
+#include <gcip/gcip-iommu-reserve.h>
 
 #include "gxp-host-device-structs.h"
 #include "gxp-internal.h"
 #include "gxp-mapping.h"
 
-/* TODO(b/259192112): set to 8 once the runtime has added the credit limit. */
-#define GXP_COMMAND_CREDIT_PER_VD 256
+#define GXP_COMMAND_CREDIT_PER_VD 16
 
 /* A special client ID for secure workloads pre-agreed with MCU firmware. */
 #define SECURE_CLIENT_ID (3 << 10)
@@ -70,13 +70,14 @@ struct gxp_virtual_device {
 	struct gxp_dev *gxp;
 	uint num_cores;
 	void *fw_app;
-	struct gxp_iommu_domain *domain;
+	struct gcip_iommu_domain *domain;
 	struct mailbox_resp_queue *mailbox_resp_queues;
 	struct rb_root mappings_root;
 	struct rw_semaphore mappings_semaphore;
 	/* Used to save doorbell state on VD resume. */
 	uint doorbells_state[GXP_NUM_DOORBELLS_PER_VD];
 	enum gxp_virtual_device_state state;
+	u32 invalidated_reason;
 	/*
 	 * Record the gxp->power_mgr->blk_switch_count when the vd was
 	 * suspended. Use this information to know whether the block has been
@@ -90,10 +91,6 @@ struct gxp_virtual_device {
 	 */
 	int slice_index;
 	/*
-	 * The SG table that holds the firmware RW data region.
-	 */
-	struct sg_table *rwdata_sgt[GXP_NUM_CORES];
-	/*
 	 * The SG table that holds the regions specified in the image config's
 	 * non-secure IOMMU mappings.
 	 */
@@ -101,13 +98,11 @@ struct gxp_virtual_device {
 		dma_addr_t daddr;
 		struct sg_table *sgt;
 	} ns_regions[GCIP_IMG_CFG_MAX_NS_IOMMU_MAPPINGS];
-	/* The firmware size specified in image config. */
-	u32 fw_ro_size;
 	/*
 	 * The config regions specified in image config.
 	 * core_cfg's size should be a multiple of GXP_NUM_CORES.
 	 */
-	struct gxp_mapped_resource core_cfg, vd_cfg, sys_cfg;
+	struct gxp_mapped_resource core_cfg, vd_cfg, sys_cfg, lpm;
 	uint core_list;
 	/*
 	 * The ID of DSP client. -1 if it is not allocated.
@@ -122,6 +117,8 @@ struct gxp_virtual_device {
 	 * This ID will be fetched from the TPU kernel driver.
 	 */
 	int tpu_client_id;
+	/* Whether DSP KD sent `link_offload_vmbox` KCI successfully to MCU FW or not. */
+	bool tpu_linked;
 	/*
 	 * Protects credit. Use a spin lock because the critical section of
 	 * using @credit is pretty small.
@@ -143,8 +140,6 @@ struct gxp_virtual_device {
 	/* A constant ID assigned after VD is allocated. For debug only. */
 	int vdid;
 	struct gcip_image_config_parser cfg_parser;
-	/* The config version specified in firmware's image config. */
-	u32 config_version;
 	/* Protects @dma_fence_list. */
 	struct mutex fence_list_lock;
 	/* List of GXP DMA fences owned by this VD. */
@@ -158,6 +153,8 @@ struct gxp_virtual_device {
 	 * with any MCU FW anymore regardless of its state.
 	 */
 	bool mcu_crashed;
+	/* The manager of IOMMU reserve regions. */
+	struct gcip_iommu_reserve_manager *iommu_reserve_mgr;
 };
 
 /*
@@ -213,6 +210,7 @@ void gxp_vd_release(struct gxp_virtual_device *vd);
  * GXP_VD_RUNNING. Otherwise, it would be GXP_VD_UNAVAILABLE.
  *
  * The caller must have locked gxp->vd_semaphore for writing.
+ * This function is only meaningful in direct mode. On MCU mode it returns 0 directly.
  *
  * Return:
  * * 0         - Success
@@ -228,6 +226,7 @@ int gxp_vd_run(struct gxp_virtual_device *vd);
  * The state of @vd will be GXP_VD_OFF.
  *
  * The caller must have locked gxp->vd_semaphore for writing.
+ * This function is only meaningful in direct mode. On MCU mode it returns directly.
  */
 void gxp_vd_stop(struct gxp_virtual_device *vd);
 
@@ -239,6 +238,22 @@ void gxp_vd_stop(struct gxp_virtual_device *vd);
  * The caller must have locked gxp->vd_semaphore for reading.
  */
 int gxp_vd_virt_core_to_phys_core(struct gxp_virtual_device *vd, u16 virt_core);
+
+/**
+ * gxp_vd_phys_core_to_virt_core() -Returns the virtual core ID for the specified
+ *                                  @phys_core belonging to this virtual device.
+ * @vd: The virtual device for which virtual core ID is requested for.
+ * @phys_core: Physical core_id corresponding to which virtual core ID is requested.
+ *
+ * This function works only in direct mode. The caller must have locked
+ * vd->debug_dump_lock before calling this function.
+ *
+ * Return:
+ * * -EINVAL   - If no virtual core ID found for @phys_core or if the function
+ *               was not invoked in direct mode.
+ * * Otherwise - Returns the virtual core ID for the given @phys_core.
+ */
+int gxp_vd_phys_core_to_virt_core(struct gxp_virtual_device *vd, u32 phys_core);
 
 /**
  * gxp_vd_mapping_store() - Store a mapping in a virtual device's records
@@ -327,6 +342,7 @@ struct gxp_mapping *gxp_vd_mapping_search_host(struct gxp_virtual_device *vd,
  * GXP_VD_SUSPENDED. Otherwise, it would be GXP_VD_UNAVAILABLE.
  *
  * The caller must have locked gxp->vd_semaphore for writing.
+ * This function is only meaningful in direct mode. On MCU mode it returns directly.
  */
 void gxp_vd_suspend(struct gxp_virtual_device *vd);
 
@@ -339,6 +355,7 @@ void gxp_vd_suspend(struct gxp_virtual_device *vd);
  * GXP_VD_RUNNING. Otherwise, it would be GXP_VD_UNAVAILABLE.
  *
  * The caller must have locked gxp->vd_semaphore for writing.
+ * This function is only meaningful in direct mode. On MCU mode it returns 0 directly.
  *
  * Return:
  * * 0          - Success
@@ -415,10 +432,9 @@ void gxp_vd_put(struct gxp_virtual_device *vd);
  *
  * @gxp: The GXP device to obtain the handler for
  * @client_id: client_id of the crashed vd.
- * @core_list: A bitfield enumerating the physical cores on which crash is reported from firmware.
+ * @release_vmbox: Releases the vmbox of the vd after invalidating it.
  */
-void gxp_vd_invalidate_with_client_id(struct gxp_dev *gxp, int client_id,
-				      uint core_list);
+void gxp_vd_invalidate_with_client_id(struct gxp_dev *gxp, int client_id, bool release_vmbox);
 
 /*
  * Changes the status of the @vd to GXP_VD_UNAVAILABLE.
@@ -431,8 +447,9 @@ void gxp_vd_invalidate_with_client_id(struct gxp_dev *gxp, int client_id,
  *
  * @gxp: The GXP device to obtain the handler for.
  * @vd: The virtual device to be invaliated.
+ * @reason: The reason why vd being invalidated.
  */
-void gxp_vd_invalidate(struct gxp_dev *gxp, struct gxp_virtual_device *vd);
+void gxp_vd_invalidate(struct gxp_dev *gxp, struct gxp_virtual_device *vd, u32 reason);
 
 /*
  * Generates a debug dump of @vd which utilizes @core_list cores.
@@ -448,6 +465,37 @@ void gxp_vd_invalidate(struct gxp_dev *gxp, struct gxp_virtual_device *vd);
  */
 void gxp_vd_generate_debug_dump(struct gxp_dev *gxp,
 				struct gxp_virtual_device *vd, uint core_list);
+
+#if GXP_HAS_MCU
+/*
+ * Releases the vmbox which is allocated to @vd.
+ *
+ * This function will call the `RELEASE_VMBOX` KCI and will always set @vd->client_id to -1. If the
+ * vmbox was linked to the offload vmbox, it will also call the `gxp_vd_unlink_offload_vmbox`
+ * function first internally.
+ *
+ * @gxp: The GXP device to obtain the handler for.
+ * @vd: The virtual device to release its vmbox.
+ */
+void gxp_vd_release_vmbox(struct gxp_dev *gxp, struct gxp_virtual_device *vd);
+
+/*
+ * Unlinks the linkage of the vmbox of @vd to the offload chip vmbox.
+ *
+ * This function will call the `UNLINK_OFFLOAD_VMBOX` KCI to unlink the vmboxes and will always set
+ * @vd->tpu_client_id to -1.
+ *
+ * @gxp: The GXP device to obtain the handler for.
+ * @vd: The virtual device to unlink vmboxes.
+ * @offload_client_id: The client ID of the offload chip.
+ * @offload_chip_type: The type of the offload chip. (See enum gcip_kci_offload_chip_type.)
+ */
+void gxp_vd_unlink_offload_vmbox(struct gxp_dev *gxp, struct gxp_virtual_device *vd,
+				 u32 offload_client_id, u8 offload_chip_type);
+#else /* !GXP_HAS_MCU */
+#define gxp_vd_release_vmbox(...)
+#define gxp_vd_unlink_offload_vmbox(...)
+#endif /* GXP_HAS_MCU */
 
 /*
  * An ID between 0~GXP_NUM_CORES-1 and is unique to each VD.

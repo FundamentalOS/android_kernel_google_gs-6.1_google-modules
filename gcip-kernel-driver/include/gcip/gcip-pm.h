@@ -23,6 +23,8 @@ struct gcip_pm {
 	int count;
 	/* Flag indicating a deferred power down is pending. Protected by @lock */
 	bool power_down_pending;
+	/* The worker to asynchronously call gcip_pm_put(). */
+	struct work_struct put_async_work;
 
 	/* Callbacks. See struct gcip_pm_args. */
 	void *data;
@@ -40,12 +42,14 @@ struct gcip_pm_args {
 	void *data;
 	/*
 	 * Device-specific power up.
-	 * Called with @pm->lock hold and nesting is handled at generic layer.
+	 * Called with @pm->lock held and nesting is handled at generic layer.
+	 * The IP driver may reject power on for such conditions as thermal suspend in this
+	 * callback.
 	 */
 	int (*power_up)(void *data);
 	/*
 	 * Device-specific power down.
-	 * Called with @pm->lock hold and nesting is handled at generic layer.
+	 * Called with @pm->lock held and nesting is handled at generic layer.
 	 * Returning -EAGAIN will trigger a retry after GCIP_ASYNC_POWER_DOWN_RETRY_DELAY ms.
 	 */
 	int (*power_down)(void *data);
@@ -97,6 +101,12 @@ int gcip_pm_get(struct gcip_pm *pm);
  */
 void gcip_pm_put(struct gcip_pm *pm);
 
+/* Schedules an asynchronous job to execute gcip_pm_put(). */
+void gcip_pm_put_async(struct gcip_pm *pm);
+
+/* Flushes the pending pm_put work if any. */
+void gcip_pm_flush_put_work(struct gcip_pm *pm);
+
 /* Gets the power up counter. Note that this is checked without PM lock. */
 int gcip_pm_get_count(struct gcip_pm *pm);
 
@@ -106,7 +116,7 @@ bool gcip_pm_is_powered(struct gcip_pm *pm);
 /* Shuts down the device if @pm->count equals to 0 or @force is true. */
 void gcip_pm_shutdown(struct gcip_pm *pm, bool force);
 
-/* Make sure @pm->lock is hold. */
+/* Make sure @pm->lock is held. */
 static inline void gcip_pm_lockdep_assert_held(struct gcip_pm *pm)
 {
 	if (!pm)

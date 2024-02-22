@@ -1,25 +1,32 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Records the mapped device addresses.
  *
  * Copyright (C) 2021 Google LLC
  */
 
+#include <linux/atomic.h>
 #include <linux/dma-mapping.h>
 #include <linux/ktime.h>
 #include <linux/mm.h>
 #include <linux/mmap_lock.h>
 #include <linux/moduleparam.h>
+#include <linux/sched/mm.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+
+#include <gcip/gcip-iommu-reserve.h>
 
 #include "gxp-client.h"
 #include "gxp-debug-dump.h"
 #include "gxp-dma.h"
+#include "gxp-dmabuf.h"
 #include "gxp-internal.h"
 #include "gxp-mapping.h"
 
-#if IS_ENABLED(CONFIG_GXP_TEST)
+#include <trace/events/gxp.h>
+
+#if IS_GXP_TEST
 /* expose this variable to have unit tests set it dynamically */
 bool gxp_log_iova;
 #else
@@ -46,185 +53,78 @@ void gxp_mapping_iova_log(struct gxp_client *client, struct gxp_mapping *map,
 		is_first_log = false;
 	}
 
-	dev_info(dev, "iova_log: %s, %s, %d, %d, %#llx, %#llx, %zu", op,
-		 buf_type, client->pid, client->tgid, map->host_address,
-		 map->device_address, map->size);
+	dev_info(dev, "iova_log: %s, %s, %d, %d, %#llx, %pad, %zu", op, buf_type, client->pid,
+		 client->tgid, map->host_address, &map->gcip_mapping->device_address,
+		 map->gcip_mapping->size);
 }
 
 /* Destructor for a mapping created with `gxp_mapping_create()` */
 static void destroy_mapping(struct gxp_mapping *mapping)
 {
-	struct sg_page_iter sg_iter;
-	struct page *page;
+	dma_addr_t device_address = mapping->gcip_mapping->device_address;
+	size_t size = mapping->gcip_mapping->size;
+
+	trace_gxp_mapping_destroy_start(device_address, size);
 
 	mutex_destroy(&mapping->vlock);
 	mutex_destroy(&mapping->sync_lock);
 
-	/*
-	 * Unmap the user pages
-	 *
-	 * Normally on unmap, the entire mapping is synced back to the CPU.
-	 * Since mappings are made at a page granularity regardless of the
-	 * underlying buffer's size, they can cover other data as well. If a
-	 * user requires a mapping be synced before unmapping, they are
-	 * responsible for calling `gxp_mapping_sync()` before hand.
-	 */
-	gxp_dma_unmap_sg(mapping->gxp, mapping->domain, mapping->sgt.sgl,
-			 mapping->sgt.orig_nents, mapping->dir,
-			 DMA_ATTR_SKIP_CPU_SYNC);
+	gcip_iommu_mapping_unmap(mapping->gcip_mapping);
 
-	/* Unpin the user pages */
-	for_each_sg_page(mapping->sgt.sgl, &sg_iter, mapping->sgt.orig_nents,
-			 0) {
-		page = sg_page_iter_page(&sg_iter);
-		if (mapping->dir == DMA_FROM_DEVICE ||
-		    mapping->dir == DMA_BIDIRECTIONAL) {
-			set_page_dirty(page);
-		}
-
-		unpin_user_page(page);
-	}
-
-	/* Free the mapping book-keeping */
-	sg_free_table(&mapping->sgt);
 	kfree(mapping);
+
+	trace_gxp_mapping_destroy_end(device_address, size);
 }
 
-struct gxp_mapping *gxp_mapping_create(struct gxp_dev *gxp,
-				       struct gxp_iommu_domain *domain,
-				       u64 user_address, size_t size, u32 flags,
-				       enum dma_data_direction dir)
+struct gxp_mapping *gxp_mapping_create(struct gxp_dev *gxp, struct gcip_iommu_reserve_manager *mgr,
+				       struct gcip_iommu_domain *domain, u64 user_address,
+				       size_t size, u32 flags, enum dma_data_direction dir,
+				       dma_addr_t iova_hint)
 {
-	struct gxp_mapping *mapping = NULL;
-	uint num_pages = 0;
-	struct page **pages;
-	ulong offset;
-	int ret, i;
-	struct vm_area_struct *vma;
-	unsigned int foll_flags = FOLL_LONGTERM | FOLL_WRITE;
+	struct gxp_mapping *mapping;
+	int ret;
+	u64 gcip_map_flags = gxp_dma_encode_gcip_map_flags(flags, DMA_ATTR_SKIP_CPU_SYNC);
 
-	/* Check whether dir is valid or not */
-	if (!valid_dma_direction(dir))
-		return ERR_PTR(-EINVAL);
-
-	if (!access_ok((const void *)user_address, size)) {
-		dev_err(gxp->dev, "invalid address range in buffer map request");
-		return ERR_PTR(-EFAULT);
-	}
-
-	/*
-	 * The host pages might be read-only and could fail if we attempt to pin
-	 * it with FOLL_WRITE.
-	 * default to read/write if find_extend_vma returns NULL
-	 */
-	mmap_read_lock(current->mm);
-	vma = find_extend_vma(current->mm, user_address & PAGE_MASK);
-	if (vma) {
-		if (!(vma->vm_flags & VM_WRITE))
-			foll_flags &= ~FOLL_WRITE;
-	} else {
-		dev_dbg(gxp->dev,
-			"unable to find address in VMA, assuming buffer writable");
-	}
-	mmap_read_unlock(current->mm);
-
-	/* Pin the user pages */
-	offset = user_address & (PAGE_SIZE - 1);
-	if (unlikely((size + offset) / PAGE_SIZE >= UINT_MAX - 1 ||
-		     size + offset < size))
-		return ERR_PTR(-EFAULT);
-	num_pages = (size + offset) / PAGE_SIZE;
-	if ((size + offset) % PAGE_SIZE)
-		num_pages++;
-
-	/*
-	 * "num_pages" is decided from user-space arguments, don't show warnings
-	 * when facing malicious input.
-	 */
-	pages = kvmalloc((num_pages * sizeof(*pages)), GFP_KERNEL | __GFP_NOWARN);
-	if (!pages) {
-		dev_err(gxp->dev, "Failed to alloc pages for mapping: num_pages=%u",
-			num_pages);
-		return ERR_PTR(-ENOMEM);
-	}
-
-	/*
-	 * Provide protection around `pin_user_pages_fast` since it fails if
-	 * called by more than one thread simultaneously.
-	 */
-	mutex_lock(&gxp->pin_user_pages_lock);
-	ret = pin_user_pages_fast(user_address & PAGE_MASK, num_pages,
-				  foll_flags, pages);
-	if (ret == -EFAULT && !vma) {
-		dev_warn(gxp->dev,
-			 "pin failed with fault, assuming buffer is read-only");
-		ret = pin_user_pages_fast(user_address & PAGE_MASK, num_pages,
-					  foll_flags & ~FOLL_WRITE, pages);
-	}
-	mutex_unlock(&gxp->pin_user_pages_lock);
-	if (ret == -ENOMEM)
-		dev_err(gxp->dev, "system out of memory locking %u pages",
-			num_pages);
-	if (ret == -EFAULT)
-		dev_err(gxp->dev, "address fault mapping %s buffer",
-			dir == DMA_TO_DEVICE ? "read-only" : "writeable");
-	if (ret < 0 || ret < num_pages) {
-		dev_dbg(gxp->dev,
-			"Get user pages failed: user_add=%pK, num_pages=%u, ret=%d\n",
-			(void *)user_address, num_pages, ret);
-		num_pages = ret < 0 ? 0 : ret;
-		ret = ret >= 0 ? -EFAULT : ret;
-		goto error_unpin_pages;
-	}
+	trace_gxp_mapping_create_start(user_address, size);
 
 	/* Initialize mapping book-keeping */
 	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping) {
 		ret = -ENOMEM;
-		goto error_unpin_pages;
+		goto error_end_trace;
 	}
-	refcount_set(&mapping->refcount, 1);
+
 	mapping->destructor = destroy_mapping;
 	mapping->host_address = user_address;
 	mapping->gxp = gxp;
-	mapping->domain = domain;
-	mapping->size = size;
 	mapping->gxp_dma_flags = flags;
-	mapping->dir = dir;
-	ret = sg_alloc_table_from_pages(&mapping->sgt, pages, num_pages, 0,
-					num_pages * PAGE_SIZE, GFP_KERNEL);
-	if (ret) {
-		dev_err(gxp->dev, "Failed to alloc sgt for mapping (ret=%d)\n",
-			ret);
-		goto error_free_sgt;
+
+	if (!iova_hint)
+		mapping->gcip_mapping = gcip_iommu_domain_map_buffer(
+			domain, user_address, size, gcip_map_flags, &gxp->pin_user_pages_lock);
+	else
+		mapping->gcip_mapping = gcip_iommu_reserve_map_buffer(mgr, user_address, size,
+								      gcip_map_flags,
+								      &gxp->pin_user_pages_lock,
+								      iova_hint, mapping);
+	if (IS_ERR(mapping->gcip_mapping)) {
+		ret = PTR_ERR(mapping->gcip_mapping);
+		dev_err(gxp->dev, "Failed to map user buffer (ret=%d)\n", ret);
+		goto error_free_mapping;
 	}
 
-	/* map the user pages */
-	ret = gxp_dma_map_sg(gxp, mapping->domain, mapping->sgt.sgl,
-			     mapping->sgt.nents, mapping->dir,
-			     DMA_ATTR_SKIP_CPU_SYNC, mapping->gxp_dma_flags);
-	if (!ret) {
-		dev_err(gxp->dev, "Failed to map sgt (ret=%d)\n", ret);
-		ret = -EINVAL;
-		goto error_free_sgt;
-	}
-	mapping->sgt.nents = ret;
-	mapping->device_address =
-		sg_dma_address(mapping->sgt.sgl) + offset;
-
+	refcount_set(&mapping->refcount, 1);
 	mutex_init(&mapping->sync_lock);
 	mutex_init(&mapping->vlock);
 
-	kvfree(pages);
+	trace_gxp_mapping_create_end(user_address, size, mapping->gcip_mapping->sgt->nents);
+
 	return mapping;
 
-error_free_sgt:
-	sg_free_table(&mapping->sgt);
+error_free_mapping:
 	kfree(mapping);
-error_unpin_pages:
-	for (i = 0; i < num_pages; i++)
-		unpin_user_page(pages[i]);
-	kvfree(pages);
+error_end_trace:
+	trace_gxp_mapping_create_end(user_address, size, 0);
 
 	return ERR_PTR(ret);
 }
@@ -265,8 +165,7 @@ int gxp_mapping_sync(struct gxp_mapping *mapping, u32 offset, u32 size,
 	 * - offset + size does not overflow (offset + size > offset)
 	 * - the mapped range falls within [0 : mapping->size]
 	 */
-	if (offset + size <= offset ||
-	    offset + size > mapping->size) {
+	if (offset + size <= offset || offset + size > mapping->gcip_mapping->size) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -292,7 +191,8 @@ int gxp_mapping_sync(struct gxp_mapping *mapping, u32 offset, u32 size,
 	 */
 	start = (mapping->host_address & ~PAGE_MASK) + offset;
 	end = start + size;
-	for_each_sg(mapping->sgt.sgl, sg, mapping->sgt.orig_nents, i) {
+	for_each_sg(mapping->gcip_mapping->sgt->sgl, sg, mapping->gcip_mapping->sgt->orig_nents,
+		    i) {
 		if (end <= cur_offset)
 			break;
 		if (cur_offset <= start && start < cur_offset + sg->length) {
@@ -320,9 +220,9 @@ int gxp_mapping_sync(struct gxp_mapping *mapping, u32 offset, u32 size,
 	end_sg->dma_length -= end_diff;
 
 	if (for_cpu)
-		gxp_dma_sync_sg_for_cpu(gxp, start_sg, nelems, mapping->dir);
+		gxp_dma_sync_sg_for_cpu(gxp, start_sg, nelems, mapping->gcip_mapping->dir);
 	else
-		gxp_dma_sync_sg_for_device(gxp, start_sg, nelems, mapping->dir);
+		gxp_dma_sync_sg_for_device(gxp, start_sg, nelems, mapping->gcip_mapping->dir);
 
 	/*
 	 * Return the start and end scatterlists' offset/lengths to their
@@ -343,7 +243,7 @@ out:
 	return ret;
 }
 
-void *gxp_mapping_vmap(struct gxp_mapping *mapping)
+void *gxp_mapping_vmap(struct gxp_mapping *mapping, bool is_dmabuf)
 {
 	struct sg_table *sgt;
 	struct sg_page_iter sg_iter;
@@ -364,7 +264,12 @@ void *gxp_mapping_vmap(struct gxp_mapping *mapping)
 		goto out;
 	}
 
-	sgt = &mapping->sgt;
+	sgt = mapping->gcip_mapping->sgt;
+	if (!sgt) {
+		vaddr = ERR_PTR(-EINVAL);
+		goto out;
+	}
+
 	for_each_sg_page(sgt->sgl, &sg_iter, sgt->orig_nents, 0)
 		page_count++;
 

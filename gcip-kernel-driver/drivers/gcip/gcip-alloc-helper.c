@@ -57,11 +57,9 @@ struct sg_table *gcip_alloc_noncontiguous(struct device *dev, size_t size, gfp_t
 		goto err_free_sh;
 	}
 
-	pages = kmalloc_array(count, sizeof(*pages), gfp);
-	if (!pages) {
-		dev_err(dev, "GCIP alloc pages array count=%zu failed", count);
+	pages = kvmalloc_array(count, sizeof(*pages), gfp);
+	if (!pages)
 		goto err_free_mem;
-	}
 
 	if (gcip_vmalloc_to_pages(mem, count, pages)) {
 		dev_err(dev, "convert memory to pages failed");
@@ -74,12 +72,12 @@ struct sg_table *gcip_alloc_noncontiguous(struct device *dev, size_t size, gfp_t
 		goto err_free_pages;
 	}
 
-	kfree(pages);
+	kvfree(pages);
 	sh->mem = mem;
 	return &sh->sgt;
 
 err_free_pages:
-	kfree(pages);
+	kvfree(pages);
 err_free_mem:
 	vfree(mem);
 err_free_sh:

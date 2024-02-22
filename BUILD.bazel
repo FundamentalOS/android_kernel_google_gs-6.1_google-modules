@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0
+# SPDX-License-Identifier: GPL-2.0-only
 
 load("//build/kernel/kleaf:kernel.bzl", "kernel_module")
 
@@ -22,6 +22,7 @@ kernel_module(
     ],
     deps = [
         "//private/google-modules/edgetpu/janeiro/drivers/edgetpu:edgetpu.janeiro",
+        "//private/google-modules/power/mitigation:bcl",
         "//private/google-modules/soc/gs:gs_soc_module",
     ],
 )

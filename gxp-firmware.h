@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP firmware loader.
  *
@@ -15,39 +15,15 @@
 #include "gxp-config.h"
 #include "gxp-internal.h"
 
-#if !IS_ENABLED(CONFIG_GXP_TEST)
-
-#ifdef CHIP_AURORA_SCRATCHPAD_OFF
-
-#define AURORA_SCRATCHPAD_OFF CHIP_AURORA_SCRATCHPAD_OFF
-#define AURORA_SCRATCHPAD_LEN CHIP_AURORA_SCRATCHPAD_LEN
-
-#else /* CHIP_AURORA_SCRATCHPAD_OFF */
-
-#define AURORA_SCRATCHPAD_OFF 0x000FF000 /* Last 4KB of ELF load region */
-#define AURORA_SCRATCHPAD_LEN 0x00001000 /* 4KB */
-
-#endif /* CHIP_AURORA_SCRATCHPAD_OFF */
-
-#else /* CONFIG_GXP_TEST */
-/* Firmware memory is shrunk in unit tests. */
-#define AURORA_SCRATCHPAD_OFF 0x000F0000
-#define AURORA_SCRATCHPAD_LEN 0x00010000
-
-#endif /* CONFIG_GXP_TEST */
-
 #define Q7_ALIVE_MAGIC	0x55555555
-
-#define SCRATCHPAD_MSG_OFFSET(_msg_) (_msg_  <<  2)
-
-#define PRIVATE_FW_DATA_SIZE SZ_2M
-#define SHARED_FW_DATA_SIZE SZ_1M
 
 /* Indexes same as image_config.IommuMappingIdx in the firmware side. */
 enum gxp_imgcfg_idx {
 	CORE_CFG_REGION_IDX,
 	VD_CFG_REGION_IDX,
 	SYS_CFG_REGION_IDX,
+	/* TODO(b/299037074): Remove core's accesses to LPM. */
+	REMOTE_LPM_IDX = 7,
 };
 
 struct gxp_firmware_manager {
@@ -61,12 +37,6 @@ enum aurora_msg {
 	MSG_BOOT_MODE,
 	MSG_SCRATCHPAD_MAX,
 };
-
-/* The caller must have locked gxp->vd_semaphore for reading. */
-static inline bool gxp_is_fw_running(struct gxp_dev *gxp, uint core)
-{
-	return (gxp->firmware_mgr->firmware_running & BIT(core)) != 0;
-}
 
 /*
  * Initializes the core firmware loading/unloading subsystem. This includes
@@ -100,6 +70,17 @@ int gxp_firmware_rearrange_elf(struct gxp_dev *gxp,
 			       const struct firmware *firmwares[GXP_NUM_CORES]);
 
 /*
+ * All functions below, which manage the state of or communicate with the core firmware, should only
+ * be called in direct mode.
+ */
+
+/* The caller must have locked gxp->vd_semaphore for reading. */
+static inline bool gxp_is_fw_running(struct gxp_dev *gxp, uint core)
+{
+	return (gxp->firmware_mgr->firmware_running & BIT(core)) != 0;
+}
+
+/*
  * Re-program the reset vector and power on the core's LPM if the block had
  * been shut down.
  *
@@ -131,13 +112,6 @@ void gxp_firmware_set_boot_mode(struct gxp_dev *gxp,
 				u32 mode);
 
 /*
- * Returns the specified core's boot mode or boot status.
- * This function should be called only after the firmware has been run.
- */
-u32 gxp_firmware_get_boot_mode(struct gxp_dev *gxp,
-			       struct gxp_virtual_device *vd, uint core);
-
-/*
  * Sets the specified core's boot status or suspend request value.
  */
 void gxp_firmware_set_boot_status(struct gxp_dev *gxp,
@@ -150,9 +124,6 @@ void gxp_firmware_set_boot_status(struct gxp_dev *gxp,
  */
 u32 gxp_firmware_get_boot_status(struct gxp_dev *gxp,
 				 struct gxp_virtual_device *vd, uint core);
-
-/* Returns whether the core firmware running states are managed by us. */
-bool gxp_core_boot(struct gxp_dev *gxp);
 
 /*
  * Disable external interrupts to core.

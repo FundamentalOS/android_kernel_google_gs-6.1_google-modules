@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * GXP power management.
  *
@@ -7,13 +7,19 @@
 #ifndef __GXP_PM_H__
 #define __GXP_PM_H__
 
-#include <soc/google/exynos_pm_qos.h>
+#include <linux/io.h>
+#include <linux/mutex.h>
+#include <linux/spinlock.h>
+#include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include <gcip/gcip-pm.h>
 
 #include "gxp-internal.h"
 
 #define AUR_DVFS_MIN_RATE AUR_UUD_RATE
+
+struct bcl_device;
 
 enum aur_power_state {
 	AUR_OFF = 0,
@@ -27,17 +33,7 @@ enum aur_power_state {
 	AUR_UD_PLUS = 8,
 };
 
-static const uint aur_power_state2rate[] = {
-	AUR_OFF_RATE,
-	AUR_UUD_RATE,
-	AUR_SUD_RATE,
-	AUR_UD_RATE,
-	AUR_NOM_RATE,
-	AUR_READY_RATE,
-	AUR_UUD_PLUS_RATE,
-	AUR_SUD_PLUS_RATE,
-	AUR_UD_PLUS_RATE,
-};
+extern const uint aur_power_state2rate[];
 
 enum aur_memory_power_state {
 	AUR_MEM_UNDEFINED = 0,
@@ -69,11 +65,21 @@ enum aur_power_cmu_mux_state {
 
 #define AUR_NUM_POWER_STATE_WORKER 4
 
-struct gxp_pm_device_ops {
-	int (*pre_blk_powerup)(struct gxp_dev *gxp);
-	int (*post_blk_powerup)(struct gxp_dev *gxp);
-	int (*pre_blk_poweroff)(struct gxp_dev *gxp);
-	int (*post_blk_poweroff)(struct gxp_dev *gxp);
+struct gxp_pm_ops {
+	/*
+	 * This callback is called after pm_runtime_get*().
+	 * A non-zero return value could fail the block power up process.
+	 *
+	 * This callback is optional.
+	 */
+	int (*after_blk_power_up)(struct gxp_dev *gxp);
+	/*
+	 * This callback is called before pm_runtime_put*().
+	 * A non-zero return value could fail the block power down process.
+	 *
+	 * This callback is optional.
+	 */
+	int (*before_blk_power_down)(struct gxp_dev *gxp);
 };
 
 struct gxp_set_acpm_state_work {
@@ -89,8 +95,7 @@ struct gxp_set_acpm_state_work {
 struct gxp_req_pm_qos_work {
 	struct work_struct work;
 	struct gxp_dev *gxp;
-	s32 int_val;
-	s32 mif_val;
+	u64 pm_value;
 	bool using;
 };
 
@@ -100,10 +105,8 @@ struct gxp_power_states {
 	bool low_clkmux;
 };
 
-static const struct gxp_power_states off_states = { AUR_OFF, AUR_MEM_UNDEFINED,
-						    false };
-static const struct gxp_power_states uud_states = { AUR_UUD, AUR_MEM_UNDEFINED,
-						    false };
+extern const struct gxp_power_states off_states;
+extern const struct gxp_power_states uud_states;
 
 struct gxp_power_manager {
 	struct gxp_dev *gxp;
@@ -123,7 +126,7 @@ struct gxp_power_manager {
 	bool last_scheduled_low_clkmux;
 	int curr_state;
 	int curr_memory_state; /* Note: this state will not be maintained in the MCU mode. */
-	struct gxp_pm_device_ops *ops;
+	const struct gxp_pm_ops *ops;
 	struct gxp_set_acpm_state_work
 		set_acpm_state_work[AUR_NUM_POWER_STATE_WORKER];
 	/* Serializes searching for an open worker in set_acpm_state_work[] */
@@ -134,15 +137,18 @@ struct gxp_power_manager {
 	/* Serializes searching for an open worker in req_pm_qos_work[] */
 	struct mutex req_pm_qos_work_lock;
 	struct workqueue_struct *wq;
-	/* INT/MIF requests for memory bandwidth */
-	struct exynos_pm_qos_request int_min;
-	struct exynos_pm_qos_request mif_min;
+	/* BCL device handler. */
+	struct bcl_device *bcl_dev;
 	int force_mux_normal_count;
 	/* Max frequency that the thermal driver/ACPM will allow in Hz */
 	unsigned long thermal_limit;
 	u64 blk_switch_count;
 	/* PMU AUR_STATUS base address for block status, maybe NULL */
 	void __iomem *aur_status;
+	/* Protects @busy_count. */
+	spinlock_t busy_lock;
+	/* The number of ongoing requests to the firmware. */
+	u64 busy_count;
 };
 
 /**
@@ -166,16 +172,6 @@ int gxp_pm_blk_on(struct gxp_dev *gxp);
  * * 0       - BLK OFF successfully
  */
 int gxp_pm_blk_off(struct gxp_dev *gxp);
-
-/**
- * gxp_pm_is_blk_down() - Check weather the blk is turned off or not.
- * @gxp: The GXP device to check
- * @timeout_ms: Wait for the block to be turned off for this duration.
- *
- * Return:
- * * true       - blk is turned off.
- */
-bool gxp_pm_is_blk_down(struct gxp_dev *gxp, uint timeout_ms);
 
 /**
  * gxp_pm_blk_reboot() - Reboot the blk.
@@ -256,7 +252,7 @@ int gxp_pm_destroy(struct gxp_dev *gxp);
  *
  * Return:
  * * 0       - Set finished successfully
- * * Other   - Set rate encounter issue in exynos_acpm_set_rate
+ * * Other   - Set rate encounter issue in gxp_soc_pm_set_rate
  */
 int gxp_pm_blk_set_rate_acpm(struct gxp_dev *gxp, unsigned long rate);
 
@@ -289,22 +285,6 @@ int gxp_pm_update_requested_power_states(struct gxp_dev *gxp,
 					 struct gxp_power_states origin_states,
 					 struct gxp_power_states requested_states);
 
-/**
- * gxp_pm_update_pm_qos() - API for updating the memory power state but passing the values of
- * INT and MIF frequencies directly. This function will ignore the vote ratings and update the
- * frequencies right away.
- * @gxp: The GXP device to operate.
- * @int_val: The value of INT frequency.
- * @mif_val: The value of MIF frequency.
- *
- * Note: This function will not update the @curr_memory_state of gxp_power_manager.
- *
- * Return:
- * * 0       - The memory power state has been changed
- * * -EINVAL - Invalid requested state
- */
-int gxp_pm_update_pm_qos(struct gxp_dev *gxp, s32 int_val, s32 mif_val);
-
 /*
  * gxp_pm_force_clkmux_normal() - Force PLL_CON0_NOC_USER and PLL_CON0_PLL_AUR MUX
  * switch to the normal state. This is required to guarantee LPM works when the core
@@ -327,5 +307,63 @@ void gxp_pm_resume_clkmux(struct gxp_dev *gxp);
  * The power management code will only use this information for logging.
  */
 void gxp_pm_set_thermal_limit(struct gxp_dev *gxp, unsigned long thermal_limit);
+
+/**
+ * gxp_pm_busy() - Claim there is a request to the firmware.
+ * @gxp: The GXP device
+ *
+ * This function is used in pair with gxp_pm_idle().
+ * When there is no ongoing requests, we can put the device in a lower frequency to save power.
+ */
+void gxp_pm_busy(struct gxp_dev *gxp);
+/**
+ * gxp_pm_idle() - Reverts gxp_pm_busy().
+ * @gxp: The GXP device
+ */
+void gxp_pm_idle(struct gxp_dev *gxp);
+
+/**
+ * gxp_pm_chip_set_ops() - Set the operations to the power manager, i.e.
+ * @mgr->ops.
+ * @mgr: The power manager to be set operations to
+ *
+ * This function is expected to be implemented by chip-dependent power
+ * management files but not by gxp-pm.c.
+ */
+void gxp_pm_chip_set_ops(struct gxp_power_manager *mgr);
+
+/**
+ * gxp_pm_chip_init() - Do chip-dependent power management initialization.
+ * @gxp: The GXP device
+ *
+ * This function is called as the last step of gxp_pm_init().
+ * This function is expected to be implemented by chip-dependent power
+ * management files but not by gxp-pm.c.
+ */
+void gxp_pm_chip_init(struct gxp_dev *gxp);
+
+/**
+ * gxp_pm_chip_exit() - Do chip-dependent power management cleanup.
+ * @gxp: The GXP device
+ *
+ * This function is called as the first step of gxp_pm_destroy().
+ * This function is expected to be implemented by chip-dependent power
+ * management files but not by gxp-pm.c.
+ */
+void gxp_pm_chip_exit(struct gxp_dev *gxp);
+
+/**
+ * gxp_pm_is_blk_down() - Check weather the blk is turned off or not via @gxp->aur_status.
+ * @gxp: The GXP device to check
+ *
+ * Note: This function might be called in in_interrupt() context.
+ * Return:
+ * * true       - blk is turned off.
+ */
+static inline bool gxp_pm_is_blk_down(struct gxp_dev *gxp)
+{
+	return gxp->power_mgr->aur_status ? !readl(gxp->power_mgr->aur_status) :
+					    gxp->power_mgr->curr_state == AUR_OFF;
+}
 
 #endif /* __GXP_PM_H__ */

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * GXP firmware data manager.
  *
@@ -10,7 +10,6 @@
 #include "gxp-config.h"
 #include "gxp-debug-dump.h"
 #include "gxp-firmware-data.h"
-#include "gxp-firmware.h" /* gxp_core_boot */
 #include "gxp-host-device-structs.h"
 #include "gxp-internal.h"
 #include "gxp-vd.h"
@@ -51,9 +50,9 @@ static void set_system_cfg_region(struct gxp_dev *gxp, void *sys_cfg)
 	struct gxp_system_descriptor_rw *des_rw = sys_cfg + PAGE_SIZE;
 	struct gxp_core_telemetry_descriptor *descriptor =
 		&gxp->data_mgr->core_telemetry_desc;
-	struct telemetry_descriptor_ro *tel_ro;
-	struct telemetry_descriptor_rw *tel_rw;
-	struct core_telemetry_descriptor *tel_des;
+	struct telemetry_descriptor_ro *ro;
+	struct telemetry_descriptor_rw *rw;
+	struct core_telemetry_descriptor *des;
 	int i;
 
 	if (gxp->debug_dump_mgr)
@@ -61,25 +60,16 @@ static void set_system_cfg_region(struct gxp_dev *gxp, void *sys_cfg)
 	else
 		des_ro->debug_dump_dev_addr = 0;
 
-#define COPY_FIELDS(des, ro, rw)                                               \
-	do {                                                                   \
-		ro->host_status = des->host_status;                            \
-		ro->buffer_addr = des->buffer_addr;                            \
-		ro->buffer_size = des->buffer_size;                            \
-		rw->device_status = des->device_status;                        \
-		rw->data_available = des->watermark_level;                     \
-	} while (0)
 	for (i = 0; i < GXP_NUM_CORES; i++) {
-		tel_ro = &des_ro->telemetry_desc.per_core_loggers[i];
-		tel_rw = &des_rw->telemetry_desc.per_core_loggers[i];
-		tel_des = &descriptor->per_core_loggers[i];
-		COPY_FIELDS(tel_des, tel_ro, tel_rw);
-		tel_ro = &des_ro->telemetry_desc.per_core_tracers[i];
-		tel_rw = &des_rw->telemetry_desc.per_core_tracers[i];
-		tel_des = &descriptor->per_core_tracers[i];
-		COPY_FIELDS(tel_des, tel_ro, tel_rw);
+		ro = &des_ro->telemetry_desc.per_core_loggers[i];
+		rw = &des_rw->telemetry_desc.per_core_loggers[i];
+		des = &descriptor->per_core_loggers[i];
+		ro->host_status = des->host_status;
+		ro->buffer_addr = des->buffer_addr;
+		ro->buffer_size = des->buffer_size;
+		rw->device_status = des->device_status;
+		rw->data_available = des->watermark_level;
 	}
-#undef COPY_FIELDS
 
 	/* Update the global descriptors. */
 	gxp->data_mgr->sys_desc_ro = des_ro;
@@ -94,10 +84,8 @@ static void _gxp_fw_data_populate_vd_cfg(struct gxp_dev *gxp,
 	struct gxp_vd_descriptor *vd_desc;
 	int i;
 
-	if (!gxp_core_boot(gxp)) {
-		dev_info(gxp->dev, "Skip setting VD and core CFG");
+	if (!gxp_is_direct_mode(gxp))
 		return;
-	}
 	if (!vd->vd_cfg.vaddr || !vd->core_cfg.vaddr) {
 		dev_warn(
 			gxp->dev,
@@ -133,20 +121,6 @@ static void _gxp_fw_data_populate_vd_cfg(struct gxp_dev *gxp,
 	}
 }
 
-static struct core_telemetry_descriptor *
-gxp_fw_data_get_core_telemetry_descriptor(struct gxp_dev *gxp, u8 type)
-{
-	struct gxp_core_telemetry_descriptor *descriptor =
-		&gxp->data_mgr->core_telemetry_desc;
-
-	if (type == GXP_TELEMETRY_TYPE_LOGGING)
-		return descriptor->per_core_loggers;
-	else if (type == GXP_TELEMETRY_TYPE_TRACING)
-		return descriptor->per_core_tracers;
-	else
-		return ERR_PTR(-EINVAL);
-}
-
 int gxp_fw_data_init(struct gxp_dev *gxp)
 {
 	struct gxp_fw_data_manager *mgr;
@@ -156,16 +130,17 @@ int gxp_fw_data_init(struct gxp_dev *gxp)
 	if (!mgr)
 		return -ENOMEM;
 
-	virt = memremap(gxp->fwdatabuf.paddr, gxp->fwdatabuf.size, MEMREMAP_WC);
+	if (gxp_is_direct_mode(gxp)) {
+		virt = memremap(gxp->fwdatabuf.paddr, gxp->fwdatabuf.size, MEMREMAP_WC);
+		if (IS_ERR_OR_NULL(virt)) {
+			dev_err(gxp->dev, "Failed to map fw data region\n");
+			return -ENODEV;
+		}
+		gxp->fwdatabuf.vaddr = virt;
 
-	if (IS_ERR_OR_NULL(virt)) {
-		dev_err(gxp->dev, "Failed to map fw data region\n");
-		return -ENODEV;
+		/* Populate the region with a pre-defined pattern. */
+		memset(virt, FW_DATA_DEBUG_PATTERN, gxp->fwdatabuf.size);
 	}
-	gxp->fwdatabuf.vaddr = virt;
-
-	/* Populate the region with a pre-defined pattern. */
-	memset(virt, FW_DATA_DEBUG_PATTERN, gxp->fwdatabuf.size);
 	gxp->data_mgr = mgr;
 
 	return 0;
@@ -184,22 +159,17 @@ void gxp_fw_data_destroy(struct gxp_dev *gxp)
 
 void gxp_fw_data_populate_vd_cfg(struct gxp_dev *gxp, struct gxp_virtual_device *vd)
 {
-	if (gxp_fw_data_use_per_vd_config(vd))
-		_gxp_fw_data_populate_vd_cfg(gxp, vd);
+	_gxp_fw_data_populate_vd_cfg(gxp, vd);
 }
 
-int gxp_fw_data_set_core_telemetry_descriptors(struct gxp_dev *gxp, u8 type,
-					       u32 host_status,
+int gxp_fw_data_set_core_telemetry_descriptors(struct gxp_dev *gxp, u32 host_status,
 					       struct gxp_coherent_buf *buffers,
 					       u32 per_buffer_size)
 {
-	struct core_telemetry_descriptor *core_descriptors;
+	struct gxp_core_telemetry_descriptor *descriptor = &gxp->data_mgr->core_telemetry_desc;
+	struct core_telemetry_descriptor *core_descriptors = descriptor->per_core_loggers;
 	uint core;
 	bool enable;
-
-	core_descriptors = gxp_fw_data_get_core_telemetry_descriptor(gxp, type);
-	if (IS_ERR(core_descriptors))
-		return PTR_ERR(core_descriptors);
 
 	enable = (host_status & GXP_CORE_TELEMETRY_HOST_STATUS_ENABLED);
 
@@ -228,24 +198,14 @@ int gxp_fw_data_set_core_telemetry_descriptors(struct gxp_dev *gxp, u8 type,
 	return 0;
 }
 
-u32 gxp_fw_data_get_core_telemetry_device_status(struct gxp_dev *gxp, uint core,
-						 u8 type)
+u32 gxp_fw_data_get_core_telemetry_device_status(struct gxp_dev *gxp, uint core)
 {
 	struct gxp_system_descriptor_rw *des_rw = gxp->data_mgr->sys_desc_rw;
 
 	if (core >= GXP_NUM_CORES)
 		return 0;
 
-	switch (type) {
-	case GXP_TELEMETRY_TYPE_LOGGING:
-		return des_rw->telemetry_desc.per_core_loggers[core]
-			.device_status;
-	case GXP_TELEMETRY_TYPE_TRACING:
-		return des_rw->telemetry_desc.per_core_tracers[core]
-			.device_status;
-	default:
-		return 0;
-	}
+	return des_rw->telemetry_desc.per_core_loggers[core].device_status;
 }
 
 struct gxp_mapped_resource gxp_fw_data_resource(struct gxp_dev *gxp)
@@ -255,12 +215,7 @@ struct gxp_mapped_resource gxp_fw_data_resource(struct gxp_dev *gxp)
 	 * MCU mode, the config regions are programmed by MCU.
 	 */
 	if (gxp_is_direct_mode(gxp)) {
-		struct gxp_mapped_resource tmp = gxp->fwdatabuf;
-
-		/* Leave the first piece be used for gxp_fw_data_init() */
-		tmp.vaddr += tmp.size / 2;
-		tmp.paddr += tmp.size / 2;
-		return tmp;
+		return gxp->fwdatabuf;
 	} else {
 		return gxp->shared_buf;
 	}
@@ -268,9 +223,10 @@ struct gxp_mapped_resource gxp_fw_data_resource(struct gxp_dev *gxp)
 
 void *gxp_fw_data_system_cfg(struct gxp_dev *gxp)
 {
+	struct gxp_mapped_resource res = gxp_fw_data_resource(gxp);
+
 	/* Use the end of the shared region for system cfg. */
-	return gxp_fw_data_resource(gxp).vaddr + GXP_SHARED_BUFFER_SIZE -
-	       GXP_FW_DATA_SYSCFG_SIZE;
+	return res.vaddr + res.size - GXP_FW_DATA_SYSCFG_SIZE;
 }
 
 void gxp_fw_data_populate_system_config(struct gxp_dev *gxp)

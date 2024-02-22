@@ -39,6 +39,15 @@
  */
 #define GCIP_MAILBOX_STATUS_NO_RESPONSE (2)
 
+/*
+ * With this flag, the sequence number of the command will not be assigned by set_cmd_elem_seq.
+ * The sequence number in the mailbox is not increased either.
+ * The command's sequence number must be pre-set before passing to gcip_mailbox_put_cmd_flags().
+ */
+#define GCIP_MAILBOX_CMD_FLAGS_SKIP_ASSIGN_SEQ BIT(0)
+
+typedef u32 gcip_mailbox_cmd_flags_t;
+
 /* To specify the operation is toward cmd or resp queue. */
 enum gcip_mailbox_queue_type { GCIP_MAILBOX_CMD_QUEUE, GCIP_MAILBOX_RESP_QUEUE };
 
@@ -88,10 +97,21 @@ static inline bool gcip_valid_circ_queue_size(u32 size, u32 wrap_bit)
 
 struct gcip_mailbox;
 
+/*
+ * A struct wraps the IP-defined response to manage additional information such as status needed by
+ * the logic of GCIP.
+ */
+struct gcip_mailbox_async_resp {
+	/* Status code. Must be one of GCIP_MAILBOX_STATUS_*. */
+	uint16_t status;
+	/* IP-defined response. */
+	void *resp;
+};
+
 /* Wrapper struct for responses consumed by a thread other than the one which sent the command. */
 struct gcip_mailbox_resp_awaiter {
 	/* Response. */
-	void *resp;
+	struct gcip_mailbox_async_resp async_resp;
 	/* The work which will be executed when the timeout occurs. */
 	struct delayed_work timeout_work;
 	/*
@@ -133,14 +153,18 @@ struct gcip_mailbox_ops {
 	void (*inc_cmd_queue_tail)(struct gcip_mailbox *mailbox, u32 inc);
 	/*
 	 * Acquires the lock of cmd_queue. If @try is true, "_trylock" functions can be used, but
-	 * also it can be ignored. Returns 1 if succeed, 0 if failed. This callback will be called
-	 * in the following situations.
+	 * also it can be ignored. If the lock will make the context atomic, @atomic must be set
+	 * to true. Returns 1 if succeed, 0 if failed.
+	 *
+	 * This callback will be called in the following situations.
 	 * - Enqueue a command to the cmd_queue.
+	 *
 	 * The lock can be mutex lock or spin lock and it will be released by calling
 	 * `release_cmd_queue_lock` callback.
+	 *
 	 * Context: normal.
 	 */
-	int (*acquire_cmd_queue_lock)(struct gcip_mailbox *mailbox, bool try);
+	int (*acquire_cmd_queue_lock)(struct gcip_mailbox *mailbox, bool try, bool *atomic);
 	/*
 	 * Releases the lock of cmd_queue which is acquired by calling `acquire_cmd_queue_lock`.
 	 * Context: normal.
@@ -184,15 +208,20 @@ struct gcip_mailbox_ops {
 	void (*inc_resp_queue_head)(struct gcip_mailbox *mailbox, u32 inc);
 	/*
 	 * Acquires the lock of resp_queue. If @try is true, "_trylock" functions can be used, but
-	 * also it can be ignored. Returns 1 if succeed, 0 if failed. This callback will be called
-	 * in the following situations.
+	 * also it can be ignored. If the lock will make the context atomic, @atomic must be set
+	 * to true. Returns 1 if succeed, 0 if failed.
+	 *
+	 * This callback will be called in the following situations:
 	 * - Fetch response(s) from the resp_queue.
+	 *
 	 * The lock can be a mutex lock or a spin lock. However, if @try is considered and the
 	 * "_trylock" is used, it must be a spin lock only.
+	 *
 	 * The lock will be released by calling `release_resp_queue_lock` callback.
+	 *
 	 * Context: normal and in_interrupt().
 	 */
-	int (*acquire_resp_queue_lock)(struct gcip_mailbox *mailbox, bool try);
+	int (*acquire_resp_queue_lock)(struct gcip_mailbox *mailbox, bool try, bool *atomic);
 	/*
 	 * Releases the lock of resp_queue which is acquired by calling `acquire_resp_queue_lock`.
 	 * Context: normal and in_interrupt().
@@ -208,16 +237,6 @@ struct gcip_mailbox_ops {
 	 * Context: normal and in_interrupt().
 	 */
 	void (*set_resp_elem_seq)(struct gcip_mailbox *mailbox, void *resp, u64 seq);
-	/*
-	 * Gets the status of @resp queue element.
-	 * Context: normal and in_interrupt().
-	 */
-	u16 (*get_resp_elem_status)(struct gcip_mailbox *mailbox, void *resp);
-	/*
-	 * Sets the status of @resp queue element.
-	 * Context: normal and in_interrupt().
-	 */
-	void (*set_resp_elem_status)(struct gcip_mailbox *mailbox, void *resp, u16 status);
 
 	/*
 	 * Acquires the lock of wait_list. If @irqsave is true, "_irqsave" functions can be used to
@@ -277,10 +296,8 @@ struct gcip_mailbox_ops {
 					struct gcip_mailbox_resp_awaiter *awaiter);
 	/*
 	 * This callback will be called after putting the @cmd to the command queue. It can be used
-	 * for triggering the doorbell. Also, @mailbox->cur_seq will be increased by the return
-	 * value. If error occurs, returns negative value and @mailbox->cur_seq will not be changed
-	 * in that case. If this callback is not defined, @mailbox->cur_seq will be increased by 1
-	 * each time cmd enters the queue. This is called with the `cmd_queue_lock` being held.
+	 * for triggering the doorbell. Returns 0 on success, or returns error code otherwise.
+	 * This is called with the `cmd_queue_lock` being held.
 	 * Context: normal.
 	 */
 	int (*after_enqueue_cmd)(struct gcip_mailbox *mailbox, void *cmd);
@@ -303,7 +320,7 @@ struct gcip_mailbox_ops {
 	 * Handles the asynchronous response which arrives well. How to handle it depends on the
 	 * chip implementation. However, @awaiter should be released by calling the
 	 * `gcip_mailbox_release_awaiter` function when the kernel driver doesn't need
-	 * @awaiter anymore. This is called with the `wait_list_lock` being held.
+	 * @awaiter anymore.
 	 * Context: normal and in_interrupt().
 	 */
 	void (*handle_awaiter_arrived)(struct gcip_mailbox *mailbox,
@@ -334,6 +351,25 @@ struct gcip_mailbox_ops {
 	 * Context: normal and in_interrupt().
 	 */
 	void (*release_awaiter_data)(void *data);
+	/*
+	 * Checks if the block is off.
+	 * Context: in_interrupt()
+	 */
+	bool (*is_block_off)(struct gcip_mailbox *mailbox);
+	/*
+	 * Retrieves the per command timeout value in milliseconds set by the user for the given
+	 * mailbox command @cmd. According to the implementation detail of IP side, the timeout can
+	 * be fetched from @cmd, @resp or @data passed to the `gcip_mailbox_put_cmd` function.
+	 * Therefore, this callback passes all of them not only @cmd. This can be called without
+	 * holding any locks.
+	 * Context: normal.
+	 */
+	u32 (*get_cmd_timeout)(struct gcip_mailbox *mailbox, void *cmd, void *resp, void *data);
+	/*
+	 * Called when a command fails to be sent.
+	 * Context: normal.
+	 */
+	void (*on_error)(struct gcip_mailbox *mailbox, int err);
 };
 
 struct gcip_mailbox {
@@ -365,12 +401,6 @@ struct gcip_mailbox {
 	const struct gcip_mailbox_ops *ops;
 	/* User-defined data. */
 	void *data;
-
-	/*
-	 * The flag to specify sequence numbers of command responses are not
-	 * required to be in order.
-	 */
-	bool ignore_seq_order;
 };
 
 /* Arguments for gcip_mailbox_init. See struct gcip_mailbox for details. */
@@ -387,8 +417,6 @@ struct gcip_mailbox_args {
 	u32 timeout;
 	const struct gcip_mailbox_ops *ops;
 	void *data;
-
-	bool ignore_seq_order;
 };
 
 /* Initializes a mailbox object. */
@@ -414,7 +442,8 @@ void gcip_mailbox_consume_responses_work(struct gcip_mailbox *mailbox);
  * Returns the code of response, or a negative errno on error.
  * @resp is updated with the response, as to retrieve returned retval field.
  */
-int gcip_mailbox_send_cmd(struct gcip_mailbox *mailbox, void *cmd, void *resp);
+int gcip_mailbox_send_cmd(struct gcip_mailbox *mailbox, void *cmd, void *resp,
+			  gcip_mailbox_cmd_flags_t flags);
 
 /*
  * Executes @cmd command asynchronously. This function returns an instance of
@@ -452,6 +481,11 @@ int gcip_mailbox_send_cmd(struct gcip_mailbox *mailbox, void *cmd, void *resp);
  * can release the returned awaiter right away by calling the `gcip_mailbox_release_awaiter`
  * function.
  */
+struct gcip_mailbox_resp_awaiter *gcip_mailbox_put_cmd_flags(struct gcip_mailbox *mailbox,
+							     void *cmd, void *resp, void *data,
+							     gcip_mailbox_cmd_flags_t flags);
+
+/* Calls gcip_mailbox_put_cmd_flags() with flags = 0. */
 struct gcip_mailbox_resp_awaiter *gcip_mailbox_put_cmd(struct gcip_mailbox *mailbox, void *cmd,
 						       void *resp, void *data);
 
@@ -503,6 +537,16 @@ void gcip_mailbox_release_awaiter(struct gcip_mailbox_resp_awaiter *awaiter);
  * schedule `gcip_mailbox_consume_responses_work` work in the IRQ handler of mailbox.
  */
 void gcip_mailbox_consume_one_response(struct gcip_mailbox *mailbox, void *resp);
+
+/**
+ * gcip_mailbox_inc_seq_num() - Increases the sequence number of the mailbox and returns the
+ *                              original one.
+ * @mailbox: The mailbox to increase the sequence number.
+ * @n: The number that the sequence number needs to be increased.
+ *
+ * Return: The sequence number before increasing.
+ */
+uint gcip_mailbox_inc_seq_num(struct gcip_mailbox *mailbox, uint n);
 
 /* Getters for member variables of the `struct gcip_mailbox`. */
 
