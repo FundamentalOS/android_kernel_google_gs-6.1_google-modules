@@ -1600,6 +1600,7 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
 		nvt_usi_get_battery(&pen_bat_capa);
 		if (ts->pen_bat_capa != pen_bat_capa) {
+			NVT_LOG("USI BAT Changed 0x%02X\n", pen_bat_capa);
 			ts->pen_bat_capa = pen_bat_capa;
 			power_supply_changed(ts->pen_bat_psy);
 		}
@@ -2049,7 +2050,10 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				/* Snapshot some stylus context information for
 				 * offload
 				 */
-				ts->pen_active = 1;
+				if (!ts->pen_active) {
+					NVT_LOG("USI paired");
+					ts->pen_active = 1;
+				}
 #ifdef GOOG_TOUCH_INTERFACE
 				ts->pen_offload_coord.status = COORD_STATUS_PEN;
 				ts->pen_offload_coord.x = pen_x;
@@ -2111,6 +2115,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 			/* Snapshot some stylus context information for offload */
 			ts->pen_active = 0;
+			NVT_LOG("USI un-paired");
 			ts->pen_offload_coord_timestamp = ts->timestamp;
 #ifdef GOOG_TOUCH_INTERFACE
 			memset(&ts->pen_offload_coord, 0,
@@ -2149,6 +2154,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				} else {
 					destroy_pen_input_device(ts->pen_input_dev);
 					ts->pen_input_dev = new_pen_input_dev;
+					NVT_LOG("USI Stylus Switched(v:0x%02X,p:0x%02X)\n",
+						pen_vid, pen_pid);
 				}
 			}
 #endif
