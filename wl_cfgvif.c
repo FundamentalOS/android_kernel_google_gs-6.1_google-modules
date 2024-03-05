@@ -3842,6 +3842,10 @@ wl_cfg80211_stop_ap(
 	}
 
 	SUPP_LOG(("AP/GO Link down\n"));
+	if (delayed_work_pending(&cfg->ap_work)) {
+		cancel_delayed_work_sync(&cfg->ap_work);
+		WL_DBG(("cancelled ap_work\n"));
+	}
 exit:
 	if (err) {
 		/* In case of failure, flush fw logs */
