@@ -13664,9 +13664,22 @@ enum wl_nan_cfg_ctrl2_flags1 {
 	/* Control flag to reject group addressed AFs w/o IGTK */
 	WL_NAN_CTRL2_FLAG1_IGTK_REJECT_UNPROT			= 0x00400000,
 	/* Control flag to reject bcn w/o BIGTK */
-	WL_NAN_CTRL2_FLAG1_BIGTK_REJECT_UNPROT			= 0x00800000
+	WL_NAN_CTRL2_FLAG1_BIGTK_REJECT_UNPROT			= 0x00800000,
+	/* Control flags to set infra slot duration.
+	 * Two Bits[MSB:LSB], 00 -128ms, 01 - 64ms, 10 - 32ms, 11 - Reserved
+	 */
+	WL_NAN_CTRL2_FLAG1_INFRA_SLOT_INTRVL_LSB		= 0x01000000,
+	WL_NAN_CTRL2_FLAG1_INFRA_SLOT_INTRVL_MSB		= 0x02000000,
+	/* Control flag to enable NAN EHT */
+	WL_NAN_CTRL2_FLAG1_EHT_ENABLE				= 0x04000000,
+	/* Control flag to enable NAN STRML */
+	WL_NAN_CTRL2_FLAG1_STRML_ENABLE				= 0x08000000,
+	/* Control flag to enable NAN EMLSR */
+	WL_NAN_CTRL2_FLAG1_EMLSR_ENABLE				= 0x10000000,
+	/* Control flag to enable greedy rangign */
+	WL_NAN_CTRL2_FLAG1_GREEDY_RNG_ENABLE			= 0x20000000
 };
-#define WL_NAN_CTRL2_FLAGS1_MASK	0x00FFFFFF
+#define WL_NAN_CTRL2_FLAGS1_MASK	0x1FFFFFFF
 
 #define WL_NAN_CTRL2_FLAGS2_MASK	0x00000000
 
@@ -15058,6 +15071,8 @@ typedef struct wl_nan_range_req {
 	uint32 ingress; /* ingress limit in mm */
 	uint32 egress; /* egress limit in mm */
 	uint32 interval; /* max interval(in TU) b/w two ranging measurements */
+	/** Number of FTMs per burst */
+	uint8 num_ftm;
 } wl_nan_range_req_t;
 
 #define NAN_RNG_REQ_IOV_LEN	24

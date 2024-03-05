@@ -4380,6 +4380,7 @@ wl_cfgnan_cache_svc_info(struct bcm_cfg80211 *cfg,
 		WL_TRACE(("%s: updating ranging info, enabling", __FUNCTION__));
 		svc_info->status = 1;
 		svc_info->ranging_interval = cmd_data->ranging_intvl_msec;
+		svc_info->num_ftm = cmd_data->ranging_num_ftm;
 		svc_info->ranging_ind = cmd_data->ranging_indication;
 		svc_info->ingress_limit = cmd_data->ingress_limit;
 		svc_info->egress_limit = cmd_data->egress_limit;
@@ -4388,6 +4389,7 @@ wl_cfgnan_cache_svc_info(struct bcm_cfg80211 *cfg,
 		WL_TRACE(("%s: updating ranging info, disabling", __FUNCTION__));
 		svc_info->status = 0;
 		svc_info->ranging_interval = 0;
+		svc_info->num_ftm = 0;
 		svc_info->ranging_ind = 0;
 		svc_info->ingress_limit = 0;
 		svc_info->egress_limit = 0;
@@ -5285,6 +5287,7 @@ wl_cfgnan_trigger_ranging(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		range_req->peer = ranging_inst->peer_addr;
 		if (svc) {
 			range_req->interval = svc->ranging_interval;
+			range_req->num_ftm = svc->num_ftm;
 			/* Limits are in cm from host */
 			range_req->ingress = svc->ingress_limit;
 			range_req->egress = svc->egress_limit;

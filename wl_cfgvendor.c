@@ -4743,6 +4743,13 @@ wl_cfgvendor_nan_parse_discover_args(struct wiphy *wiphy,
 			}
 			cmd_data->ranging_intvl_msec = nla_get_u32(iter);
 			break;
+		case NAN_ATTRIBUTE_RANGING_NUM_FTM:
+			if (nla_len(iter) != sizeof(uint8)) {
+				ret = -EINVAL;
+				goto exit;
+			}
+			cmd_data->ranging_num_ftm = nla_get_u8(iter);
+			break;
 		case NAN_ATTRIBUTE_RANGING_INGRESS_LIMIT:
 			if (nla_len(iter) != sizeof(uint32)) {
 				ret = -EINVAL;
@@ -11916,6 +11923,7 @@ const struct nla_policy nan_attr_policy[NAN_ATTRIBUTE_MAX] = {
 	MAX_SDEA_SVC_INFO_LEN },
 	[NAN_ATTRIBUTE_SECURITY] = { .type = NLA_U8, .len = sizeof(uint8) },
 	[NAN_ATTRIBUTE_RANGING_INTERVAL] = { .type = NLA_U32, .len = sizeof(uint32) },
+	[NAN_ATTRIBUTE_RANGING_NUM_FTM] = { .type = NLA_U8, .len = sizeof(uint8) },
 	[NAN_ATTRIBUTE_RANGING_INGRESS_LIMIT] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[NAN_ATTRIBUTE_RANGING_EGRESS_LIMIT] = { .type = NLA_U32, .len = sizeof(uint32) },
 	[NAN_ATTRIBUTE_RANGING_INDICATION] = { .type = NLA_U32, .len = sizeof(uint32) },

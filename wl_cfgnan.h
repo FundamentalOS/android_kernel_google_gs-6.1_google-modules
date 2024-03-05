@@ -282,6 +282,7 @@ typedef struct nan_svc_info {
 	uint8 tx_match_filter[MAX_MATCH_FILTER_LEN];        /* TX match filter */
 	uint8 tx_match_filter_len;
 	uint8 svc_range_status; /* For managing any svc range status flags */
+	uint8 num_ftm; /**< Number of FTMs per burts */
 } nan_svc_info_t;
 
 /* NAN Peer DP state */
@@ -460,6 +461,7 @@ typedef struct nan_discover_cmd_data {
 	bool response;
 	uint8 service_responder_policy;
 	bool svc_update;
+	uint8 ranging_num_ftm; /**< Number of FTMs per burst */
 } nan_discover_cmd_data_t;
 
 typedef struct nan_datapath_cmd_data {
@@ -999,7 +1001,8 @@ typedef enum {
 	NAN_ATTRIBUTE_NUM_CHANNELS			= 229,
 	NAN_ATTRIBUTE_INSTANT_MODE_ENABLE		= 230,
 	NAN_ATTRIBUTE_INSTANT_COMM_CHAN			= 231,
-	NAN_ATTRIBUTE_MAX				= 232
+	NAN_ATTRIBUTE_RANGING_NUM_FTM			= 232,
+	NAN_ATTRIBUTE_MAX				= 233
 } NAN_ATTRIBUTE;
 
 enum geofence_suspend_reason {
