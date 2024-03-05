@@ -5322,9 +5322,9 @@ wl_cfgnan_trigger_ranging(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	WL_TRACE(("nan ranging trigger successful\n"));
 	if (range_cmd == NAN_RANGE_REQ_CMD) {
 		WL_INFORM_MEM(("Ranging Req Triggered"
-			" peer: " MACDBG ", ind : %d, ingress : %d, egress : %d\n",
+			" peer: " MACDBG ", ind : %d, ingress : %d, egress : %d num_ftm : %d\n",
 			MAC2STRDBG(&ranging_inst->peer_addr), range_req->indication,
-			range_req->ingress, range_req->egress));
+			range_req->ingress, range_req->egress, range_req->num_ftm));
 	} else {
 		WL_INFORM_MEM(("Ranging Resp Triggered"
 			" peer: " MACDBG ", ind : %d, ingress : %d, egress : %d\n",

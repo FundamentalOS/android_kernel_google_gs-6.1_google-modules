@@ -2023,10 +2023,11 @@ wl_cfgvendor_rtt_set_config(struct wiphy *wiphy, struct wireless_dev *wdev,
 					err = -EINVAL;
 					goto exit;
 				}
-				WL_INFORM_MEM(("Target addr %s, Channel : %s for RTT \n",
+				WL_INFORM_MEM(("Target addr %s, Channel : %s for RTT: %d \n",
 					bcm_ether_ntoa((const struct ether_addr *)&rtt_target->addr,
 					eabuf),
-					wf_chspec_ntoa(rtt_target->chanspec, chanbuf)));
+					wf_chspec_ntoa(rtt_target->chanspec, chanbuf),
+					rtt_target->num_frames_per_burst));
 				rtt_target++;
 			}
 			break;

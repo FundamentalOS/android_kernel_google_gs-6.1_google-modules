@@ -1425,6 +1425,7 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	nan_ranging_inst_t *ranging_inst = NULL;
 	rtt_status_info_t *rtt_status = GET_RTTSTATE(dhd);
+	nan_svc_info_t svc = {0,};
 
 	NAN_MUTEX_LOCK();
 
@@ -1466,9 +1467,12 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 		goto done;
 	}
 
-	DHD_RTT(("Trigger nan based range request\n"));
+	/* Other fields are 0 per on-stack initialization */
+	svc.num_ftm = rtt_target->num_frames_per_burst;
+
+	DHD_RTT_ERR(("Trigger nan based range request - n:%d [%p]\n", svc.num_ftm, CALL_SITE));
 	err = wl_cfgnan_trigger_ranging(bcmcfg_to_prmry_ndev(cfg),
-			cfg, ranging_inst, NULL, NAN_RANGE_REQ_CMD, TRUE);
+			cfg, ranging_inst, &svc, NAN_RANGE_REQ_CMD, TRUE);
 	if (unlikely(err)) {
 		goto done;
 	}
