@@ -684,7 +684,7 @@ error_init_txrx:
 	return ret_val;
 }
 
-int hdd_ndi_open(char *iface_name)
+int hdd_ndi_open(const char *iface_name, bool is_add_virtual_iface)
 {
 	struct hdd_adapter *adapter, *next_adapter = NULL;
 	struct qdf_mac_addr random_ndi_mac;
@@ -709,6 +709,10 @@ int hdd_ndi_open(char *iface_name)
 		return -EINVAL;
 	}
 
+	params.is_add_virtual_iface = is_add_virtual_iface;
+
+	hdd_debug("is_add_virtual_iface %d", is_add_virtual_iface);
+
 	if (cfg_nan_get_ndi_mac_randomize(hdd_ctx->psoc)) {
 		if (hdd_get_random_nan_mac_addr(hdd_ctx, &random_ndi_mac)) {
 			hdd_err("get random mac address failed");
@@ -723,6 +727,7 @@ int hdd_ndi_open(char *iface_name)
 		}
 	}
 
+	params.is_add_virtual_iface = 1;
 	adapter = hdd_open_adapter(hdd_ctx, QDF_NDI_MODE, iface_name,
 				   ndi_mac_addr, NET_NAME_UNKNOWN, true,
 				   &params);
@@ -827,6 +832,7 @@ int hdd_ndi_delete(uint8_t vdev_id, char *iface_name, uint16_t transaction_id)
 	os_if_nan_set_ndi_state(vdev, NAN_DATA_NDI_DELETING_STATE);
 	hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_NAN_ID);
 	/* Delete the interface */
+	adapter->is_virtual_iface = true;
 	ret = __wlan_hdd_del_virtual_intf(hdd_ctx->wiphy, &adapter->wdev);
 	if (ret)
 		hdd_err("NDI delete request failed");
@@ -928,6 +934,7 @@ void hdd_ndi_close(uint8_t vdev_id)
 		return;
 	}
 
+	adapter->is_virtual_iface = true;
 	hdd_close_ndi(adapter);
 }
 

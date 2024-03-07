@@ -719,6 +719,8 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 		break;
 	}
 
+	create_params.is_add_virtual_iface = 1;
+
 	adapter = hdd_get_adapter(hdd_ctx, QDF_STA_MODE);
 	if (adapter && !wlan_hdd_validate_vdev_id(adapter->vdev_id)) {
 		vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_P2P_ID);
@@ -963,6 +965,7 @@ int wlan_hdd_del_virtual_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
 	osif_vdev_sync_unregister(wdev->netdev);
 	osif_vdev_sync_wait_for_ops(vdev_sync);
 
+	adapter->is_virtual_iface = true;
 	errno = __wlan_hdd_del_virtual_intf(wiphy, wdev);
 
 	osif_vdev_sync_trans_stop(vdev_sync);

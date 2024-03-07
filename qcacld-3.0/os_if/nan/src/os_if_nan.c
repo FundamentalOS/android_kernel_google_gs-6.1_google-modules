@@ -303,7 +303,7 @@ static int __os_if_nan_process_ndi_create(struct wlan_objmgr_psoc *psoc,
 		return -EINVAL;
 	}
 
-	ret = cb_obj.ndi_open(iface_name);
+	ret = cb_obj.ndi_open(iface_name, false);
 	if (ret) {
 		osif_err("ndi_open failed");
 		return ret;
