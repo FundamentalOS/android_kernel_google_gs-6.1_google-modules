@@ -4127,6 +4127,18 @@ enum qca_wlan_vendor_attr_nd_offload {
  *	synchronous (in vendor command reply) to the request. Each TWT
  *	operation is specifically mentioned (against its respective)
  *	documentation) to support either of these or both modes.
+ * @QCA_WLAN_VENDOR_FEATURE_USE_ADD_DEL_VIRTUAL_INTF_FOR_NDI: Flag indicates
+ * 	that the driver requires add/del virtual interface path using the
+ *	generic nl80211 commands for NDP interface create/delete and to
+ *	register/unregister the netdev instead of creating/deleting the NDP
+ *	interface using the vendor commands
+ *	QCA_WLAN_VENDOR_ATTR_NDP_INTERFACE_CREATE and
+ *	QCA_WLAN_VENDOR_ATTR_NDP_INTERFACE_DELETE. With the latest kernel
+ * 	(5.12 version onward), interface creation/deletion is not allowed using
+ * 	vendor commands as it leads to a deadlock while acquiring the RTNL_LOCK
+ * 	during the register/unregister of netdev. Create and delete NDP
+ * 	interface using NL80211_CMD_NEW_INTERFACE and NL80211_CMD_DEL_INTERFACE
+ * 	commands respectively if the driver advertises this capability set.
  *
  * @NUM_QCA_WLAN_VENDOR_FEATURES: Number of assigned feature bits
  */
@@ -4146,6 +4158,7 @@ enum qca_wlan_vendor_features {
 	QCA_WLAN_VENDOR_FEATURE_ADAPTIVE_11R = 12,
 	QCA_WLAN_VENDOR_FEATURE_CONCURRENT_BAND_SESSIONS = 13,
 	QCA_WLAN_VENDOR_FEATURE_TWT_ASYNC_SUPPORT = 14,
+	QCA_WLAN_VENDOR_FEATURE_USE_ADD_DEL_VIRTUAL_INTF_FOR_NDI = 15,
 
 	NUM_QCA_WLAN_VENDOR_FEATURES /* keep last */
 };

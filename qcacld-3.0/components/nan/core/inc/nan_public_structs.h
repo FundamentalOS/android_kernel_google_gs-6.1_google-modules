@@ -784,6 +784,7 @@ struct nan_datapath_host_event {
  * request processing is complete
  * @ndi_open: HDD callback for creating the NAN Datapath Interface
  * @ndi_start: HDD callback for starting the NAN Datapath Interface
+ * @ndi_set_mode: HDD callback for setting the adapter mode to NDI
  * @ndi_close: HDD callback for closing the NAN Datapath Interface
  * @ndi_delete: HDD callback for deleting the NAN Datapath Interface
  * @drv_ndi_create_rsp_handler: HDD callback for handling NDI interface creation
@@ -795,6 +796,7 @@ struct nan_datapath_host_event {
  * @delete_peers_by_addr: LIM callback for deleting peer by MAC address
  * @update_ndi_conn: WMA callback to update NDI's connection info
  * @nan_concurrency_update: Callback to handle nan concurrency
+ * @set_mc_list: HDD callback to set multicast peer list
  */
 struct nan_callbacks {
 	/* callback to os_if layer from umac */
@@ -805,6 +807,7 @@ struct nan_callbacks {
 	void (*ucfg_nan_request_process_cb)(void *cookie);
 	int (*ndi_open)(const char *iface_name, bool is_add_virtual_iface);
 	int (*ndi_start)(char *iface_name, uint16_t);
+	int (*ndi_set_mode)(const char *iface_name);
 	void (*ndi_close)(uint8_t);
 	int (*ndi_delete)(uint8_t, char *iface_name, uint16_t transaction_id);
 	void (*drv_ndi_create_rsp_handler)
@@ -820,6 +823,7 @@ struct nan_callbacks {
 				      struct nan_datapath_channel_info
 								    *chan_info);
 	void (*nan_concurrency_update)(void);
+	void (*set_mc_list)(struct wlan_objmgr_vdev *vdev);
 };
 
 /**

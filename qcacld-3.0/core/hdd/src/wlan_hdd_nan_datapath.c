@@ -742,6 +742,45 @@ int hdd_ndi_open(const char *iface_name, bool is_add_virtual_iface)
 	return 0;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+int hdd_ndi_set_mode(const char *iface_name)
+{
+	struct hdd_adapter *adapter;
+	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
+	struct qdf_mac_addr random_ndi_mac;
+	uint8_t *ndi_mac_addr = NULL;
+
+	hdd_enter();
+	if (!hdd_ctx)
+		return -EINVAL;
+
+	adapter = hdd_get_adapter_by_iface_name(hdd_ctx, iface_name);
+	if (!adapter) {
+		hdd_err("adapter is null");
+		return -EINVAL;
+	}
+
+	if (cfg_nan_get_ndi_mac_randomize(hdd_ctx->psoc)) {
+		if (hdd_get_random_nan_mac_addr(hdd_ctx, &random_ndi_mac)) {
+			hdd_err("get random mac address failed");
+			return -EFAULT;
+		}
+		ndi_mac_addr = &random_ndi_mac.bytes[0];
+		hdd_update_dynamic_mac(hdd_ctx, &adapter->mac_addr,
+				       (struct qdf_mac_addr *)ndi_mac_addr);
+		qdf_mem_copy(&adapter->mac_addr, ndi_mac_addr, ETH_ALEN);
+		qdf_net_update_net_device_dev_addr(adapter->dev,
+						   ndi_mac_addr, ETH_ALEN);
+	}
+
+	adapter->device_mode = QDF_NDI_MODE;
+	hdd_debug("Created NDI with device mode:%d and iface_name:%s",
+		  adapter->device_mode, iface_name);
+
+	return 0;
+}
+#endif
+
 int hdd_ndi_start(char *iface_name, uint16_t transaction_id)
 {
 	int ret;
@@ -798,6 +837,40 @@ err_handler:
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
+static int hdd_delete_ndi_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
+{
+	struct net_device *dev = wdev->netdev;
+	struct hdd_context *hdd_ctx = (struct hdd_context *)wiphy_priv(wiphy);
+	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
+
+	hdd_enter_dev(dev);
+
+	wlan_hdd_release_intf_addr(hdd_ctx,
+				   adapter->mac_addr.bytes);
+	hdd_stop_adapter(hdd_ctx, adapter);
+	hdd_deinit_adapter(hdd_ctx, adapter, true);
+
+	hdd_exit();
+
+	return 0;
+}
+#else
+static int hdd_delete_ndi_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
+{
+	int ret;
+
+	ret = __wlan_hdd_del_virtual_intf(wiphy, wdev);
+
+	if (ret)
+		hdd_err("NDI delete request failed");
+	else
+		hdd_err("NDI delete request successfully issued");
+
+	return ret;
+}
+#endif
+
 int hdd_ndi_delete(uint8_t vdev_id, char *iface_name, uint16_t transaction_id)
 {
 	int ret;
@@ -833,11 +906,7 @@ int hdd_ndi_delete(uint8_t vdev_id, char *iface_name, uint16_t transaction_id)
 	hdd_objmgr_put_vdev_by_user(vdev, WLAN_OSIF_NAN_ID);
 	/* Delete the interface */
 	adapter->is_virtual_iface = true;
-	ret = __wlan_hdd_del_virtual_intf(hdd_ctx->wiphy, &adapter->wdev);
-	if (ret)
-		hdd_err("NDI delete request failed");
-	else
-		hdd_err("NDI delete request successfully issued");
+	ret = hdd_delete_ndi_intf(hdd_ctx->wiphy, &adapter->wdev);
 
 	return ret;
 }
