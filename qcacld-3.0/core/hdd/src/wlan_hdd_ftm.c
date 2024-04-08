@@ -85,11 +85,11 @@ int hdd_update_cds_config_ftm(struct hdd_context *hdd_ctx)
 /**
  * wlan_hdd_qcmbr_ioctl() - Standard QCMBR ioctl handler
  * @adapter: adapter upon which the ioctl was received
- * @ifr: the ioctl request
+ * @data: pointer to the raw command data in the ioctl request
  *
  * Return: 0 on success, non-zero on error
  */
-static int wlan_hdd_qcmbr_ioctl(struct hdd_adapter *adapter, struct ifreq *ifr)
+static int wlan_hdd_qcmbr_ioctl(struct hdd_adapter *adapter, void __user *data)
 {
 	int ret, cmd;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
@@ -98,11 +98,11 @@ static int wlan_hdd_qcmbr_ioctl(struct hdd_adapter *adapter, struct ifreq *ifr)
 	if (ret)
 		return ret;
 
-	if (get_user(cmd, (int *)ifr->ifr_data) != 0)
+	if (get_user(cmd, (int *)data) != 0)
 		return QDF_STATUS_E_FAILURE;
 
 	ret = wlan_ioctl_ftm_testmode_cmd(hdd_ctx->pdev, cmd,
-				(uint8_t *)ifr->ifr_data + sizeof(cmd));
+				(uint8_t *)data + sizeof(cmd));
 
 	return ret;
 }
@@ -110,16 +110,15 @@ static int wlan_hdd_qcmbr_ioctl(struct hdd_adapter *adapter, struct ifreq *ifr)
 /**
  * wlan_hdd_qcmbr_unified_ioctl() - Unified QCMBR ioctl handler
  * @adapter: adapter upon which the ioctl was received
- * @ifr: the ioctl request
+ * @data: pointer to the raw command data in the ioctl request
  *
  * Return: 0 on success, non-zero on error
  */
-int wlan_hdd_qcmbr_unified_ioctl(struct hdd_adapter *adapter,
-				 struct ifreq *ifr)
+int wlan_hdd_qcmbr_unified_ioctl(struct hdd_adapter *adapter, void __user *data)
 {
 	int ret;
 
-	ret = wlan_hdd_qcmbr_ioctl(adapter, ifr);
+	ret = wlan_hdd_qcmbr_ioctl(adapter, data);
 
 	return ret;
 }
