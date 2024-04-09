@@ -9027,7 +9027,7 @@ static int wl_cfgvendor_stop_mkeep_alive(struct wiphy *wiphy, struct wireless_de
 
 #if defined(APF)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
-const struct nla_policy apf_atrribute_policy[APF_ATTRIBUTE_MAX] = {
+const struct nla_policy apf_attribute_policy[APF_ATTRIBUTE_MAX] = {
 	[APF_ATTRIBUTE_VERSION] = { .type = NLA_U32 },
 	[APF_ATTRIBUTE_MAX_LEN] = { .type = NLA_U32 },
 	[APF_ATTRIBUTE_PROGRAM] = { .type = NLA_BINARY },
@@ -9184,6 +9184,88 @@ exit:
 	if (program) {
 		MFREE(cfg->osh, program, program_len);
 	}
+	return ret;
+}
+
+static int
+wl_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
+	struct wireless_dev *wdev, const void *data, int len)
+{
+	struct net_device *ndev = wdev_to_ndev(wdev);
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	struct sk_buff *skb = NULL;
+	uint8 *buf = NULL;
+	int ret, buf_len, max_len, mem_needed;
+
+	/* Get APF memory size limit */
+	max_len = 0;
+	ret = dhd_dev_apf_get_max_len(ndev, &max_len);
+	if (unlikely(ret)) {
+		WL_ERR(("APF get maximum length failed, ret=%d\n", ret));
+		goto fail;
+	}
+
+	/* As the IOVar returns the data in 'wl_apf_program_t' structure format, account for this
+	 * also along with the queried APF buffer size for the IOvar buffer.
+	 */
+	buf_len = WL_APF_PROGRAM_FIXED_LEN + max_len;
+
+	/* Get APF filter data */
+	buf = MALLOCZ(cfg->osh, buf_len);
+	if (unlikely(!buf)) {
+		WL_ERR(("%s: can't allocate %d bytes\n", __FUNCTION__, buf_len));
+		ret = -ENOMEM;
+		goto fail;
+	}
+	ret = dhd_dev_apf_read_filter_data(ndev, buf, buf_len);
+	if (unlikely(ret)) {
+		WL_ERR(("APF get filter data failed, ret=%d\n", ret));
+		goto fail;
+	}
+
+	mem_needed = VENDOR_REPLY_OVERHEAD + ATTRIBUTE_U32_LEN + max_len;
+
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, mem_needed);
+	if (unlikely(!skb)) {
+		WL_ERR(("%s: can't allocate %d bytes\n", __FUNCTION__, mem_needed));
+		ret = -ENOMEM;
+		goto fail;
+	}
+
+	ret = nla_put_u32(skb, APF_ATTRIBUTE_PROGRAM_LEN, max_len);
+	if (ret < 0) {
+		WL_ERR(("Failed to put APF_ATTRIBUTE_MAX_LEN, ret=%d\n", ret));
+		goto fail;
+	}
+
+	/* Skip the initial fixed portion of 'wl_apf_program_t' and copy only the data portion */
+	ret = nla_put(skb, APF_ATTRIBUTE_PROGRAM, max_len, (buf + WL_APF_PROGRAM_FIXED_LEN));
+	if (ret < 0) {
+		WL_ERR(("Failed to put APF_ATTRIBUTE_MAX_LEN, ret=%d\n", ret));
+		goto fail;
+	}
+
+	ret = cfg80211_vendor_cmd_reply(skb);
+	if (unlikely(ret)) {
+		WL_ERR(("vendor command reply failed, ret=%d\n", ret));
+	}
+
+	if (buf) {
+		MFREE(cfg->osh, buf, buf_len);
+	}
+
+	return ret;
+
+fail:
+	if (buf) {
+		MFREE(cfg->osh, buf, buf_len);
+	}
+
+	if (skb) {
+		/* Free skb memory */
+		kfree_skb(skb);
+	}
+
 	return ret;
 }
 #endif /* APF */
@@ -12860,7 +12942,7 @@ static struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
 		.doit = wl_cfgvendor_apf_get_capabilities,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
-		.policy = apf_atrribute_policy,
+		.policy = apf_attribute_policy,
 		.maxattr = APF_ATTRIBUTE_MAX
 #endif /* LINUX_VERSION >= 5.3 */
 	},
@@ -12872,7 +12954,19 @@ static struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
 		.doit = wl_cfgvendor_apf_set_filter,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
-		.policy = apf_atrribute_policy,
+		.policy = apf_attribute_policy,
+		.maxattr = APF_ATTRIBUTE_MAX
+#endif /* LINUX_VERSION >= 5.3 */
+	},
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = APF_SUBCMD_READ_FILTER_DATA
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_apf_read_filter_data,
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0))
+		.policy = apf_attribute_policy,
 		.maxattr = APF_ATTRIBUTE_MAX
 #endif /* LINUX_VERSION >= 5.3 */
 	},
