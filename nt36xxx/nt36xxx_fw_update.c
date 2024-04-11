@@ -40,6 +40,7 @@ const struct firmware *fw_entry;
 static size_t fw_need_write_size;
 static uint8_t *fwbuf;
 static uint8_t cascade_2nd_header_info;
+static uint8_t spi_dma_div_cnt_val;
 static uint32_t partition;
 
 struct nvt_ts_bin_map {
@@ -170,6 +171,7 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 		}
 
 		info_sec_num = info_sec_num + 1; //next header section
+		spi_dma_div_cnt_val = fwdata[0x29] & 0x01;
 	} else {
 		pos = 0x30;	// info section start at 0x30 offset
 		while (pos < end) {
@@ -785,6 +787,29 @@ static int32_t nvt_check_dma_hw_crc(void)
 	return ret;
 }
 
+static void nvt_spi_dma_setup(void)
+{
+	uint8_t buf[33] = {0};
+
+	if (ts->mmap->SPI_DMA_VAL_ADDR) {
+		nvt_set_page(bin_map[1].SRAM_addr);
+		buf[0] = bin_map[1].SRAM_addr & 0x7F;
+		CTP_SPI_WRITE(ts->client, buf, 33);
+
+		nvt_set_page(ts->mmap->SPI_DMA_VAL_ADDR);
+		buf[0] = ts->mmap->SPI_DMA_VAL_ADDR & 0x7F;
+		buf[1] = 0x35;
+		buf[2] = 0x32;
+		buf[3] = 0xAA;
+		buf[4] = 0x00;
+		CTP_SPI_WRITE(ts->client, buf, 5);
+
+		NVT_LOG("set spi dma val finish\n");
+	} else {
+		NVT_ERR("spi dma val addr is NULL\n");
+	}
+}
+
 /*******************************************************
 Description:
 	Novatek touchscreen Download_Firmware with HW CRC
@@ -817,6 +842,9 @@ static int32_t nvt_download_firmware_hw_crc(uint8_t full)
 		/* Start to write firmware process */
 		if (cascade_2nd_header_info) {
 			/* for cascade */
+			if (spi_dma_div_cnt_val)
+				nvt_spi_dma_setup();
+
 			nvt_tx_auto_copy_mode();
 
 			ret = nvt_write_firmware(fw_entry->data, fw_entry->size, full);
