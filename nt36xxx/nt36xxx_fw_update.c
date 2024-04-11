@@ -171,7 +171,8 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 		}
 
 		info_sec_num = info_sec_num + 1; //next header section
-		spi_dma_div_cnt_val = fwdata[0x29] & 0x01;
+		if (nvt_ts_check_tid(ts, tid_nt36523n))
+			spi_dma_div_cnt_val = fwdata[0x29] & 0x01;
 	} else {
 		pos = 0x30;	// info section start at 0x30 offset
 		while (pos < end) {
@@ -842,7 +843,7 @@ static int32_t nvt_download_firmware_hw_crc(uint8_t full)
 		/* Start to write firmware process */
 		if (cascade_2nd_header_info) {
 			/* for cascade */
-			if (spi_dma_div_cnt_val)
+			if (nvt_ts_check_tid(ts, tid_nt36523n) && spi_dma_div_cnt_val)
 				nvt_spi_dma_setup();
 
 			nvt_tx_auto_copy_mode();
@@ -919,13 +920,17 @@ static int32_t nvt_download_firmware(uint8_t full)
 		 * Keep TP_RESX low when send eng reset cmd
 		 */
 #if NVT_TOUCH_SUPPORT_HW_RST
-		gpio_set_value(ts->reset_gpio, 0);
-		mdelay(1);	//wait 1ms
+		if (gpio_is_valid(ts->reset_gpio)) {
+			gpio_set_value(ts->reset_gpio, 0);
+			mdelay(1);	//wait 1ms
+		}
 #endif
 		nvt_eng_reset();
 #if NVT_TOUCH_SUPPORT_HW_RST
-		gpio_set_value(ts->reset_gpio, 1);
-		mdelay(10);	//wait tRT2BRST after TP_RST
+		if (gpio_is_valid(ts->reset_gpio)) {
+			gpio_set_value(ts->reset_gpio, 1);
+			mdelay(10);	//wait tRT2BRST after TP_RST
+		}
 #endif
 		nvt_bootloader_reset();
 

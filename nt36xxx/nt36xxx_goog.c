@@ -506,6 +506,18 @@ int nvt_callback(void *private_data,
 #endif /* GOOG_TOUCH_INTERFACE */
 
 #if defined(CONFIG_SOC_GOOGLE)
+bool nvt_ts_check_tid(struct nvt_ts_data *ts, u8 *tid)
+{
+	if (tid == NULL || ts == NULL ||
+	    ts->trim_table == NULL)
+		return false;
+
+	if (memcmp(ts->trim_table->id, tid, NVT_ID_BYTE_MAX))
+		return false;
+	else
+		return true;
+}
+
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {

@@ -108,7 +108,7 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define PEN_BATTERY_MIN (0)
 
 /* Enable only when module have tp reset pin and connected to host */
-#define NVT_TOUCH_SUPPORT_HW_RST 0
+#define NVT_TOUCH_SUPPORT_HW_RST 1
 
 //---Customerized func.---
 #define NVT_TOUCH_PROC 1
