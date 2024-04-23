@@ -21,6 +21,211 @@
 #include <linux/gpio.h>
 
 #include "nt36xxx.h"
+#if SPI_FLASH
+
+#if BOOT_UPDATE_FIRMWARE
+
+const struct firmware *fw_entry;
+size_t fw_need_write_size;
+
+int32_t nvt_get_fw_need_write_size(const struct firmware *fw_entry)
+{
+	int32_t i = 0;
+	int32_t total_sectors_to_check = 0;
+
+	total_sectors_to_check = fw_entry->size / FLASH_SECTOR_SIZE;
+	/* printk("total_sectors_to_check = %d\n", total_sectors_to_check); */
+
+	for (i = total_sectors_to_check; i > 0; i--) {
+		/* printk("current end flag address checked = 0x%X\n", i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN); */
+		/* check if there is end flag "NVT" at the end of this sector */
+		if (strncmp(&fw_entry->data[i * FLASH_SECTOR_SIZE - NVT_FLASH_END_FLAG_LEN], "NVT", NVT_FLASH_END_FLAG_LEN) == 0) {
+			fw_need_write_size = i * FLASH_SECTOR_SIZE;
+			NVT_LOG("fw_need_write_size = %zu(0x%zx)\n", fw_need_write_size, fw_need_write_size);
+			return 0;
+		}
+	}
+
+	NVT_ERR("end flag \"NVT\" not found!\n");
+	return -EINVAL;
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen request update firmware function.
+
+return:
+	Executive outcomes. 0---succeed. -1,-22---failed.
+*******************************************************/
+int32_t update_firmware_request(const char *filename)
+{
+	int32_t ret = 0;
+
+	if (filename == NULL) {
+		return -EINVAL;
+	}
+
+	NVT_LOG("filename is %s\n", filename);
+
+	ret = request_firmware(&fw_entry, filename, &ts->client->dev);
+	if (ret) {
+		NVT_ERR("firmware load failed, ret=%d\n", ret);
+		return ret;
+	}
+
+	// check FW need to write size
+	if (nvt_get_fw_need_write_size(fw_entry)) {
+		NVT_ERR("get fw need to write size fail!\n");
+		return -EINVAL;
+	}
+
+	// check if FW version add FW version bar equals 0xFF
+	if (*(fw_entry->data + FW_BIN_VER_OFFSET) + *(fw_entry->data + FW_BIN_VER_BAR_OFFSET) != 0xFF) {
+		NVT_ERR("bin file FW_VER + FW_VER_BAR should be 0xFF!\n");
+		NVT_ERR("FW_VER=0x%02X, FW_VER_BAR=0x%02X\n", *(fw_entry->data+FW_BIN_VER_OFFSET), *(fw_entry->data+FW_BIN_VER_BAR_OFFSET));
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen release update firmware function.
+
+return:
+	n.a.
+*******************************************************/
+void update_firmware_release(void)
+{
+	if (fw_entry) {
+		release_firmware(fw_entry);
+	}
+	fw_entry = NULL;
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen check firmware version function.
+
+return:
+	Executive outcomes. 0---need update. 1---need not
+	update.
+*******************************************************/
+int32_t Check_FW_Ver(void)
+{
+	uint8_t buf[16] = {0};
+	int32_t ret = 0;
+
+	//write i2c index to EVENT BUF ADDR
+	ret = nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_FWINFO);
+	if (ret < 0) {
+		NVT_ERR("i2c write error!(%d)\n", ret);
+		return ret;
+	}
+
+	//read Firmware Version
+	buf[0] = EVENT_MAP_FWINFO;
+	buf[1] = 0x00;
+	buf[2] = 0x00;
+	ret = CTP_SPI_READ(ts->client, buf, 3);
+	if (ret < 0) {
+		NVT_ERR("i2c read error!(%d)\n", ret);
+		return ret;
+	}
+
+	NVT_LOG("IC FW Ver = 0x%02X, FW Ver Bar = 0x%02X\n", buf[1], buf[2]);
+	NVT_LOG("Bin FW Ver = 0x%02X, FW ver Bar = 0x%02X\n",
+			fw_entry->data[FW_BIN_VER_OFFSET], fw_entry->data[FW_BIN_VER_BAR_OFFSET]);
+
+	// check IC FW_VER + FW_VER_BAR equals 0xFF or not, need to update if not
+	if ((buf[1] + buf[2]) != 0xFF) {
+		NVT_ERR("IC FW_VER + FW_VER_BAR not equals to 0xFF!\n");
+		return 0;
+	}
+
+	// compare IC and binary FW version
+	if (buf[1] > fw_entry->data[FW_BIN_VER_OFFSET])
+		return 1;
+	else
+		return 0;
+}
+
+int32_t Check_CheckSum(const struct firmware *fw_entry)
+{
+	return Check_CheckSum_GCM(fw_entry);
+}
+
+int32_t Update_Firmware(const struct firmware *fw_entry)
+{
+	return Update_Firmware_GCM(fw_entry);
+}
+
+int32_t nvt_check_flash_end_flag(void)
+{
+	return nvt_check_flash_end_flag_gcm();
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen update firmware when booting
+	function.
+
+return:
+	n.a.
+*******************************************************/
+void Boot_Update_Firmware(struct work_struct *work)
+{
+	int32_t ret = 0;
+
+	// request bin file in "/etc/firmware"
+	ret = update_firmware_request(get_fw_name());
+	if (ret) {
+		NVT_ERR("update_firmware_request failed. (%d)\n", ret);
+		goto end;
+	}
+
+	mutex_lock(&ts->lock);
+
+#if NVT_TOUCH_ESD_PROTECT
+	nvt_esd_check_enable(false);
+#endif /* #if NVT_TOUCH_ESD_PROTECT */
+
+	ret = Check_CheckSum(fw_entry);
+
+	if (ts->force_fw_update) {
+		NVT_LOG("force fw update\n");
+		Update_Firmware(fw_entry);
+	} else if (ret < 0) {	// read firmware checksum failed
+		NVT_ERR("read firmware checksum failed\n");
+		Update_Firmware(fw_entry);
+	} else if ((ret == 0) && (Check_FW_Ver() == 0)) {	// (fw checksum not match) && (bin fw version >= ic fw version)
+		NVT_LOG("firmware version not match\n");
+		Update_Firmware(fw_entry);
+	} else if (nvt_check_flash_end_flag()) {
+		NVT_LOG("check flash end flag failed\n");
+		Update_Firmware(fw_entry);
+	} else {
+		// Bootloader Reset
+		nvt_clear_fw_reset_state();
+		nvt_bootloader_reset();
+		ret = nvt_check_fw_reset_state(RESET_STATE_INIT);
+		if (ret) {
+			NVT_LOG("check fw reset state failed\n");
+			Update_Firmware(fw_entry);
+		} else {
+			NVT_LOG("do not need to update firmware\n");
+		}
+	}
+
+	mutex_unlock(&ts->lock);
+	update_firmware_release();
+end:
+	complete(&ts->fwu_done);
+}
+#endif /* BOOT_UPDATE_FIRMWARE */
+
+#else /* SPI_FLASH */
 
 #if BOOT_UPDATE_FIRMWARE
 
@@ -1074,3 +1279,4 @@ void Boot_Update_Firmware(struct work_struct *work)
 	mutex_unlock(&ts->lock);
 }
 #endif /* BOOT_UPDATE_FIRMWARE */
+#endif /* !SPI_FLASH*/

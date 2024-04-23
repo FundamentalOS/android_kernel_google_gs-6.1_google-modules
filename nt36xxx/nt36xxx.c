@@ -81,7 +81,7 @@ extern void nvt_mp_proc_deinit(void);
 struct nvt_ts_data *ts;
 
 #if BOOT_UPDATE_FIRMWARE
-static struct workqueue_struct *nvt_fwu_wq;
+struct workqueue_struct *nvt_fwu_wq;
 extern void Boot_Update_Firmware(struct work_struct *work);
 #endif
 
@@ -101,7 +101,9 @@ static void nvt_ts_early_suspend(struct early_suspend *h);
 static void nvt_ts_late_resume(struct early_suspend *h);
 #endif
 
+#if !SPI_FLASH
 uint32_t ENG_RST_ADDR  = 0x7FFF80;
+#endif // !SPI_FLASH
 uint32_t SWRST_N8_ADDR; //read from dtsi
 uint32_t SPI_RD_FAST_ADDR;	//read from dtsi
 
@@ -451,6 +453,7 @@ int32_t nvt_write_addr(uint32_t addr, uint8_t data)
 	return ret;
 }
 
+#if !SPI_FLASH
 /*******************************************************
 Description:
 	Novatek touchscreen enable hw bld crc function.
@@ -616,7 +619,7 @@ void nvt_sw_reset(void)
 
 	msleep(10);
 }
-
+#endif // !SPI_FLASH
 /*******************************************************
 Description:
 	Novatek touchscreen reset MCU then into idle mode
@@ -633,6 +636,77 @@ void nvt_sw_reset_idle(void)
 	msleep(15);
 }
 
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen reset MCU then into idle mode
+    function.
+
+return:
+	n.a.
+*******************************************************/
+void nvt_sw_reset_idle_no_delay(void)
+{
+	//---MCU idle cmds to SWRST_N8_ADDR---
+	nvt_write_addr(SWRST_N8_ADDR, 0xAA);
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen write value to specific register.
+
+return:
+	Executive outcomes. 0---succeed. -5---access fail.
+*******************************************************/
+int32_t nvt_write_reg(nvt_ts_reg_t reg, uint8_t val)
+{
+	int32_t ret = 0;
+	uint32_t addr = 0;
+	uint8_t mask = 0;
+	uint8_t shift = 0;
+	uint8_t buf[8] = {0};
+	uint8_t temp = 0;
+
+	addr = reg.addr;
+	mask = reg.mask;
+	/* get shift */
+	temp = reg.mask;
+	shift = 0;
+	while (1) {
+		if ((temp >> shift) & 0x01)
+			break;
+		if (shift == 8) {
+			NVT_ERR("mask all bits zero!\n");
+			break;
+		}
+		shift++;
+	}
+	/* read the byte including this register */
+	nvt_set_page(addr);
+	buf[0] = addr & 0xFF;
+	buf[1] = 0x00;
+	ret = CTP_SPI_READ(ts->client, buf, 2);
+	if (ret < 0) {
+		NVT_ERR("CTP_SPI_READ failed!(%d)\n", ret);
+		goto nvt_write_register_exit;
+	}
+	/* set register's value in its field of the byte */
+	temp = buf[1] & (~mask);
+	temp |= ((val << shift) & mask);
+	/* write back the whole byte including this register */
+	buf[0] = addr & 0xFF;
+	buf[1] = temp;
+	ret = CTP_SPI_WRITE(ts->client, buf, 2);
+	if (ret < 0) {
+		NVT_ERR("CTP_SPI_WRITE failed!(%d)\n", ret);
+		goto nvt_write_register_exit;
+	}
+
+nvt_write_register_exit:
+	return ret;
+}
+#endif // SPI_FLASH
+
 /*******************************************************
 Description:
 	Novatek touchscreen reset MCU (boot) function.
@@ -645,8 +719,11 @@ void nvt_bootloader_reset(void)
 	//---reset cmds to SWRST_N8_ADDR---
 	nvt_write_addr(SWRST_N8_ADDR, 0x69);
 
+#if SPI_FLASH
+	mdelay(35);	//wait tBRST2FR after Bootload RST
+#else
 	mdelay(5);	//wait tBRST2FR after Bootload RST
-
+#endif // SPI_FLASH
 	if (SPI_RD_FAST_ADDR) {
 		/* disable SPI_RD_FAST */
 		nvt_write_addr(SPI_RD_FAST_ADDR, 0x00);
@@ -778,6 +855,27 @@ int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state)
 	return ret;
 }
 
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen clear reset state function.
+
+return:
+	Executive outcomes. 0---success. -1---fail.
+*******************************************************/
+void nvt_clear_fw_reset_state(void)
+{
+	uint8_t buf[2] = {0};
+
+	nvt_sw_reset_idle();
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_RESET_COMPLETE);
+	//---clear fw reset state---
+	buf[0] = EVENT_MAP_RESET_COMPLETE;
+	buf[1] = 0x00;
+	CTP_SPI_WRITE(ts->client, buf, 2);
+}
+#endif // SPI_FLASH
 /*******************************************************
 Description:
 	Novatek touchscreen get firmware related information
@@ -848,7 +946,11 @@ info_retry:
 
 	/* Allocate buffer for SPI heatmap(delta) data. */
 	if (!ts->heatmap_spi_buf) {
-		ts->heatmap_data_type = HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP;
+#if SPI_FLASH
+		ts->heatmap_data_type = HEATMAP_DATA_TYPE_DISABLE; // TODO: track heatmap function with flash mode
+#else
+		ts->heatmap_data_type = HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP; // keep the default
+#endif // SPI_FLASH
 		ts->heatmap_host_cmd_addr = HEATMAP_TOUCH_ADDR;
 		/* Need one stuffing byte for I/O transfer. */
 		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
@@ -1313,8 +1415,13 @@ static void nvt_esd_check_func(struct work_struct *work)
 	if ((timer > NVT_TOUCH_ESD_CHECK_PERIOD) && esd_check) {
 		mutex_lock(&ts->lock);
 		NVT_ERR("do ESD recovery, timer = %d, retry = %d\n", timer, esd_retry);
+#if SPI_FLASH
+		/* do esd recovery, bootloader reset */
+		nvt_bootloader_reset();
+#else
 		/* do esd recovery, reload fw */
 		nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 		mutex_unlock(&ts->lock);
 		/* update interrupt timer */
 		irq_timer = jiffies;
@@ -2196,6 +2303,65 @@ XFER_ERROR:
 	return IRQ_HANDLED;
 }
 
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen check and stop crc reboot loop.
+
+return:
+	n.a.
+*******************************************************/
+void nvt_stop_crc_reboot(void)
+{
+	uint8_t buf[8] = {0};
+	int32_t retry = 0;
+
+	//read unexpected buffer to check CRC fail reboot is happening or not
+
+	//---change SPI index to prevent geting 0xFF, but not 0xFC---
+	nvt_set_page(CHIP_VER_TRIM_ADDR);
+
+	//---read to check if buf is 0xFC which means IC is in CRC reboot ---
+	buf[0] = CHIP_VER_TRIM_ADDR & 0xFF;
+	CTP_SPI_READ(ts->client, buf, 4);
+
+	if ((buf[1] == 0xFC) ||
+		((buf[1] == 0xFF) && (buf[2] == 0xFF) && (buf[3] == 0xFF))) {
+
+		//IC is in CRC fail reboot loop, needs to be stopped!
+		for (retry = 5; retry > 0; retry--) {
+
+			//---write spi cmds to reset idle : 1st---
+			nvt_sw_reset_idle_no_delay();
+
+			//---write spi cmds to reset idle : 2rd---
+			nvt_sw_reset_idle_no_delay();
+			msleep(1);
+
+			//---clear CRC_ERR_FLAG---
+			nvt_set_page(CRC_ERR_FLAG_ADDR);
+
+			buf[0] = CRC_ERR_FLAG_ADDR & 0xFF;
+			buf[1] = 0xA5;
+			CTP_SPI_WRITE(ts->client, buf, 2);
+
+			//---check CRC_ERR_FLAG---
+			nvt_set_page(CRC_ERR_FLAG_ADDR);
+
+			buf[0] = CRC_ERR_FLAG_ADDR & 0xFF;
+			buf[1] = 0x00;
+			CTP_SPI_READ(ts->client, buf, 2);
+
+			if (buf[1] == 0xA5)
+				break;
+		}
+		if (retry == 0)
+			NVT_ERR("CRC auto reboot is not able to be stopped! buf[1]=0x%02X\n", buf[1]);
+	}
+
+	return;
+}
+#endif // SPI_FLASH
 
 /*******************************************************
 Description:
@@ -2213,11 +2379,18 @@ static int8_t nvt_ts_check_chip_ver_trim(uint32_t chip_ver_trim_addr)
 	int32_t found_nvt_chip = 0;
 	int32_t ret = -1;
 
+#if SPI_FLASH
+	nvt_bootloader_reset(); // NOT in retry loop
+#endif // SPI_FLASH
+
 	//---Check for 5 times---
 	for (retry = 5; retry > 0; retry--) {
 
+#if SPI_FLASH
+		nvt_sw_reset_idle();
+#else
 		nvt_bootloader_reset();
-
+#endif // SPI_FLASH
 		nvt_set_page(chip_ver_trim_addr);
 
 		buf[0] = chip_ver_trim_addr & 0x7F;
@@ -2230,6 +2403,15 @@ static int8_t nvt_ts_check_chip_ver_trim(uint32_t chip_ver_trim_addr)
 		CTP_SPI_READ(ts->client, buf, 7);
 		NVT_LOG("buf[1]=0x%02X, buf[2]=0x%02X, buf[3]=0x%02X, buf[4]=0x%02X, buf[5]=0x%02X, buf[6]=0x%02X\n",
 			buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
+
+#if SPI_FLASH
+		//---Stop CRC check to prevent IC auto reboot---
+		if ((buf[1] == 0xFC) ||
+				((buf[1] == 0xFF) && (buf[2] == 0xFF) && (buf[3] == 0xFF))) {
+			nvt_stop_crc_reboot();
+			continue;
+		}
+#endif // SPI_FLASH
 
 		// compare read chip id on supported list
 		for (list = 0;
@@ -2314,6 +2496,7 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 		NVT_LOG("fw_name: %s.\n", ts->fw_name);
 
 		name = NULL;
+#if !SPI_FLASH
 		of_property_read_string_index(np, "novatek,mp_firmware_names",
 				ts->initial_panel_index, &name);
 		if (name)
@@ -2321,6 +2504,7 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 		else
 			ts->mp_fw_name = MP_UPDATE_FIRMWARE_NAME;
 		NVT_LOG("mp_fw_name: %s.\n", ts->mp_fw_name);
+#endif // !SPI_FLASH
 	}
 
 	return 0;
@@ -2483,8 +2667,10 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	mutex_init(&ts->xbuf_lock);
 	mutex_init(&ts->bus_mutex);
 
+#if !SPI_FLASH
 	//---eng reset before TP_RESX high
 	nvt_eng_reset();
+#endif // !SPI_FLASH
 
 #if NVT_TOUCH_SUPPORT_HW_RST
 	if (gpio_is_valid(ts->reset_gpio))
@@ -2506,8 +2692,16 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	}
 
+#if SPI_FLASH
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	nvt_check_fw_reset_state(RESET_STATE_INIT);
+	nvt_get_fw_info();
+#else
 	ts->touch_width = TOUCH_DEFAULT_MAX_WIDTH;
 	ts->touch_height = TOUCH_DEFAULT_MAX_HEIGHT;
+#endif // SPI_FLASH
+
 	ts->abs_x_max = ts->touch_width - 1;
 	ts->abs_y_max = ts->touch_height - 1;
 
@@ -2675,6 +2869,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 	INIT_DELAYED_WORK(&ts->nvt_fwu_work, Boot_Update_Firmware);
 	// please make sure boot update start after display reset(RESX) sequence
+#if SPI_FLASH
+	init_completion(&ts->fwu_done);
+#endif // SPI_FLASH
 	queue_delayed_work(nvt_fwu_wq, &ts->nvt_fwu_work,
 			msecs_to_jiffies(BOOT_UPDATE_FIRMWARE_MS_DELAY));
 #endif
@@ -3220,9 +3417,16 @@ int nvt_ts_resume(struct device *dev)
 	if (gpio_is_valid(ts->reset_gpio))
 		gpio_set_value(ts->reset_gpio, 1);
 #endif
+
+#if SPI_FLASH
+	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
+		NVT_ERR("FW is not ready! Try to bootloader reset\n");
+		nvt_bootloader_reset();
+#else
 	if (nvt_update_firmware(get_fw_name(), 0)) {
 		NVT_ERR("download firmware failed, ignore check fw state\n");
 	} else {
+#endif // SPI_FLASH
 		nvt_check_fw_reset_state(RESET_STATE_REK);
 	}
 
@@ -3392,7 +3596,11 @@ static int nvt_fb_notifier_callback(struct notifier_block *self,
 	struct nvt_ts_data *ts =
 		container_of(self, struct nvt_ts_data, fb_notif);
 
+#if SPI_FLASH
+	if (evdata && evdata->data && event == FB_EARLY_EVENT_BLANK) {
+#else
 	if (evdata && evdata->data && event == FB_EVENT_BLANK) {
+#endif // SPI_FLASH
 		blank = evdata->data;
 		if (*blank == FB_BLANK_POWERDOWN) {
 			NVT_LOG("event=%lu, *blank=%d\n", event, *blank);

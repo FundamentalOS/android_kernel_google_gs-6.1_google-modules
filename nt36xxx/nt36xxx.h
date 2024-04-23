@@ -26,12 +26,19 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 
+#if SPI_FLASH
+#include <linux/firmware.h>
+#endif // SPI_FLASH
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
 
 #include <trace/hooks/systrace.h>
 #include "nt36xxx_mem_map.h"
+#if SPI_FLASH
+#include "nvt_flash_info.h"
+#endif // SPI_FLASH
 
 #ifdef CONFIG_MTK_SPI
 /* Please copy mt_spi.h file under mtk spi driver folder */
@@ -67,6 +74,10 @@
 //#define IRQ_TYPE_EDGE_FALLING 2
 #define INT_TRIGGER_TYPE IRQ_TYPE_EDGE_RISING
 
+#if SPI_FLASH
+//---bus transfer length---
+#define BUS_TRANSFER_LENGTH  256
+#endif // SPI_FLASH
 
 //---SPI driver info.---
 #define NVT_SPI_NAME "NVT-ts"
@@ -119,17 +130,36 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define REPORT_PROTOCOL_B 0
 #define NVT_TOUCH_MP 1
 #define BOOT_UPDATE_FIRMWARE 1
+#if defined(CONFIG_SOC_GOOGLE)
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 100
+#else
+#define BOOT_UPDATE_FIRMWARE_MS_DELAY 14000
+#endif
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
 #define MP_UPDATE_FIRMWARE_NAME   "novatek_ts_mp.bin"
 #define POINT_DATA_CHECKSUM 0
 #define POINT_DATA_CHECKSUM_LEN 65
 #define NVT_HEATMAP_COMP_NOT_READY_SIZE (0xFFF << 1)
 
+#if SPI_FLASH
+#if BOOT_UPDATE_FIRMWARE
+#define SIZE_4KB 4096
+#define FLASH_SECTOR_SIZE SIZE_4KB
+#define FW_BIN_VER_OFFSET (fw_need_write_size - SIZE_4KB)
+#define FW_BIN_VER_BAR_OFFSET (FW_BIN_VER_OFFSET + 1)
+#define NVT_FLASH_END_FLAG_LEN 3
+#define NVT_FLASH_END_FLAG_ADDR (fw_need_write_size - NVT_FLASH_END_FLAG_LEN)
+#endif
+#endif // SPI_FLASH
+
 //---ESD Protect.---
 #define NVT_TOUCH_ESD_PROTECT 1
 #define NVT_TOUCH_ESD_CHECK_PERIOD 1500	/* ms */
+#if SPI_FLASH
+#define NVT_TOUCH_WDT_RECOVERY 0
+#else
 #define NVT_TOUCH_WDT_RECOVERY 1
+#endif // SPI_FLASH
 
 #define CHECK_PEN_DATA_CHECKSUM 0
 
@@ -255,6 +285,12 @@ struct nvt_ts_data {
 	int8_t pen_input_idx;
 	int8_t pen_phys[32];
 	int8_t pen_name[32];
+#if SPI_FLASH
+	uint8_t flash_mid;
+	uint16_t flash_did; /* 2 bytes did read by 9Fh cmd */
+	const flash_info_t *match_finfo;
+	bool force_fw_update;
+#endif // SPI_FLASH
 	struct input_dev *pen_input_dev;
 #ifdef CONFIG_MTK_SPI
 	struct mt_chip_conf spi_ctrl;
@@ -340,6 +376,9 @@ struct nvt_ts_data {
 #endif
 	ktime_t pen_offload_coord_timestamp;
 	u8 pen_active;
+#if SPI_FLASH
+	struct completion fwu_done;
+#endif // SPI_FLASH
 };
 
 #if NVT_TOUCH_PROC
@@ -347,6 +386,21 @@ struct nvt_flash_data {
 	rwlock_t lock;
 };
 #endif
+
+#if SPI_FLASH
+typedef struct gcm_transfer {
+	uint8_t flash_cmd;
+	uint32_t flash_addr;
+	uint16_t flash_checksum;
+	uint8_t flash_addr_len;
+	uint8_t pem_byte_len; /* performance enhanced mode / contineous read mode byte length*/
+	uint8_t dummy_byte_len;
+	uint8_t *tx_buf;
+	uint16_t tx_len;
+	uint8_t *rx_buf;
+	uint16_t rx_len;
+} gcm_xfer_t;
+#endif // SPI_FLASH
 
 typedef enum {
 	RESET_STATE_INIT = 0xA0,// IC reset
@@ -380,27 +434,46 @@ typedef enum {
 
 //---extern structures---
 extern struct nvt_ts_data *ts;
+#if SPI_FLASH
+extern size_t fw_need_write_size;
+#endif // SPI_FLASH
 
 //---extern functions---
 int32_t CTP_SPI_READ(struct spi_device *client, uint8_t *buf, uint16_t len);
 int32_t CTP_SPI_WRITE(struct spi_device *client, uint8_t *buf, uint16_t len);
+#if SPI_FLASH
+int32_t Check_CheckSum_GCM(const struct firmware *fw_entry);
+int32_t nvt_check_flash_end_flag_gcm(void);
+int32_t nvt_write_reg(nvt_ts_reg_t reg, uint8_t val);
+int32_t Update_Firmware_GCM(const struct firmware *fw_entry);
+void nvt_stop_crc_reboot(void);
+void nvt_clear_fw_reset_state(void);
+#endif // SPI_FLASH
 void nvt_bootloader_reset(void);
+#if !SPI_FLASH
 void nvt_eng_reset(void);
 void nvt_sw_reset(void);
+#endif // !SPI_FLASH
 void nvt_sw_reset_idle(void);
+#if !SPI_FLASH
 void nvt_boot_ready(void);
 void nvt_bld_crc_enable(void);
 void nvt_fw_crc_enable(void);
 void nvt_tx_auto_copy_mode(void);
+#endif // !SPI_FLASH
 int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state);
 int32_t nvt_get_fw_info(void);
 int32_t nvt_clear_fw_status(void);
 int32_t nvt_check_fw_status(void);
+#if !SPI_FLASH
 int32_t nvt_check_spi_dma_tx_info(void);
+#endif // !SPI_FLASH
 int32_t nvt_set_page(uint32_t addr);
 int32_t nvt_write_addr(uint32_t addr, uint8_t data);
 extern void update_firmware_release(void);
+#if !SPI_FLASH
 extern int32_t nvt_update_firmware(const char *firmware_name, uint8_t full);
+#endif // !SPI_FLASH
 extern void nvt_change_mode(uint8_t mode);
 extern void nvt_get_xdata_info(int32_t **ptr, int *size);
 extern void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr);
@@ -492,6 +565,26 @@ enum {
 };
 #endif
 
+enum {
+	CMD_DISABLE = 0,
+	MODE_1,
+	CMD_ENABLE = 1,
+	MODE_2,
+	MODE_3,
+	MODE_4,
+	MODE_5,
+	MODE_6,
+	MODE_7,
+	MODE_8,
+	MODE_9,
+	MODE_10,
+	MODE_11,
+	MODE_12,
+	MODE_13,
+	MODE_14,
+	MODE_15
+};
+
 #if NVT_TOUCH_ESD_PROTECT
 extern void nvt_esd_check_enable(uint8_t enable);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
@@ -503,4 +596,6 @@ int nvt_ts_resume(struct device *dev);
 int nvt_ts_suspend(struct device *dev);
 
 void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts);
+extern struct workqueue_struct *nvt_fwu_wq;
+extern int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode);
 #endif /* _LINUX_NVT_TOUCH_H */

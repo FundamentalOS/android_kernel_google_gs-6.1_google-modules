@@ -122,6 +122,50 @@ extern void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer,
 				   uint32_t num);
 int32_t nvt_mp_parse_dt(struct device_node *root,
 			const char *node_compatible);
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen set mp settings mode.
+
+return:
+	Executive outcomes. 0---succeed. -EAGAIN---Fail
+*******************************************************/
+int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode)
+{
+	uint8_t buf[5] = {0}, i = 0;
+	const int32_t retry = 5;
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	buf[0] = EVENT_MAP_HOST_CMD;
+	buf[1] = 0x4D;
+	buf[2] = 0x00;
+	buf[3] = tvcl_mode;
+	buf[4] = ibias_mode;
+	CTP_SPI_WRITE(ts->client, buf, 5);
+
+	for (i = 0; i < retry; i++) {
+		buf[0] = EVENT_MAP_HOST_CMD;
+		buf[1] = 0xFF;
+		CTP_SPI_READ(ts->client, buf, 2);
+
+		if (buf[1] == 0x00)
+			break;
+
+		usleep_range(10000, 10000);
+	}
+
+	if (i >= retry) {
+		NVT_ERR("Failed to set tvcl_mode : %d ibias_mode : %d\n",
+				tvcl_mode, ibias_mode);
+		return -EAGAIN;
+	} else {
+		NVT_LOG("Set tvcl_mode : %d ibias_mode : %d\n",
+				tvcl_mode, ibias_mode);
+	}
+
+	return 0;
+}
+#endif // SPI_FLASH
 
 /*******************************************************
 Description:
@@ -1954,8 +1998,10 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
+#if !SPI_FLASH
 	//---Download MP FW---
 	nvt_update_firmware(get_mp_fw_name(), 1);
+#endif // !SPI_FLASH
 
 	if (nvt_get_fw_info()) {
 		mutex_unlock(&ts->lock);
@@ -1979,8 +2025,10 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 			  "novatek-mp-criteria-%04X", ts->nvt_pid);
 
 		if (nvt_mp_parse_dt(np, mpcriteria)) {
+#if !SPI_FLASH
 			//---Download Normal FW---
 			nvt_update_firmware(get_fw_name(), 1);
+#endif // !SPI_FLASH
 			mutex_unlock(&ts->lock);
 			NVT_ERR("mp parse device tree failed!\n");
 			return -EINVAL;
@@ -1991,12 +2039,22 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		nvt_print_criteria();
 	}
 
+#if SPI_FLASH
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+#else
 	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
+#endif // SPI_FLASH
 		mutex_unlock(&ts->lock);
 		NVT_ERR("check fw reset state failed!\n");
 		return -EAGAIN;
 	}
 
+#if SPI_FLASH
+	if (nvt_mp_settings(MODE_3, MODE_2)) {
+		mutex_unlock(&ts->lock);
+		return -EAGAIN;
+	}
+#endif // SPI_FLASH
 	if (nvt_switch_FreqHopEnDis(FREQ_HOP_DISABLE)) {
 		mutex_unlock(&ts->lock);
 		NVT_ERR("switch frequency hopping disable failed!\n");
@@ -2240,6 +2298,13 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		} /* if (ts->pen_support) */
 	}
 
+#if SPI_FLASH
+	if (nvt_mp_settings(MODE_4, MODE_1)) {
+		mutex_unlock(&ts->lock);
+		return -EAGAIN;
+	}
+#endif // SPI_FLASH
+
 	//--Short Test---
 	if (nvt_read_fw_short(RawData_Short) != 0) {
 		TestResult_Short = 1; // 1:ERROR
@@ -2260,9 +2325,13 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 				  PS_Config_Lmt_Open_Rawdata_P, PS_Config_Lmt_Open_Rawdata_N);
 	}
 
+#if SPI_FLASH
+	//---Reset IC---
+	nvt_bootloader_reset();
+#else
 	//---Download Normal FW---
 	nvt_update_firmware(get_fw_name(), 1);
-
+#endif // SPI_FLASH
 	mutex_unlock(&ts->lock);
 
 	NVT_LOGD("--\n");

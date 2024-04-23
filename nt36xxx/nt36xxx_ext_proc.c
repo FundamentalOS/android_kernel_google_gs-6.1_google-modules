@@ -652,9 +652,20 @@ static int32_t nvt_fw_update_open(struct inode *inode, struct file *file)
 
 	NVT_LOGD("++\n");
 
+#if SPI_FLASH
+	ts->force_fw_update = true;
+	reinit_completion(&ts->fwu_done);
+	ret = !queue_delayed_work(nvt_fwu_wq, &ts->nvt_fwu_work, 0);
+	if (wait_for_completion_timeout(&ts->fwu_done, msecs_to_jiffies(500)) == 0) {
+		complete_all(&ts->fwu_done);
+		NVT_LOGD("nvt wait for fwu_done timeout \n");
+	}
+	ts->force_fw_update = false;
+#else
 	mutex_lock(&ts->lock);
 	ret = nvt_update_firmware(get_fw_name(), 1);
 	mutex_unlock(&ts->lock);
+#endif // SPI_FLASH
 
 	if (ret) {
 		NVT_ERR("failed, ret = %d\n", ret);
