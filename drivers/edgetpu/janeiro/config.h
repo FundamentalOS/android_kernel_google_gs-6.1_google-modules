@@ -75,14 +75,6 @@
 #define EDGETPU_REMAPPED_DATA_ADDR                                        \
 	(EDGETPU_INSTRUCTION_REMAP_BASE + EDGETPU_REMAPPED_DATA_OFFSET)
 
-/*
- * Size is determined by calculating total size of structs in
- * edgetpu_debug_dump.h and the size of FW side memory segments from linker.ld
- * in the FW source code. Some extra head room is provided for segments that
- * are not fixed length such as crash reason and debug stats.
- */
-#define EDGETPU_DEBUG_DUMP_MEM_SIZE 0x321000
-
 #include "config-mailbox.h"
 #include "config-pwr-state.h"
 #include "config-tpu-cpu.h"
