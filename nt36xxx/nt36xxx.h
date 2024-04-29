@@ -215,6 +215,12 @@ enum {
 #define WAKEUP_GESTURE_DTTW 2
 #define WAKEUP_GESTURE_DEFAULT WAKEUP_GESTURE_STTW
 
+#if SPI_FLASH
+/* PID */
+#define TKI3_CSOT 0x780C
+#define TKI3_BOE 0x780D
+#endif // SPI_FLASH
+
 enum gesture_id : u8 {
 	GESTURE_WORD_C = 12,
 	GESTURE_WORD_W = 13,
@@ -378,6 +384,8 @@ struct nvt_ts_data {
 	u8 pen_active;
 #if SPI_FLASH
 	struct completion fwu_done;
+	uint8_t mp_tvcl_mode;
+	uint8_t mp_ibias_mode;
 #endif // SPI_FLASH
 };
 

@@ -825,7 +825,11 @@ int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state)
 	uint8_t buf[8] = {0};
 	int32_t ret = 0;
 	int32_t retry = 0;
+#if SPI_FLASH
+	int32_t retry_max = 100;
+#else
 	int32_t retry_max = (check_reset_state == RESET_STATE_INIT) ? 10 : 50;
+#endif
 
 	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_RESET_COMPLETE);

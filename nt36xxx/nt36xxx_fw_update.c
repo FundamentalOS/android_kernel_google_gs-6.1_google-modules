@@ -145,10 +145,12 @@ int32_t Check_FW_Ver(void)
 	}
 
 	// compare IC and binary FW version
-	if (buf[1] > fw_entry->data[FW_BIN_VER_OFFSET])
+	if (buf[1] == fw_entry->data[FW_BIN_VER_OFFSET]) {
+		NVT_LOG("firmware version match\n");
 		return 1;
-	else
+	} else {
 		return 0;
+	}
 }
 
 int32_t Check_CheckSum(const struct firmware *fw_entry)
@@ -199,7 +201,7 @@ void Boot_Update_Firmware(struct work_struct *work)
 	} else if (ret < 0) {	// read firmware checksum failed
 		NVT_ERR("read firmware checksum failed\n");
 		Update_Firmware(fw_entry);
-	} else if ((ret == 0) && (Check_FW_Ver() == 0)) {	// (fw checksum not match) && (bin fw version >= ic fw version)
+	} else if ((ret == 0) || (Check_FW_Ver() == 0)) {	// fw checksum not match || fw version not match
 		NVT_LOG("firmware version not match\n");
 		Update_Firmware(fw_entry);
 	} else if (nvt_check_flash_end_flag()) {
@@ -222,6 +224,25 @@ void Boot_Update_Firmware(struct work_struct *work)
 	update_firmware_release();
 end:
 	complete(&ts->fwu_done);
+	// Setup default tvcl ibias mode. Mode value can later be altered by sysfs node
+	switch(ts->nvt_pid) {
+	case TKI3_BOE:
+		ts->mp_tvcl_mode = MODE_1;
+		ts->mp_ibias_mode = MODE_1;
+		break;
+	case TKI3_CSOT:
+		ts->mp_tvcl_mode = MODE_3;
+		ts->mp_ibias_mode = MODE_2;
+		break;
+	default:
+		ts->mp_tvcl_mode = 0;
+		ts->mp_ibias_mode = 0;
+	}
+
+	if (ts->mp_tvcl_mode || ts->mp_ibias_mode) {
+		NVT_LOG("set default mp_tvcl_mode = %d, mp_ibias_mode = %d\n",
+				ts->mp_tvcl_mode, ts->mp_ibias_mode);
+	}
 }
 #endif /* BOOT_UPDATE_FIRMWARE */
 

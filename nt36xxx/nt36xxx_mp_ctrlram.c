@@ -135,6 +135,11 @@ int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode)
 	uint8_t buf[5] = {0}, i = 0;
 	const int32_t retry = 5;
 
+	if (!ts->mp_tvcl_mode || !ts->mp_ibias_mode) {
+		NVT_LOG("mp tvcl/ibias setting not supported, ignore\n");
+		return 0;
+	}
+
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	buf[0] = EVENT_MAP_HOST_CMD;
 	buf[1] = 0x4D;
@@ -155,10 +160,14 @@ int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode)
 	}
 
 	if (i >= retry) {
+		ts->mp_tvcl_mode = 0xff;
+		ts->mp_ibias_mode = 0xff;
 		NVT_ERR("Failed to set tvcl_mode : %d ibias_mode : %d\n",
 				tvcl_mode, ibias_mode);
 		return -EAGAIN;
 	} else {
+		ts->mp_tvcl_mode = tvcl_mode;
+		ts->mp_ibias_mode = ibias_mode;
 		NVT_LOG("Set tvcl_mode : %d ibias_mode : %d\n",
 				tvcl_mode, ibias_mode);
 	}
@@ -2050,7 +2059,7 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	}
 
 #if SPI_FLASH
-	if (nvt_mp_settings(MODE_3, MODE_2)) {
+	if (nvt_mp_settings(ts->mp_tvcl_mode, ts->mp_ibias_mode)) {
 		mutex_unlock(&ts->lock);
 		return -EAGAIN;
 	}
@@ -2297,13 +2306,6 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 				TestResult_Pen_Noise = 0;
 		} /* if (ts->pen_support) */
 	}
-
-#if SPI_FLASH
-	if (nvt_mp_settings(MODE_4, MODE_1)) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
-#endif // SPI_FLASH
 
 	//--Short Test---
 	if (nvt_read_fw_short(RawData_Short) != 0) {

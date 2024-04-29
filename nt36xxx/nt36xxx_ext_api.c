@@ -2028,6 +2028,25 @@ static ssize_t nvt_fw_history_show(struct device *dev,
 }
 
 #if SPI_FLASH
+static ssize_t nvt_mp_settings_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOGD("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = sysfs_emit(buf, "mp_tvcl_mode = %d, mp_ibias_mode = %d\n",
+			ts->mp_tvcl_mode, ts->mp_ibias_mode);
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOGD("--\n");
+	return ret;
+}
+
 static ssize_t nvt_mp_settings_mode_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -2100,7 +2119,7 @@ static DEVICE_ATTR_RW(nvt_dttw_motion_tolerance);
 static DEVICE_ATTR_RW(nvt_dttw_detection_window_edge);
 static DEVICE_ATTR_RO(nvt_fw_history);
 #if SPI_FLASH
-static DEVICE_ATTR_WO(nvt_mp_settings_mode);
+static DEVICE_ATTR_RW(nvt_mp_settings_mode);
 #endif // SPI_FLASH
 
 static struct attribute *nvt_api_attrs[] = {
