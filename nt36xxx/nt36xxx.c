@@ -3423,6 +3423,12 @@ int nvt_ts_resume(struct device *dev)
 #endif
 
 #if SPI_FLASH
+	/*
+	 * clear before check, please call the nvt_ts_resume function 10ms right
+	 * after the RESX to prevent bootload reset delaying the first touch.
+	 */
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
 	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
 		NVT_ERR("FW is not ready! Try to bootloader reset\n");
 		nvt_bootloader_reset();
