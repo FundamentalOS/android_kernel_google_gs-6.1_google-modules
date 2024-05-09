@@ -14,6 +14,7 @@ EXTRA_CFLAGS	+= -DGOOG_TOUCH_INTERFACE
 #EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_TBN
 
 EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/touch/common/Module.symvers
+EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/touch/common/usi/Module.symvers
 
 include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
 
