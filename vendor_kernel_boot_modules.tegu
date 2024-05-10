@@ -1,9 +1,0 @@
-#
-# Tegu specific modules loaded during first stage init from vendor_kernel_boot
-# (platform common modules are from vendor_kernel_boot_modules.zumapro)
-#
-google_ccd.ko
-panel-gs-tg4a.ko
-panel-gs-tg4b.ko
-panel-gs-tg4c.ko
-rt9471_charger.ko
