@@ -111,7 +111,7 @@ int nvt_get_channel_data(void *private_data,
 	/* Only support mutual strength data currently. */
 	if (type & TOUCH_SCAN_TYPE_MUTUAL) {
 		if (type & TOUCH_DATA_TYPE_STRENGTH)
-			nvt_set_heatmap_host_cmd(ts);
+			nvt_set_heatmap_host_cmd(ts, false);
 		else
 			ret = -ENODATA;
 	} else {
@@ -236,8 +236,6 @@ int nvt_callback(void *private_data,
 {
 	int ret = -EOPNOTSUPP;
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)private_data;
-	static bool grip_enabled;
-	static bool palm_enabled;
 	static bool sensing_enabled = true;
 	static bool display_state_on = true;
 
@@ -328,21 +326,9 @@ int nvt_callback(void *private_data,
 	}
 		break;
 
-	case GTI_CMD_GET_GRIP_MODE:
-		cmd->grip_cmd.setting = (grip_enabled) ?
-				GTI_GRIP_ENABLE : GTI_GRIP_DISABLE;
-		ret = 0;
-		break;
-
 	case GTI_CMD_GET_IRQ_MODE:
 		cmd->irq_cmd.setting = (ts->irq_enabled) ?
 				GTI_IRQ_MODE_ENABLE : GTI_IRQ_MODE_DISABLE;
-		ret = 0;
-		break;
-
-	case GTI_CMD_GET_PALM_MODE:
-		cmd->palm_cmd.setting = (palm_enabled) ?
-				GTI_PALM_ENABLE : GTI_PALM_DISABLE;
 		ret = 0;
 		break;
 
@@ -406,52 +392,12 @@ int nvt_callback(void *private_data,
 	}
 		break;
 
-	case GTI_CMD_SET_GRIP_MODE: {
-		#define GRIP_ENABLE  0x41
-		#define GRIP_DISABLE 0x40
-		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, GRIP_DISABLE};
-		uint8_t fw_cmd = GRIP_DISABLE;
-
-		if (cmd->grip_cmd.setting == GTI_GRIP_ENABLE) {
-			fw_cmd = GRIP_ENABLE;
-			grip_enabled = true;
-		} else {
-			grip_enabled = false;
-		}
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-		spi_buf[2] = fw_cmd;
-		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
-		ret = 0;
-		NVT_LOG("grip %s.\n", (fw_cmd == GRIP_ENABLE) ? "enable" : "disable");
-	}
-		break;
-
 	case GTI_CMD_SET_IRQ_MODE:
 		if (cmd->irq_cmd.setting == GTI_IRQ_MODE_DISABLE)
 			nvt_irq_enable(false);
 		else
 			nvt_irq_enable(true);
 		ret = 0;
-		break;
-
-	case GTI_CMD_SET_PALM_MODE: {
-		#define PALM_ENABLE  0xB3
-		#define PALM_DISABLE 0xB4
-		uint8_t spi_buf[3] = {EVENT_MAP_HOST_CMD, PALM_DISABLE, 0};
-		uint8_t fw_cmd = PALM_DISABLE;
-
-		if (cmd->palm_cmd.setting == GTI_PALM_ENABLE) {
-			fw_cmd = PALM_ENABLE;
-			palm_enabled = true;
-		} else {
-			palm_enabled = false;
-		}
-		nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
-		spi_buf[1] = fw_cmd;
-		CTP_SPI_WRITE(ts->client, spi_buf, sizeof(spi_buf));
-		ret = 0;
-		NVT_LOG("palm %s.\n", (fw_cmd == PALM_ENABLE) ? "enable" : "disable");
-	}
 		break;
 
 	case GTI_CMD_SET_SENSING_MODE:
@@ -522,6 +468,13 @@ int nvt_callback(void *private_data,
 	case GTI_CMD_NOTIFY_DISPLAY_VREFRESH:
 		ret = 0;
 		break;
+
+#if SPI_FLASH
+	case GTI_CMD_SET_HEATMAP_ENABLED:
+		nvt_set_heatmap_host_cmd(ts, true);
+		ret = 0;
+		break;
+#endif
 
 	default:
 		NVT_DBG("unsupported request cmd_type %#x!\n", cmd_type);
