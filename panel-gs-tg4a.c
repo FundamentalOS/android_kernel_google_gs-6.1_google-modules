@@ -749,6 +749,29 @@ static void tg4a_update_ffc(struct gs_panel *ctx, unsigned int hs_clk_mbps)
 	PANEL_ATRACE_END(__func__);
 }
 
+static void tg4a_set_ssc_en(struct gs_panel *ctx, bool enabled)
+{
+	struct device *dev = ctx->dev;
+	const bool ssc_mode_update = ctx->ssc_en != enabled;
+
+	if (!ssc_mode_update) {
+		dev_dbg(ctx->dev, "ssc_mode skip update\n");
+		return;
+	}
+
+	ctx->ssc_en = enabled;
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_enable);
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x6E, 0xC5); /* global para */
+	if (enabled)
+		GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x07, 0x7F, 0x00, 0xFF);
+	else
+		GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x04);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_disable);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+	dev_info(dev, "ssc_mode=%d\n", ctx->ssc_en);
+}
+
 static const struct gs_display_underrun_param underrun_param = {
 	.te_idle_us = 500,
 	.te_var = 1,
@@ -888,6 +911,7 @@ static const struct gs_panel_funcs tg4a_gs_funcs = {
 	.atomic_check = tg4a_atomic_check,
 	.pre_update_ffc = tg4a_pre_update_ffc,
 	.update_ffc = tg4a_update_ffc,
+	.set_ssc_en = tg4a_set_ssc_en,
 };
 
 const struct gs_panel_brightness_desc tg4a_brightness_desc = {
