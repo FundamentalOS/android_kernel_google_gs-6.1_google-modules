@@ -89,8 +89,13 @@ static const struct drm_dsc_config pps_config = {
 
 #define FREQUENCY_COUNT 2
 
+#define MIPI_DSI_FREQ_DEFAULT 1102
+#define MIPI_DSI_FREQ_ALTERNATIVE 1000
+
 static const u8 test_key_enable[] = { 0xF0, 0x5A, 0x5A };
 static const u8 test_key_disable[] = { 0xF0, 0xA5, 0xA5 };
+static const u8 test_key_fc_enable[] = { 0xFC, 0x5A, 0x5A };
+static const u8 test_key_fc_disable[] = { 0xFC, 0xA5, 0xA5 };
 static const u8 pixel_off[] = { 0x22 };
 
 static const struct gs_dsi_cmd tg4a_off_cmds[] = {
@@ -150,12 +155,12 @@ static const struct gs_dsi_cmd tg4a_init_cmds[] = {
 	/* PASET: 2424 */
 	GS_DSI_CMD(MIPI_DCS_SET_PAGE_ADDRESS, 0x00, 0x00, 0x09, 0x77),
 
-	/* FFC On Set @ 1102Mbps */
-	GS_DSI_CMD(0xFC, 0x5A, 0x5A),
+	/* FFC Off (1102Mbps) Set */
+	GS_DSI_CMDLIST(test_key_fc_enable),
 	GS_DSI_CMD(0xB0, 0x00, 0x3C, 0xC5),
 	GS_DSI_CMD(0xC5, 0x45, 0xDE),
 	GS_DSI_CMD(0xB0, 0x00, 0x36, 0xC5),
-	GS_DSI_CMD(0xC5, 0x11, 0x10, 0x50, 0x05),
+	GS_DSI_CMD(0xC5, 0x10),
 
 	/* VDDD LDO Setting, only for Proto 1.1 */
 	GS_DSI_REV_CMD(PANEL_REV_PROTO1_1, 0xB0, 0x00, 0x58, 0xD7),
@@ -164,7 +169,7 @@ static const struct gs_dsi_cmd tg4a_init_cmds[] = {
 	GS_DSI_REV_CMD(PANEL_REV_PROTO1_1, 0xD7, 0x0A),
 	GS_DSI_REV_CMD(PANEL_REV_PROTO1_1, 0xFE, 0x80),
 	GS_DSI_REV_CMD(PANEL_REV_PROTO1_1, 0xFE, 0x00),
-	GS_DSI_CMD(0xFC, 0xA5, 0xA5),
+	GS_DSI_CMDLIST(test_key_fc_disable),
 
 	/* TSP HSYNC setting, only for Proto 1.1 */
 	GS_DSI_REV_CMD(PANEL_REV_PROTO1_1, 0xB0, 0x00, 0x42, 0xB9),
@@ -638,14 +643,14 @@ static int tg4a_enable(struct drm_panel *panel)
 		if (mipi_dsi_dcs_read(dsi, 0xFA, ic_trim_pre_check, 2) == 2) {
 			if (ic_trim_pre_check[0] == 0x31 && ic_trim_pre_check[1] == 0x00) {
 				/* VDDD LDO Setting */
-				GS_DCS_BUF_ADD_CMD(dev, 0xFC, 0x5A, 0x5A);
+				GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_enable);
 				GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x58, 0xD7);
 				GS_DCS_BUF_ADD_CMD(dev, 0xD7, 0x0A);
 				GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x5B, 0xD7);
 				GS_DCS_BUF_ADD_CMD(dev, 0xD7, 0x0A);
 				GS_DCS_BUF_ADD_CMD(dev, 0xFE, 0x80);
 				GS_DCS_BUF_ADD_CMD(dev, 0xFE, 0x00);
-				GS_DCS_BUF_ADD_CMD(dev, 0xFC, 0xA5, 0xA5);
+				GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_disable);
 			}
 		} else {
 			dev_err(dev, "fail to read IC Trim Pre Check parameters\n");
@@ -673,6 +678,8 @@ static int tg4a_enable(struct drm_panel *panel)
 
 	GS_DCS_WRITE_CMD(dev, MIPI_DCS_SET_DISPLAY_ON);
 
+	ctx->dsi_hs_clk_mbps = MIPI_DSI_FREQ_DEFAULT;
+
 	return 0;
 }
 
@@ -687,6 +694,82 @@ static int tg4a_panel_probe(struct mipi_dsi_device *dsi)
 	spanel->is_pixel_off = false;
 
 	return gs_dsi_panel_common_init(dsi, &spanel->base);
+}
+
+static void tg4a_pre_update_ffc(struct gs_panel *ctx)
+{
+	struct device *dev = ctx->dev;
+
+	dev_dbg(ctx->dev, "%s\n", __func__);
+
+	PANEL_ATRACE_BEGIN(__func__);
+
+	/* FFC off */
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_enable);
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x36, 0xC5);
+	GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x10);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_disable);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+
+	PANEL_ATRACE_END(__func__);
+}
+
+static void tg4a_update_ffc(struct gs_panel *ctx, unsigned int hs_clk_mbps)
+{
+	struct device *dev = ctx->dev;
+
+	dev_dbg(ctx->dev, "%s: hs_clk_mbps: current=%u, target=%u\n",
+		__func__, ctx->dsi_hs_clk_mbps, hs_clk_mbps);
+
+	PANEL_ATRACE_BEGIN(__func__);
+
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_enable);
+
+	if (hs_clk_mbps != MIPI_DSI_FREQ_DEFAULT && hs_clk_mbps != MIPI_DSI_FREQ_ALTERNATIVE) {
+		dev_warn(ctx->dev, "%s: invalid hs_clk_mbps=%u for FFC\n", __func__, hs_clk_mbps);
+	} else if (ctx->dsi_hs_clk_mbps != hs_clk_mbps) {
+		dev_info(ctx->dev, "%s: updating for hs_clk_mbps=%u\n", __func__, hs_clk_mbps);
+		ctx->dsi_hs_clk_mbps = hs_clk_mbps;
+
+		/* Update FFC */
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x3C, 0xC5);
+		if (hs_clk_mbps == MIPI_DSI_FREQ_DEFAULT) {
+			GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x45, 0xDE);
+		} else { /* MIPI_DSI_FREQ_ALTERNATIVE */
+			GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x4C, 0xFE);
+		}
+	}
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x36, 0xC5);
+	GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x11, 0x10, 0x50, 0x05);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_disable);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+
+	PANEL_ATRACE_END(__func__);
+}
+
+static void tg4a_set_ssc_en(struct gs_panel *ctx, bool enabled)
+{
+	struct device *dev = ctx->dev;
+	const bool ssc_mode_update = ctx->ssc_en != enabled;
+
+	if (!ssc_mode_update) {
+		dev_dbg(ctx->dev, "ssc_mode skip update\n");
+		return;
+	}
+
+	ctx->ssc_en = enabled;
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_enable);
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x6E, 0xC5); /* global para */
+	if (enabled)
+		GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x07, 0x7F, 0x00, 0xFF);
+	else
+		GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x04);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_disable);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+	dev_info(dev, "ssc_mode=%d\n", ctx->ssc_en);
 }
 
 static const struct gs_display_underrun_param underrun_param = {
@@ -826,6 +909,9 @@ static const struct gs_panel_funcs tg4a_gs_funcs = {
 	.get_panel_rev = tg4a_get_panel_rev,
 	.read_id = gs_panel_read_slsi_ddic_id,
 	.atomic_check = tg4a_atomic_check,
+	.pre_update_ffc = tg4a_pre_update_ffc,
+	.update_ffc = tg4a_update_ffc,
+	.set_ssc_en = tg4a_set_ssc_en,
 };
 
 const struct gs_panel_brightness_desc tg4a_brightness_desc = {
@@ -872,6 +958,7 @@ const struct gs_panel_desc google_tg4a = {
 	.reg_ctrl_desc = &tg4a_reg_ctrl_desc,
 	.panel_func = &tg4a_drm_funcs,
 	.gs_panel_func = &tg4a_gs_funcs,
+	.default_dsi_hs_clk_mbps = MIPI_DSI_FREQ_DEFAULT,
 	.reset_timing_ms = {1, 1, 1},
 };
 
