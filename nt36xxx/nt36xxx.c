@@ -3144,6 +3144,7 @@ int nvt_ts_resume(struct device *dev)
 		uint16_t validity_flags = 0;
 		uint32_t info_flags;
 		struct g_usi_pairing_info pairing_info;
+		void *data = (void *)0;
 
 		if (goog_usi_get_pairing_info(ts->g_usi_handle, &pairing_info))
 			memset(&pairing_info, 0, sizeof(pairing_info)); /* set 0 if error */
@@ -3162,7 +3163,8 @@ int nvt_ts_resume(struct device *dev)
 
 		msleep(20);
 
-		pen_model_index = (u8)(uintptr_t)goog_usi_get_drvdata(ts->g_usi_handle);
+		goog_usi_get_drvdata(ts->g_usi_handle, &data);
+		pen_model_index = (u8)(uintptr_t)data;
 		if (goog_usi_get_fw_version(ts->g_usi_handle, fw_version)) {
 			fw_version[0] = 0; /* set 0 if error */
 			fw_version[1] = 0;
