@@ -17,6 +17,30 @@
 #include "gs_panel/gs_panel.h"
 #include "gs_panel/gs_panel_funcs_defaults.h"
 
+/**
+ * enum tg4a_lhbm_brt - local hbm brightness
+ * @LHBM_R_COARSE: red coarse
+ * @LHBM_GB_COARSE: green and blue coarse
+ * @LHBM_R_FINE: red fine
+ * @LHBM_G_FINE: green fine
+ * @LHBM_B_FINE: blue fine
+ * @LHBM_BRT_LEN: local hbm brightness array length
+ */
+enum tg4a_lhbm_brt {
+	LHBM_R_COARSE,
+	LHBM_GB_COARSE,
+	LHBM_R_FINE,
+	LHBM_G_FINE,
+	LHBM_B_FINE,
+	LHBM_BRT_LEN
+};
+
+#define LHBM_BRT_CMD_LEN (LHBM_BRT_LEN + 1)
+#define LHBM_BRIGHTNESS_INDEX_SIZE 4
+#define LHBM_GAMMA_CMD_SIZE 6
+#define LHBM_RATIO_SIZE 3
+#define LHBM_RGB_RATIO_SIZE 3
+
 /* DSC1.2 */
 static const struct drm_dsc_config pps_config = {
 	.line_buf_depth = 9,
@@ -97,6 +121,43 @@ static const u8 test_key_disable[] = { 0xF0, 0xA5, 0xA5 };
 static const u8 test_key_fc_enable[] = { 0xFC, 0x5A, 0x5A };
 static const u8 test_key_fc_disable[] = { 0xFC, 0xA5, 0xA5 };
 static const u8 pixel_off[] = { 0x22 };
+
+static const u8 lhbm_brightness_write_index[FREQUENCY_COUNT][LHBM_BRIGHTNESS_INDEX_SIZE] = {
+	{ 0xB0, 0x00, 0xAE, 0x6A }, /* HS120 */
+	{ 0xB0, 0x00, 0xB3, 0x6A }, /* HS60 */
+};
+
+static const u8 lhbm_brightness_read_index[FREQUENCY_COUNT][LHBM_BRIGHTNESS_INDEX_SIZE] = {
+	{ 0xB0, 0x02, 0x06, 0xBD }, /* HS120 */
+	{ 0xB0, 0x02, 0x0B, 0xBD }, /* HS60 */
+};
+
+static const u8 lhbm_brightness_write_reg = 0x6A;
+static const u8 lhbm_brightness_read_reg = 0xBD;
+
+/**
+ * enum tg4a_lhbm_brt_overdrive_group - lhbm brightness overdrive group number
+ * @LHBM_OVERDRIVE_GRP_0_NIT: group number for 0 nit
+ * @LHBM_OVERDRIVE_GRP_6_NIT: group number for 0-6 nits
+ * @LHBM_OVERDRIVE_GRP_50_NIT: group number for 6-50 nits
+ * @LHBM_OVERDRIVE_GRP_300_NIT: group number for 50-300 nits
+ * @LHBM_OVERDRIVE_GRP_MAX: maximum group number
+ */
+enum tg4a_lhbm_brt_overdrive_group {
+	LHBM_OVERDRIVE_GRP_0_NIT,
+	LHBM_OVERDRIVE_GRP_6_NIT,
+	LHBM_OVERDRIVE_GRP_50_NIT,
+	LHBM_OVERDRIVE_GRP_300_NIT,
+	LHBM_OVERDRIVE_GRP_MAX
+};
+
+/* actual ratio = value / (10^9) */
+u32 lhbm_rgb_ratio[LHBM_OVERDRIVE_GRP_MAX][LHBM_RATIO_SIZE] = {
+	{1068287156, 1062530559, 1068418009},
+	{1032101895, 1029395710, 1032163409},
+	{1021689393, 1019860980, 1021730955},
+	{1018697351, 1017121167, 1018733179},
+};
 
 static const struct gs_dsi_cmd tg4a_off_cmds[] = {
 	GS_DSI_DELAY_CMD(MIPI_DCS_SET_DISPLAY_OFF),
@@ -237,6 +298,17 @@ static DEFINE_GS_CMDSET(tg4a_lhbm_location);
 
 #define LHBM_GAMMA_CMD_SIZE 6
 
+struct tg4a_lhbm_ctl {
+	/** @brt_normal: normal LHBM brightness parameters */
+	u8 brt_normal[FREQUENCY_COUNT][LHBM_BRT_LEN];
+	/** @brt_overdrive: overdrive LHBM brightness parameters */
+	u8 brt_overdrive[FREQUENCY_COUNT][LHBM_OVERDRIVE_GRP_MAX][LHBM_BRT_LEN];
+	/** @overdrived: whether LHBM is overdrived */
+	bool overdrived;
+	/** @hist_roi_configured: whether LHBM histogram configuration is done */
+	bool hist_roi_configured;
+};
+
 /**
  * struct tg4a_panel - panel specific runtime info
  *
@@ -258,6 +330,9 @@ struct tg4a_panel {
 	 *		  panel can recover to normal mode after entering pixel-off state.
 	 */
 	bool is_pixel_off;
+
+	/** @lhbm_ctl: lhbm brightness control */
+	struct tg4a_lhbm_ctl lhbm_ctl;
 };
 #define to_spanel(ctx) container_of(ctx, struct tg4a_panel, base)
 
@@ -268,10 +343,9 @@ static void read_lhbm_gamma(struct gs_panel *ctx, u8 *cmd, enum frequency freq)
 {
 	struct device *dev = ctx->dev;
 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(dev);
-	u8 index = (freq == HS120) ? 0x06 : 0x0B;
 	int ret;
 
-	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xB0, 0x02, index, 0xBD); /* global para */
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lhbm_brightness_read_index[freq]); /* global para */
 	ret = mipi_dsi_dcs_read(dsi, 0xBD, cmd + 1, LHBM_GAMMA_CMD_SIZE - 1);
 
 	if (ret != (LHBM_GAMMA_CMD_SIZE - 1)) {
@@ -280,7 +354,7 @@ static void read_lhbm_gamma(struct gs_panel *ctx, u8 *cmd, enum frequency freq)
 	}
 
 	/* fill in gamma write command 0x6A in offset 0 */
-	cmd[0] = 0x6A;
+	cmd[0] = lhbm_brightness_write_reg;
 	dev_dbg(dev, "%s_gamma: %*ph\n", frequency_str[freq],
 		LHBM_GAMMA_CMD_SIZE - 1, cmd + 1);
 }
@@ -313,9 +387,9 @@ static void tg4a_lhbm_gamma_write(struct gs_panel *ctx)
 	dev_dbg(dev, "%s\n", __func__);
 	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
 
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xAE, 0x6A); /* global para */
+	GS_DCS_BUF_ADD_CMDLIST(dev, lhbm_brightness_write_index[HS120]); /* global para */
 	GS_DCS_BUF_ADD_CMDLIST(dev, spanel->local_hbm_gamma.hs120_cmd); /* write gamma */
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xB3, 0x6A); /* global para */
+	GS_DCS_BUF_ADD_CMDLIST(dev, lhbm_brightness_write_index[HS60]); /* global para */
 	GS_DCS_BUF_ADD_CMDLIST(dev, spanel->local_hbm_gamma.hs60_cmd); /* write gamma */
 
 	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
@@ -339,12 +413,36 @@ static void tg4a_change_frequency(struct gs_panel *ctx,
 	return;
 }
 
+static void tg4a_update_lhbm_hist_config(struct gs_panel *ctx, struct drm_atomic_state *state)
+{
+	struct tg4a_panel *spanel = to_spanel(ctx);
+	struct tg4a_lhbm_ctl *ctl = &spanel->lhbm_ctl;
+	const struct gs_panel_mode *pmode = ctx->current_mode;
+	const struct drm_display_mode *mode;
+
+	const int d = 540, r = 100;
+
+	if (ctl->hist_roi_configured)
+		return;
+
+	if (!pmode) {
+		dev_err(ctx->dev, "no current mode set\n");
+		return;
+	}
+
+	mode = &pmode->mode;
+	gs_panel_update_lhbm_hist_data_helper(ctx, state, true, d, r);
+	ctl->hist_roi_configured = true;
+}
+
 static int tg4a_atomic_check(struct gs_panel *ctx, struct drm_atomic_state *state)
 {
 	struct drm_connector *conn = &ctx->gs_connector->base;
 	struct drm_connector_state *new_conn_state =
 		drm_atomic_get_new_connector_state(state, conn);
 	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+
+	tg4a_update_lhbm_hist_config(ctx, state);
 
 	if (!ctx->current_mode || drm_mode_vrefresh(&ctx->current_mode->mode) == 120 ||
 	    !new_conn_state || !new_conn_state->crtc)
@@ -492,6 +590,82 @@ static void tg4a_set_hbm_mode(struct gs_panel *ctx,
 		 GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode));
 }
 
+static void tg4a_set_local_hbm_brightness(struct gs_panel *ctx, bool is_first_stage)
+{
+	struct device *dev = ctx->dev;
+	struct tg4a_panel *spanel = to_spanel(ctx);
+	struct tg4a_lhbm_ctl *ctl = &spanel->lhbm_ctl;
+	const u8 *brt;
+	enum tg4a_lhbm_brt_overdrive_group group = LHBM_OVERDRIVE_GRP_MAX;
+	u32 vrefresh = drm_mode_vrefresh(&ctx->current_mode->mode);
+	enum frequency freq = (vrefresh == 120) ? HS120 : HS60;
+	/* command uses one byte besides brightness */
+	static u8 cmd[LHBM_BRT_LEN + 1];
+	int i;
+
+	if (!gs_is_local_hbm_post_enabling_supported(ctx))
+		return;
+
+	dev_info(dev, "set LHBM brightness at %s stage\n", is_first_stage ? "1st" : "2nd");
+	if (is_first_stage) {
+		u32 gray = ctx->gs_connector->lhbm_gray_level;
+		u32 dbv = gs_panel_get_brightness(ctx);
+		u32 normal_dbv_max = ctx->desc->brightness_desc->brt_capability->normal.level.max;
+		u32 normal_nit_max = ctx->desc->brightness_desc->brt_capability->normal.nits.max;
+		u32 luma = 0;
+
+		dev_info(dev, "%s: gray level = %d\n", __func__, gray);
+
+		if (gray < 15) {
+			group = LHBM_OVERDRIVE_GRP_0_NIT;
+		} else {
+			if (dbv <= normal_dbv_max)
+				luma = panel_calc_gamma_2_2_luminance(dbv, normal_dbv_max,
+				normal_nit_max);
+			else
+				luma = panel_calc_linear_luminance(dbv, 645, -1256);
+			luma = panel_calc_gamma_2_2_luminance(gray, 255, luma);
+
+			if (luma < 6)
+				group = LHBM_OVERDRIVE_GRP_6_NIT;
+			else if (luma < 50)
+				group = LHBM_OVERDRIVE_GRP_50_NIT;
+			else if (luma < 300)
+				group = LHBM_OVERDRIVE_GRP_300_NIT;
+			else
+				group = LHBM_OVERDRIVE_GRP_MAX;
+		}
+		dev_dbg(dev, "check LHBM overdrive condition | gray=%u dbv=%u luma=%u\n",
+			gray, dbv, luma);
+	}
+
+	if (group < LHBM_OVERDRIVE_GRP_MAX) {
+		brt = ctl->brt_overdrive[freq][group];
+		ctl->overdrived = true;
+	} else {
+		brt = ctl->brt_normal[freq];
+		ctl->overdrived = false;
+	}
+	cmd[0] = lhbm_brightness_write_reg;
+	for (i = 0; i < LHBM_BRT_LEN; i++)
+		cmd[i+1] = brt[i];
+	dev_dbg(dev, "set %s brightness: [%d] %*ph\n",
+		ctl->overdrived ? "overdrive" : "normal",
+		ctl->overdrived ? group : -1, LHBM_BRT_LEN, brt);
+	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
+	GS_DCS_BUF_ADD_CMDLIST(dev, lhbm_brightness_write_index[freq]);
+	GS_DCS_BUF_ADD_CMDLIST(dev, cmd);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+}
+
+static void tg4a_set_local_hbm_mode_post(struct gs_panel *ctx)
+{
+	const struct tg4a_panel *spanel = to_spanel(ctx);
+
+	if (spanel->lhbm_ctl.overdrived)
+		tg4a_set_local_hbm_brightness(ctx, false);
+}
+
 static void tg4a_set_dimming(struct gs_panel *ctx, bool dimming_on)
 {
 	struct device *dev = ctx->dev;
@@ -530,6 +704,9 @@ static void tg4a_set_local_hbm_mode(struct gs_panel *ctx, bool local_hbm_en)
 		}
 	}
 	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+
+	if (local_hbm_en)
+		tg4a_set_local_hbm_brightness(ctx, true);
 }
 
 static void tg4a_mode_set(struct gs_panel *ctx,
@@ -543,6 +720,81 @@ static bool tg4a_is_mode_seamless(const struct gs_panel *ctx,
 {
 	/* seamless mode switch is possible if only changing refresh rate */
 	return drm_mode_equal_no_clocks(&ctx->current_mode->mode, &pmode->mode);
+}
+
+static void tg4a_calculate_lhbm_brightness(struct gs_panel *ctx,
+	const u8 *p_norm, const u32 *rgb_ratio, u8 *out_norm)
+{
+	const u8 rgb_offset[3][2] = {
+		{LHBM_R_COARSE, LHBM_R_FINE},
+		{LHBM_GB_COARSE, LHBM_G_FINE},
+		{LHBM_GB_COARSE, LHBM_B_FINE}
+	};
+	u8 new_norm[LHBM_BRT_LEN] = {0};
+	u64 tmp;
+	int i;
+	u16 mask, shift;
+
+	if (!rgb_ratio)
+		return;
+
+	for (i = 0; i < LHBM_RGB_RATIO_SIZE ; i++) {
+		if (i % 2) {
+			mask = 0xf0;
+			shift = 4;
+		} else {
+			mask = 0x0f;
+			shift = 0;
+		}
+		tmp = ((p_norm[rgb_offset[i][0]] & mask) >> shift) << 8
+			| p_norm[rgb_offset[i][1]];
+		dev_dbg(ctx->dev, "%s: lhbm_gamma[%d] = %llu\n", __func__, i, tmp);
+		/* Round off and revert to original gamma value */
+		tmp = (tmp * rgb_ratio[i] + 500000000)/1000000000;
+		dev_dbg(ctx->dev, "%s: new lhbm_gamma[%d] = %llu\n", __func__, i, tmp);
+		new_norm[rgb_offset[i][0]] |= ((tmp & 0xff00) >> 8) << shift;
+		new_norm[rgb_offset[i][1]] |= tmp & 0xff;
+	}
+	memcpy(out_norm, new_norm, LHBM_BRT_LEN);
+	dev_info(ctx->dev, "p_norm(%*ph), new_norm(%*ph), rgb_ratio(%u %u %u)\n",
+		LHBM_BRT_LEN, p_norm,
+		LHBM_BRT_LEN, out_norm,
+		rgb_ratio[0], rgb_ratio[1], rgb_ratio[2]);
+}
+
+static void tg4a_lhbm_brightness_init(struct gs_panel *ctx)
+{
+	struct device *dev = ctx->dev;
+	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
+	struct tg4a_panel *spanel = to_spanel(ctx);
+	struct tg4a_lhbm_ctl *ctl = &spanel->lhbm_ctl;
+	int group, freq, ret;
+
+	for (freq = 0; freq < FREQUENCY_COUNT; freq++) {
+		GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
+		GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lhbm_brightness_read_index[freq]);
+		ret = mipi_dsi_dcs_read(dsi, lhbm_brightness_read_reg,
+			ctl->brt_normal[freq], LHBM_BRT_LEN);
+		GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, test_key_disable);
+
+		if (ret != LHBM_BRT_LEN) {
+			dev_err(dev, "failed to read lhbm para for %s ret=%d\n",
+				frequency_str[freq], ret);
+			continue;
+		}
+
+		dev_info(dev, "lhbm normal brightness for %s: %*ph\n",
+			frequency_str[freq], LHBM_BRT_LEN, ctl->brt_normal[freq]);
+
+		for (group = 0; group < LHBM_OVERDRIVE_GRP_MAX; group++) {
+			tg4a_calculate_lhbm_brightness(ctx, ctl->brt_normal[freq],
+				lhbm_rgb_ratio[group], ctl->brt_overdrive[freq][group]);
+		}
+	}
+
+	print_hex_dump_debug("tg4a-od-brightness: ", DUMP_PREFIX_NONE,
+		16, 1,
+		ctl->brt_overdrive, sizeof(ctl->brt_overdrive), false);
 }
 
 static void tg4a_debugfs_init(struct drm_panel *panel, struct dentry *root)
@@ -573,6 +825,7 @@ panel_out:
 
 static void tg4a_panel_init(struct gs_panel *ctx)
 {
+	tg4a_lhbm_brightness_init(ctx);
 	tg4a_lhbm_gamma_read(ctx);
 	tg4a_lhbm_gamma_write(ctx);
 }
@@ -623,6 +876,7 @@ static int tg4a_enable(struct drm_panel *panel)
 	struct device *dev = ctx->dev;
 	struct mipi_dsi_device *dsi = to_mipi_dsi_device(dev);
 	const struct gs_panel_mode *pmode = ctx->current_mode;
+	struct tg4a_panel *spanel = to_spanel(ctx);
 	u8 ic_trim_pre_check[2];
 
 	if (!pmode) {
@@ -682,6 +936,7 @@ static int tg4a_enable(struct drm_panel *panel)
 	GS_DCS_WRITE_CMD(dev, MIPI_DCS_SET_DISPLAY_ON);
 
 	ctx->dsi_hs_clk_mbps = MIPI_DSI_FREQ_DEFAULT;
+	spanel->lhbm_ctl.hist_roi_configured = false;
 
 	return 0;
 }
@@ -906,6 +1161,7 @@ static const struct gs_panel_funcs tg4a_gs_funcs = {
 	.set_dimming = tg4a_set_dimming,
 	.set_hbm_mode = tg4a_set_hbm_mode,
 	.set_local_hbm_mode = tg4a_set_local_hbm_mode,
+	.set_local_hbm_mode_post = tg4a_set_local_hbm_mode_post,
 	.is_mode_seamless = tg4a_is_mode_seamless,
 	.mode_set = tg4a_mode_set,
 	.panel_init = tg4a_panel_init,
@@ -944,7 +1200,10 @@ const struct gs_panel_reg_ctrl_desc tg4a_reg_ctrl_desc = {
 	},
 };
 
-static struct gs_panel_lhbm_desc tg4a_lhbm_desc = {};
+static struct gs_panel_lhbm_desc tg4a_lhbm_desc = {
+	.effective_delay_frames = 1,
+	.post_cmd_delay_frames = 1,
+};
 
 const struct gs_panel_desc google_tg4a = {
 	.data_lane_cnt = 4,
