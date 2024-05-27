@@ -18,6 +18,21 @@
 #define HEIGHT_MM 145
 #define PROJECT "TG4C"
 
+/**
+ * struct tg4c_panel - panel specific runtime info
+ *
+ * This struct maintains tg4c panel specific runtime info, any fixed details about panel
+ * should most likely go into struct gs_panel_desc.
+ */
+struct tg4c_panel {
+	/** @base: base panel struct */
+	struct gs_panel base;
+	/** @is_hbm2_enabled: indicates panel is running in HBM mode 2 */
+	bool is_hbm2_enabled;
+};
+
+#define to_spanel(ctx) container_of(ctx, struct tg4c_panel, base)
+
 static const struct gs_dsi_cmd tg4c_lp_cmds[] = {
 	/* Disable the Black insertion in AoD */
 	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00),
@@ -155,6 +170,29 @@ static const struct gs_dsi_cmd tg4c_init_cmds[] = {
 };
 static DEFINE_GS_CMDSET(tg4c_init);
 
+static bool _is_max_hbm_level(u16 level, struct gs_panel * ctx) {
+	return level == ctx->desc->brightness_desc->brt_capability->hbm.level.max;
+}
+
+static void tg4c_update_acd(struct gs_panel *ctx, u16 level) {
+	struct device *dev = ctx->dev;
+	struct tg4c_panel *spanel = to_spanel(ctx);
+
+	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode) && _is_max_hbm_level(level, ctx)) {
+		spanel->is_hbm2_enabled = true;
+		/* set ACD Level 3 */
+		GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0x55, 0x04);
+	} else {
+		if (spanel->is_hbm2_enabled) {
+			/* set ACD off */
+			GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0x55, 0x00);
+		}
+		spanel->is_hbm2_enabled = false;
+	}
+	dev_info(ctx->dev, "%s: is HBM2 enabled : %d\n",
+				__func__, spanel->is_hbm2_enabled);
+}
+
 static void tg4c_update_te2(struct gs_panel *ctx)
 {
 	struct gs_panel_te2_timing timing;
@@ -197,8 +235,11 @@ static void tg4c_update_irc(struct gs_panel *ctx, const enum gs_hbm_mode hbm_mod
 	if (GS_IS_HBM_ON_IRC_OFF(hbm_mode)) {
 		/* sync from bigSurf : to achieve the max brightness with IRC off which
 		 * need to set dbv to 0xFFF */
-		if (level == ctx->desc->brightness_desc->brt_capability->hbm.level.max)
+		if (_is_max_hbm_level(level, ctx)) {
+			/* set brightness to hbm2 */
 			GS_DCS_BUF_ADD_CMD(dev, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x0F, 0xFF);
+		}
+		tg4c_update_acd(ctx, level);
 
 		/* IRC Off */
 		GS_DCS_BUF_ADD_CMD(dev, 0x5F, 0x01, 0x00);
@@ -230,8 +271,7 @@ static void tg4c_set_local_hbm_background_brightness(struct gs_panel *ctx, u16 b
 	u8 val1, val2;
 	struct device *dev = ctx->dev;
 
-	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode) &&
-		br == ctx->desc->brightness_desc->brt_capability->hbm.level.max)
+	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode) && _is_max_hbm_level(br, ctx))
 		br = 0x0FFF;
 
 	level = br * 4;
@@ -413,6 +453,21 @@ static int tg4c_enable(struct drm_panel *panel)
 	return 0;
 }
 
+static int tg4c_disable(struct drm_panel *panel)
+{
+	struct gs_panel *ctx = container_of(panel, struct gs_panel, base);
+	struct tg4c_panel *spanel = to_spanel(ctx);
+	int ret;
+
+	spanel->is_hbm2_enabled = false;
+
+	ret = gs_panel_disable(panel);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 static int tg4c_atomic_check(struct gs_panel *ctx, struct drm_atomic_state *state)
 {
 	struct drm_connector *conn = &ctx->gs_connector->base;
@@ -454,22 +509,12 @@ static int tg4c_atomic_check(struct gs_panel *ctx, struct drm_atomic_state *stat
 static int tg4c_set_brightness(struct gs_panel *ctx, u16 br)
 {
 	struct device *dev = ctx->dev;
-	u16 brightness;
 
 	if (ctx->current_mode->gs_mode.is_lp_mode) {
 		if (gs_panel_has_func(ctx, set_binned_lp))
 			ctx->desc->gs_panel_func->set_binned_lp(ctx, br);
 		return 0;
 	}
-
-	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode) &&
-		br == ctx->desc->brightness_desc->brt_capability->hbm.level.max) {
-		br = MAX_BR_HBM_IRC_OFF;
-		dev_dbg(dev, "apply max DBV when reach hbm max with irc off\n");
-	}
-
-	if (!gs_is_local_hbm_disabled(ctx))
-		tg4c_set_local_hbm_background_brightness(ctx, br);
 
 	if (ctx->timestamps.idle_exit_dimming_delay_ts &&
 		(ktime_sub(ctx->timestamps.idle_exit_dimming_delay_ts, ktime_get()) <= 0)) {
@@ -478,8 +523,17 @@ static int tg4c_set_brightness(struct gs_panel *ctx, u16 br)
 		ctx->timestamps.idle_exit_dimming_delay_ts = 0;
 	}
 
-	brightness = swab16(br);
-	return gs_dcs_set_brightness(ctx, brightness);
+	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode) && _is_max_hbm_level(br, ctx)) {
+		/* set brightness to hbm2 */
+		GS_DCS_BUF_ADD_CMD(dev, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x0F, 0xFF);
+		tg4c_update_acd(ctx, br);
+	} else {
+		tg4c_update_acd(ctx, br);
+		GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+						br >> 8, br & 0xff);
+	}
+
+	return 0;
 }
 
 static void tg4c_set_hbm_mode(struct gs_panel *ctx, enum gs_hbm_mode hbm_mode)
@@ -712,17 +766,18 @@ static void tg4c_panel_init(struct gs_panel *ctx)
 
 static int tg4c_panel_probe(struct mipi_dsi_device *dsi)
 {
-	struct gs_panel *panel;
+	struct tg4c_panel *spanel;
 
-	panel = devm_kzalloc(&dsi->dev, sizeof(*panel), GFP_KERNEL);
-	if (!panel)
+	spanel = devm_kzalloc(&dsi->dev, sizeof(*spanel), GFP_KERNEL);
+	if (!spanel)
 		return -ENOMEM;
 
-	return gs_dsi_panel_common_init(dsi, panel);
+	spanel->is_hbm2_enabled = false;
+	return gs_dsi_panel_common_init(dsi, &spanel->base);
 }
 
 static const struct drm_panel_funcs tg4c_drm_funcs = {
-	.disable = gs_panel_disable,
+	.disable = tg4c_disable,
 	.unprepare = gs_panel_unprepare,
 	.prepare = gs_panel_prepare,
 	.enable = tg4c_enable,
