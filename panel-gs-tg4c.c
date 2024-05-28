@@ -747,7 +747,7 @@ static const struct gs_panel_funcs tg4c_gs_funcs = {
 static const struct gs_brightness_configuration tg4c_btr_configs[] = {
 	{
 		.panel_rev = PANEL_REV_LATEST,
-		.default_brightness = 1816,
+		.default_brightness = 1829,
 		.brt_capability = {
 			.normal = {
 				.nits = {
