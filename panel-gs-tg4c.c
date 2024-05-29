@@ -799,7 +799,7 @@ static struct gs_panel_reg_ctrl_desc tg4c_reg_ctrl_desc = {
 	.reg_ctrl_enable = {
 		{PANEL_REG_ID_VDDI, 0},
 		{PANEL_REG_ID_VCI, 0},
-		{PANEL_REG_ID_VDDD, 10},
+		{PANEL_REG_ID_VDDD, 11},
 	},
 	.reg_ctrl_disable = {
 		{PANEL_REG_ID_VDDD, 0},
