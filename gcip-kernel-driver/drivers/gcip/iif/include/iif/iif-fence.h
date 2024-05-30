@@ -1,14 +1,46 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * GCIP-integrated IIF driver fence.
+ * The inter-IP fence.
  *
- * Copyright (C) 2023 Google LLC
+ * Please note that the meaning of fence is "signaled" and "unblocked" are different. It might be
+ * confusing since IIF can be signaled multiple times by the signaler unlike general fences such as
+ * the DMA fence.
+ *
+ * The meaning of "a fence is signaled" is that the fence has been signaled enough times as many as
+ * the expected number of signals which should be decided when the fence is initialized nevertheless
+ * it has been signaled with an error or not. That says every single signaler command are expected
+ * to signal the fence (i.e., call `iif_fence_signal{_with_status}` function) even though commands
+ * weren't processed normally.
+ *
+ * On the other hand, the meaning of "a fence is unblocked" is that the fence has been "signaled" or
+ * at least one of signalers signaled the fence with an error even though the fence hasn't been
+ * signaled enough times so that the waiters don't need to be blocked by the fence anymore. Note
+ * that even though a fence has been unblocked with an error, remaining signalers are still expected
+ * to signal the fence.
+ *
+ * Also, unblocking a fence here is only for the kernel perspective. Therefore, the IIF driver will
+ * notify the fence unblock to only who are polling the fences (via poll callbacks or poll syscall).
+ * It means that if the signaler is an IP, not AP, it is a responsibility of the IP side to unblock
+ * a fence and propagate an error to waiter IPs. Therefore, unblocking fence by the IIF driver will
+ * not unblock the fences in the IP side unless the IP kernel driver notices the fence unblock via
+ * a poll callback and asks their IP to unblock the fence.
+ *
+ * If the signaler IP requires a support of the kernel driver to unblock the fence in case the IP is
+ * already faulty and can't notify waiter IPs, the signaler IP kernel driver can unblock the fence
+ * with an error and each waiter IP kernel driver can notice it by registering a poll callback to
+ * the fence and propagate the error to the IP of each.
+ *
+ * Besides, one of the main roles of the IIF driver is creating fences with assigning fence IDs,
+ * initializing the fence table and managing the life cycle of them.
+ *
+ * Copyright (C) 2023-2024 Google LLC
  */
 
 #ifndef __IIF_IIF_FENCE_H__
 #define __IIF_IIF_FENCE_H__
 
 #include <linux/kref.h>
+#include <linux/lockdep_types.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
@@ -46,71 +78,12 @@ typedef void (*iif_fence_all_signaler_submitted_cb_t)(
 enum iif_fence_state {
 	/* Initial state. */
 	IIF_FENCE_STATE_INITIALIZED,
-	/* There is a sync file bound with this fence. */
-	IIF_FENCE_STATE_FILE_CREATED,
-	/* The file bound to this fence has been released. */
-	IIF_FENCE_STATE_FILE_RELEASED,
 	/* The fence ID has been retired. */
 	IIF_FENCE_STATE_RETIRED,
 };
 
-/* The fence object. */
-struct iif_fence {
-	/* IIF manager. */
-	struct iif_manager *mgr;
-	/* Fence ID. */
-	int id;
-	/* Signaler IP type. */
-	enum iif_ip_type signaler_ip;
-	/* The number of total signalers to be submitted. */
-	uint16_t total_signalers;
-	/* The number of submitted signalers. */
-	uint16_t submitted_signalers;
-	/*
-	 * Protects @submitted_signalers, @all_signaler_submitted_cb_list and
-	 * @all_signaler_submitted_error.
-	 */
-	spinlock_t submitted_signalers_lock;
-	/* The interrupt state before holding @submitted_signalers_lock. */
-	unsigned long submitted_signalers_lock_flags;
-	/* The number of signaled signalers. */
-	uint16_t signaled_signalers;
-	/* Protects @signaled_signalers, @poll_cb_list and @signal_error. */
-	spinlock_t signaled_signalers_lock;
-	/* The number of outstanding waiters. */
-	uint16_t outstanding_waiters;
-	/* Protects @outstanding_waiters. */
-	spinlock_t outstanding_waiters_lock;
-	/* Reference count. */
-	struct kref kref;
-	/* Operators. */
-	const struct iif_fence_ops *ops;
-	/* State of this fence object. */
-	enum iif_fence_state state;
-	/* List of callbacks which will be called when the fence is signaled. */
-	struct list_head poll_cb_list;
-	/* List of callbacks which will be called when all signalers have been submitted. */
-	struct list_head all_signaler_submitted_cb_list;
-	/* Will be set to a negative errno if the fence is signaled with an error. */
-	int signal_error;
-	/* Will be set to a negative errno if waiting the signaler submission fails. */
-	int all_signaler_submitted_error;
-};
-
-/* Operators of `struct iif_fence`. */
-struct iif_fence_ops {
-	/*
-	 * Called on destruction of @fence to release additional resources when its reference count
-	 * becomes zero.
-	 *
-	 * This callback is optional.
-	 * Context: normal and in_interrupt().
-	 */
-	void (*on_release)(struct iif_fence *fence);
-};
-
 /*
- * Contains the callback function which will be called when all signalers have signaled the fence.
+ * Contains the callback function which will be called when the fence has been unblocked.
  *
  * The callback can be registered to the fence by the `iif_fence_add_poll_callback` function.
  */
@@ -134,6 +107,68 @@ struct iif_fence_all_signaler_submitted_cb {
 	iif_fence_all_signaler_submitted_cb_t func;
 	/* The number of remaining signalers to be submitted. */
 	int remaining_signalers;
+};
+
+/* The fence object. */
+struct iif_fence {
+	/* IIF manager. */
+	struct iif_manager *mgr;
+	/* Fence ID. */
+	int id;
+	/* Signaler IP type. */
+	enum iif_ip_type signaler_ip;
+	/* The number of total signalers to be submitted. */
+	uint16_t total_signalers;
+	/* The number of submitted signalers. */
+	uint16_t submitted_signalers;
+	/*
+	 * Protects @submitted_signalers, @all_signaler_submitted_cb_list and
+	 * @all_signaler_submitted_error.
+	 */
+	spinlock_t submitted_signalers_lock;
+#if IS_ENABLED(CONFIG_DEBUG_SPINLOCK)
+	struct lock_class_key submitted_signalers_key;
+#endif /* IS_ENABLED(CONFIG_DEBUG_SPINLOCK) */
+	/* The interrupt state before holding @submitted_signalers_lock. */
+	unsigned long submitted_signalers_lock_flags;
+	/* The number of signaled signalers. */
+	uint16_t signaled_signalers;
+	/* Protects @signaled_signalers, @poll_cb_list and @signal_error. */
+	spinlock_t signaled_signalers_lock;
+	/* The number of outstanding waiters. */
+	uint16_t outstanding_waiters;
+	/* Protects @outstanding_waiters. */
+	spinlock_t outstanding_waiters_lock;
+	/* Reference count. */
+	struct kref kref;
+	/* Operators. */
+	const struct iif_fence_ops *ops;
+	/* State of this fence object. */
+	enum iif_fence_state state;
+	/* List of callbacks which will be called when the fence is unblocked. */
+	struct list_head poll_cb_list;
+	/* List of callbacks which will be called when all signalers have been submitted. */
+	struct list_head all_signaler_submitted_cb_list;
+	/* Will be set to a negative errno if the fence is signaled with an error. */
+	int signal_error;
+	/* Will be set to a negative errno if waiting the signaler submission fails. */
+	int all_signaler_submitted_error;
+	/* The number of sync_file(s) bound to the fence. */
+	atomic_t num_sync_file;
+	/* The callback called if the fence's signaler is AP and the fence is unblocked. */
+	struct iif_fence_poll_cb ap_poll_cb;
+};
+
+/* Operators of `struct iif_fence`. */
+struct iif_fence_ops {
+	/*
+	 * Called on destruction of @fence to release additional resources when its reference count
+	 * becomes zero.
+	 *
+	 * This callback is optional.
+	 * Context: normal and in_interrupt().
+	 */
+	void (*on_release)(struct iif_fence *fence);
 };
 
 /*
@@ -200,22 +235,39 @@ int iif_fence_submit_signaler_locked(struct iif_fence *fence);
  */
 int iif_fence_submit_waiter(struct iif_fence *fence, enum iif_ip_type ip);
 
-/* Signals @fence. If all signalers have signaled, it will notify polling FDs. */
-void iif_fence_signal(struct iif_fence *fence);
+/*
+ * Signals @fence.
+ *
+ * If all signaler commands have called this function for the fence and it has been unblocked, all
+ * registered poll callbacks will be executed.
+ *
+ * Returns the number of remaining signals on success. Otherwise, returns a negative errno.
+ */
+int iif_fence_signal(struct iif_fence *fence);
 
 /*
- * Sets @fence->signal_error to let the user know that @fence has been signaled with an error.
+ * Signals @fence with a status.
  *
- * Drivers can supply an optional error status before they signal @fence to indicate that @fence
- * was signaled due to an error rather than success.
+ * Basically, its functionality is the same as the `iif_fence_signal` function above, but the user
+ * can supply an optional error status.
+ *
+ * If the signal error was set, it will make the fence as unblocked even though the number of
+ * remaining signals before this function call was bigger than 1. That says all registered poll
+ * callbacks will be executed to propagate the fence error to the ones polling the fence
+ * immediately.
+ *
+ * If the caller passes 0 to @error, its functionality is the same as the `iif_fence_signal`
+ * function.
+ *
+ * Returns the number of remaining signals on success. Otherwise, returns a negative errno.
  */
-void iif_fence_set_signal_error(struct iif_fence *fence, int error);
+int iif_fence_signal_with_status(struct iif_fence *fence, int error);
 
 /*
  * Returns the signal status of @fence.
  *
- * Returns 0 if the fence hasn't been signaled yet, 1 if the fence has been signaled without any
- * error, or a negative errno if the fence has been completed with an error.
+ * Returns 0 if the fence hasn't been unblocked yet, 1 if the fence has been unblocked without any
+ * error, or a negative errno if the fence has been signaled with an error at least once.
  */
 int iif_fence_get_signal_status(struct iif_fence *fence);
 
@@ -228,16 +280,16 @@ int iif_fence_get_signal_status(struct iif_fence *fence);
  */
 bool iif_fence_is_signaled(struct iif_fence *fence);
 
-/* Notifies the driver that a waiter finished waiting on @fence. */
-void iif_fence_waited(struct iif_fence *fence);
+/* Notifies the driver that a waiter of @ip finished waiting on @fence. */
+void iif_fence_waited(struct iif_fence *fence, enum iif_ip_type ip);
 
 /*
- * Registers a callback which will be called when all signalers of @fence signaled. Once the
- * callback is called, it will be automatically unregistered from @fence. The @func can be called
- * in the IRQ context.
+ * Registers a callback which will be called when @fence has been unblocked. Once the callback is
+ * called, it will be automatically unregistered from @fence. The @func can be called in the IRQ
+ * context.
  *
  * Returns 0 if succeeded. Otherwise, returns a negative errno on failure. Note that even when
- * @fence is already signaled, it won't add the callback and return -EPERM.
+ * @fence is already unblocked, it won't add the callback and return -EPERM.
  */
 int iif_fence_add_poll_callback(struct iif_fence *fence, struct iif_fence_poll_cb *poll_cb,
 				iif_fence_poll_cb_t func);
@@ -245,7 +297,7 @@ int iif_fence_add_poll_callback(struct iif_fence *fence, struct iif_fence_poll_c
 /*
  * Unregisters the callback from @fence.
  *
- * Returns true if the callback is removed before @fence is signaled.
+ * Returns true if the callback is removed before @fence is unblocked.
  */
 bool iif_fence_remove_poll_callback(struct iif_fence *fence, struct iif_fence_poll_cb *poll_cb);
 

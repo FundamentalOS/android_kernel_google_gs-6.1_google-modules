@@ -243,6 +243,12 @@ int gxp_mailbox_unregister_interrupt_handler(struct gxp_mailbox *mailbox,
 					     u32 int_bit);
 
 /*
+ * Initialises the mailbox CSRs.
+ * Must be called only after mailbox is allocated via gxp_mailbox_alloc().
+ */
+void gxp_mailbox_reinit(struct gxp_mailbox *mailbox);
+
+/*
  * Executes command synchronously. If @resp is not NULL, the response will be returned to it.
  * See the `gcip_mailbox_send_cmd` of `gcip-mailbox.h` or `gcip_kci_send_cmd` of `gcip-kci.h`
  * for detail.

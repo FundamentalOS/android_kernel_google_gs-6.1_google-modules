@@ -320,9 +320,6 @@ static int enable_mailbox(struct gxp_mailbox *mailbox)
 {
 	int ret;
 
-	gxp_mailbox_write_descriptor(mailbox, mailbox->descriptor_buf.dsp_addr);
-	gxp_mailbox_reset(mailbox);
-
 	ret = init_mailbox_impl(mailbox);
 	if (ret)
 		return ret;
@@ -332,12 +329,16 @@ static int enable_mailbox(struct gxp_mailbox *mailbox)
 	kthread_init_work(&mailbox->response_work,
 			  gxp_mailbox_consume_responses_work);
 
-	/* Only enable interrupts once everything has been setup */
-	gxp_mailbox_driver_enable_interrupts(mailbox);
-	/* Enable the mailbox */
-	gxp_mailbox_write_status(mailbox, 1);
-
+	gxp_mailbox_driver_register_interrupts(mailbox);
 	return 0;
+}
+
+void gxp_mailbox_reinit(struct gxp_mailbox *mailbox)
+{
+	gxp_mailbox_write_descriptor(mailbox, mailbox->descriptor_buf.dsp_addr);
+	gxp_mailbox_reset(mailbox);
+	gxp_mailbox_enable_interrupt(mailbox);
+	gxp_mailbox_write_status(mailbox, 1);
 }
 
 struct gxp_mailbox *gxp_mailbox_alloc(struct gxp_mailbox_manager *mgr,

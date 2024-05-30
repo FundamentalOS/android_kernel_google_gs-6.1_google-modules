@@ -26,6 +26,9 @@
  */
 #define IIF_NUM_FENCES_PER_IP 1024
 
+/* The maximum number of fences can be passed to one ioctl request. */
+#define IIF_MAX_NUM_FENCES 64
+
 /*
  * Type of IPs.
  *
@@ -36,6 +39,7 @@ enum iif_ip_type {
 	IIF_IP_DSP,
 	IIF_IP_TPU,
 	IIF_IP_GPU,
+	IIF_IP_AP,
 	IIF_IP_NUM,
 
 	/* Reserve the number of IP type to expand the fence table easily in the future. */
@@ -44,7 +48,82 @@ enum iif_ip_type {
 
 /*
  * ioctls for /dev/iif.
- * TODO(b/312161537): introduce ioctls once we have a standalone IIF driver.
+ */
+
+struct iif_create_fence_ioctl {
+	/*
+	 * Input:
+	 * The type of the fence signaler IP. (See enum iif_ip_type)
+	 */
+	__u8 signaler_ip;
+	/*
+	 * Input:
+	 * The number of the signalers.
+	 */
+	__u16 total_signalers;
+	/*
+	 * Output:
+	 * The file descriptor of the created fence.
+	 */
+	__s32 fence;
+};
+
+/* Create an IIF fence. */
+#define IIF_CREATE_FENCE _IOWR(IIF_IOCTL_BASE, 0, struct iif_create_fence_ioctl)
+
+/*
+ * The ioctl won't register @eventfd and will simply return the number of
+ * remaining signalers of each fence.
+ */
+#define IIF_FENCE_REMAINING_SIGNALERS_NO_REGISTER_EVENTFD (~0u)
+
+struct iif_fence_remaining_signalers_ioctl {
+	/*
+	 * Input:
+	 * User-space pointer to an int array of inter-IP fence file descriptors
+	 * to check whether there are remaining signalers to be submitted or
+	 * not.
+	 */
+	__u64 fences;
+	/*
+	 * Input:
+	 * The number of fences in `fence_array`.
+	 * If > IIF_MAX_NUM_FENCES, the ioctl will fail with errno == EINVAL.
+	 */
+	__u32 fences_count;
+	/*
+	 * Input:
+	 * The eventfd which will be triggered if there were fence(s) which
+	 * haven't finished the signaler submission yet when the ioctl is called
+	 * and when they eventually have finished the submission. Note that if
+	 * all fences already finished the submission (i.e., all values in the
+	 * returned @remaining_signalers are 0), this eventfd will be ignored.
+	 *
+	 * Note that if `IIF_FENCE_REMAINING_SIGNALERS_NO_REGISTER_EVENTFD` is
+	 * passed, this ioctl will simply return the number of remaining
+	 * signalers of each fence to @remaining_signalers.
+	 */
+	__u32 eventfd;
+	/*
+	 * Output:
+	 * User-space pointer to an int array where the driver will write the
+	 * number of remaining signalers to be submitted per fence. The order
+	 * will be the same with @fences.
+	 */
+	__u64 remaining_signalers;
+};
+
+/*
+ * Check whether there are remaining signalers to be submitted to fences.
+ * If all signalers have been submitted, the runtime is expected to send waiter
+ * commands right away. Otherwise, it will listen the eventfd to wait signaler
+ * submission to be finished.
+ */
+#define IIF_FENCE_REMAINING_SIGNALERS \
+	_IOWR(IIF_IOCTL_BASE, 1, struct iif_fence_remaining_signalers_ioctl)
+
+/*
+ * ioctls for inter-IP fence FDs.
  */
 
 struct iif_fence_get_information_ioctl {
@@ -61,10 +140,6 @@ struct iif_fence_get_information_ioctl {
 	/* Reserved. */
 	__u8 reserved[7];
 };
-
-/*
- * ioctls for inter-IP fence FDs.
- */
 
 /* Returns the fence information. */
 #define IIF_FENCE_GET_INFORMATION \

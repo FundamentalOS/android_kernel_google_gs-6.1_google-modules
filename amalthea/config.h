@@ -28,8 +28,6 @@
 
 #define GXP_HAS_MCU 0
 
-#define GXP_ENABLE_DEBUG_DUMP 0
-
 #include "config-pwr-state.h"
 #include "context.h"
 #include "csrs.h"
