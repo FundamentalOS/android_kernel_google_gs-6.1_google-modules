@@ -39,10 +39,6 @@ struct tg4c_panel {
 #define to_spanel(ctx) container_of(ctx, struct tg4c_panel, base)
 
 static const struct gs_dsi_cmd tg4c_lp_cmds[] = {
-	/* Disable the Black insertion in AoD */
-	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00),
-	GS_DSI_CMD(0xC0, 0x54),
-
 	/* disable dimming */
 	GS_DSI_CMD(0x53, 0x20),
 	/* Settings AOD Hclk */
@@ -422,8 +418,6 @@ static void tg4c_set_nolp_mode(struct gs_panel *ctx, const struct gs_panel_mode 
 	if (!gs_is_panel_active(ctx))
 		return;
 	/* exit AOD */
-	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
-	GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x54);
 	if (ctx->panel_rev < PANEL_REV_EVT1_1) {
 		GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x01);
 		GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x03);
