@@ -871,10 +871,10 @@ extern void exynos_pcie_pm_resume(int ch_num);
 #define X86_PCIE_DEVICE_ID 0x9c1a
 #endif /* CONFIG_X86 */
 
-#if defined(CONFIG_ARCH_TEGRA)
+#if defined(CONFIG_PCI_TEGRA)
 #define TEGRA_PCIE_VENDOR_ID 0x14e4
 #define TEGRA_PCIE_DEVICE_ID 0x4347
-#endif /* CONFIG_ARCH_TEGRA */
+#endif /* CONFIG_PCI_TEGRA */
 
 #if defined(BOARD_HIKEY)
 #define HIKEY_PCIE_VENDOR_ID 0x19e5
@@ -893,7 +893,7 @@ extern void exynos_pcie_pm_resume(int ch_num);
 #elif defined(CONFIG_X86)
 #define PCIE_RC_VENDOR_ID X86_PCIE_VENDOR_ID
 #define PCIE_RC_DEVICE_ID X86_PCIE_DEVICE_ID
-#elif defined(CONFIG_ARCH_TEGRA)
+#elif defined(CONFIG_PCI_TEGRA)
 #define PCIE_RC_VENDOR_ID TEGRA_PCIE_VENDOR_ID
 #define PCIE_RC_DEVICE_ID TEGRA_PCIE_DEVICE_ID
 #elif defined(BOARD_HIKEY)
@@ -909,10 +909,10 @@ extern void exynos_pcie_pm_resume(int ch_num);
 #define DHD_REGULAR_RING    0
 #define DHD_HP2P_RING    1
 
-#ifdef CONFIG_ARCH_TEGRA
+#ifdef CONFIG_PCI_TEGRA
 extern int tegra_pcie_pm_suspend(void);
 extern int tegra_pcie_pm_resume(void);
-#endif /* CONFIG_ARCH_TEGRA */
+#endif /* CONFIG_PCI_TEGRA */
 
 extern int dhd_buzzz_dump_dngl(dhd_bus_t *bus);
 #ifdef IDLE_TX_FLOW_MGMT

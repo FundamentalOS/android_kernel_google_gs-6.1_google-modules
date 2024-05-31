@@ -2427,11 +2427,11 @@ dhdpcie_start_host_dev(dhd_bus_t *bus)
 		bus->dev, NULL, 0);
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 #endif /* CONFIG_ARCH_MSM */
-#ifdef CONFIG_ARCH_TEGRA
+#ifdef CONFIG_PCI_TEGRA
 #ifndef CONFIG_ARCH_TEGRA_210_SOC
 	ret = tegra_pcie_pm_resume();
 #endif /* CONFIG_ARCH_TEGRA_210_SOC */
-#endif /* CONFIG_ARCH_TEGRA */
+#endif /* CONFIG_PCI_TEGRA */
 
 	if (ret) {
 		DHD_ERROR(("%s Failed to bring up PCIe link\n", __FUNCTION__));
@@ -2478,11 +2478,11 @@ dhdpcie_stop_host_dev(dhd_bus_t *bus)
 		bus->dev, NULL, 0);
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
 #endif /* CONFIG_ARCH_MSM */
-#ifdef CONFIG_ARCH_TEGRA
+#ifdef CONFIG_PCI_TEGRA
 #ifndef CONFIG_ARCH_TEGRA_210_SOC
 	ret = tegra_pcie_pm_suspend();
 #endif /* CONFIG_ARCH_TEGRA_210_SOC */
-#endif /* CONFIG_ARCH_TEGRA */
+#endif /* CONFIG_PCI_TEGRA */
 	if (ret) {
 		DHD_ERROR(("Failed to stop PCIe link\n"));
 		goto done;
