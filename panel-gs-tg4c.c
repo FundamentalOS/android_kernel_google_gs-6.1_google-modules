@@ -199,7 +199,7 @@ static const struct gs_dsi_cmd tg4c_init_cmds[] = {
 
 	/* b/343332437: Extend DBI Flash Data Update Cycle time */
 	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x04),
-	GS_DSI_CMD(0xBB, 0xB3, 0x01, 0x1F),
+	GS_DSI_CMD(0xBB, 0xB3, 0x01, 0xBC),
 
 	GS_DSI_DELAY_CMD(60, MIPI_DCS_EXIT_SLEEP_MODE)
 };
