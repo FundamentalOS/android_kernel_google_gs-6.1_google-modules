@@ -776,7 +776,7 @@ static void tg4a_set_ssc_en(struct gs_panel *ctx, bool enabled)
 }
 
 static const struct gs_display_underrun_param underrun_param = {
-	.te_idle_us = 500,
+	.te_idle_us = 2510,
 	.te_var = 1,
 };
 
