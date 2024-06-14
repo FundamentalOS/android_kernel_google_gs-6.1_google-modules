@@ -5412,11 +5412,13 @@ void
 dhd_cancel_logtrace_process_sync(dhd_info_t *dhd)
 {
 #ifdef DHD_USE_KTHREAD_FOR_LOGTRACE
-	if (dhd->thr_logtrace_ctl.thr_pid >= 0) {
-		PROC_STOP_USING_BINARY_SEMA(&dhd->thr_logtrace_ctl);
+	tsk_ctl_t *tsk = &dhd->thr_logtrace_ctl;
+
+	if (tsk->parent && tsk->thr_pid >= 0) {
+		PROC_STOP_USING_BINARY_SEMA(tsk);
 	} else {
-		DHD_ERROR(("%s: thr_logtrace_ctl(%ld) not inited\n", __FUNCTION__,
-			dhd->thr_logtrace_ctl.thr_pid));
+		DHD_ERROR(("%s: thr_logtrace_ctl(%ld) not inited\n",
+			__FUNCTION__, tsk->thr_pid));
 	}
 #else
 	cancel_delayed_work_sync(&dhd->event_log_dispatcher_work);
@@ -5430,7 +5432,7 @@ dhd_flush_logtrace_process(dhd_info_t *dhd)
 	tsk_ctl_t *tsk = &dhd->thr_logtrace_ctl;
 
 	if (tsk->parent && tsk->thr_pid >= 0) {
-		PROC_FLUSH_USING_BINARY_SEMA(&dhd->thr_logtrace_ctl);
+		PROC_FLUSH_USING_BINARY_SEMA(tsk);
 	} else {
 		DHD_ERROR(("%s: thr_logtrace_ctl(%ld) not inited\n",
 			__FUNCTION__, tsk->thr_pid));
