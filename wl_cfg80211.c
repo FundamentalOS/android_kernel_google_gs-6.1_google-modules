@@ -2736,7 +2736,7 @@ fail:
 		SUPP_LOG(("IF_ADD fail. err:%d\n", err));
 		wl_flush_fw_log_buffer(primary_ndev, FW_LOGSET_MASK_ALL);
 #if defined(BCMDONGLEHOST)
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			goto exit;
 		}
 		dhd->iface_op_failed = TRUE;
@@ -2927,7 +2927,7 @@ exit:
 			/* IF dongle is down due to previous hang or other conditions, sending
 			* one more hang notification is not needed.
 			*/
-			if (dhd_query_bus_erros(dhd) || (ret == BCME_DONGLE_DOWN)) {
+			if (dhd_query_bus_errors(dhd) || (ret == BCME_DONGLE_DOWN)) {
 				goto end;
 			}
 			dhd->iface_op_failed = TRUE;
@@ -7317,7 +7317,7 @@ wl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *dev,
 #endif /* BCMDONGLEHOST */
 
 #if defined (BCMDONGLEHOST)
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		/* If we are hit with bus error, return success so that
 		 * don't repeatedly call del station till we recover.
 		 */
@@ -7541,7 +7541,7 @@ wl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *dev,
 	uint8 iov_buf[WLC_IOCTL_SMLEN] = {0};
 
 #if defined (BCMDONGLEHOST)
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		/* If we are hit with bus error, return success so that
 		 * don't repeatedly call del station till we recover.
 		 */
@@ -11141,7 +11141,7 @@ wl_check_brcm_specifc_country_code(char *country_code)
 }
 
 static s32
-wl_cfg80211_update_self_regd(struct bcm_cfg80211 *cfg, char *ccode)
+wl_cfg80211_update_self_regd(struct bcm_cfg80211 *cfg, char *ccode, bool user_trigger)
 {
 	s32 err = BCME_OK;
 	struct wiphy *wiphy = bcmcfg_to_wiphy(cfg);
@@ -11199,7 +11199,7 @@ wl_cfg80211_update_self_regd(struct bcm_cfg80211 *cfg, char *ccode)
 		}
 		if (wiphy) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
-			if (rtnl_is_locked()) {
+			if (rtnl_is_locked() && user_trigger) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0))
 				wiphy_lock(wiphy);
 				regulatory_set_wiphy_regd_sync(wiphy, regd_copy);
@@ -11285,7 +11285,7 @@ wl_cfg80211_set_country_code(struct net_device *net, char *country_code,
 	 * can refresh the channel
 	 * list
 	 */
-	ret = wl_cfg80211_update_self_regd(cfg, country_code);
+	ret = wl_cfg80211_update_self_regd(cfg, country_code, user_enforced);
 
 exit:
 	return ret;
@@ -15499,7 +15499,7 @@ wl_cfg80211_ccode_evt_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgde
 		return err;
 	}
 
-	wl_cfg80211_update_self_regd(cfg, country_str_lookup);
+	wl_cfg80211_update_self_regd(cfg, country_str_lookup, false);
 
 	return err;
 }
@@ -18764,7 +18764,7 @@ s32 wl_cfg80211_up(struct net_device *net)
 	}
 	if (strncmp(cfg->country, cur_cspec.ccode, WL_CCODE_LEN)) {
 		strncpy(cfg->country, cur_cspec.ccode, WL_CCODE_LEN);
-		wl_cfg80211_update_self_regd(cfg, cur_cspec.ccode);
+		wl_cfg80211_update_self_regd(cfg, cur_cspec.ccode, true);
 	}
 #endif /* CUSTOMER_HW6 || WIPHY_DYNAMIC_UPDATE */
 	return err;
@@ -23737,7 +23737,7 @@ wl_cfg80211_handle_hang_event(struct net_device *ndev, uint16 hang_reason, uint3
 		 * sending 0ne more hang notification is not needed.
 		 */
 
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			return BCME_ERROR;
 		}
 		dhd->iface_op_failed = TRUE;

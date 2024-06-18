@@ -1742,7 +1742,6 @@ dhdpcie_request_irq(dhdpcie_info_t *dhdpcie_info)
 {
 	dhd_bus_t *bus = dhdpcie_info->bus;
 	struct pci_dev *pdev = dhdpcie_info->bus->dev;
-	int host_irq_disabled;
 
 	if (!bus->irq_registered) {
 		snprintf(dhdpcie_info->pciname, sizeof(dhdpcie_info->pciname),
@@ -1771,12 +1770,7 @@ dhdpcie_request_irq(dhdpcie_info_t *dhdpcie_info)
 		DHD_ERROR(("%s: PCI IRQ is already registered\n", __FUNCTION__));
 	}
 
-	host_irq_disabled = dhdpcie_irq_disabled(bus);
-	if (host_irq_disabled) {
-		DHD_ERROR(("%s: PCIe IRQ was disabled(%d), so, enabled it again\n",
-			__FUNCTION__, host_irq_disabled));
-		dhdpcie_enable_irq(bus);
-	}
+	dhdpcie_enable_irq_loop(bus);
 
 	DHD_TRACE(("%s %s\n", __FUNCTION__, dhdpcie_info->pciname));
 
@@ -2290,12 +2284,12 @@ dhdpcie_free_irq(dhd_bus_t *bus)
 	if (bus) {
 		pdev = bus->dev;
 		if (bus->irq_registered) {
-#if defined(SET_PCIE_IRQ_CPU_CORE) && defined(CONFIG_ARCH_SM8150)
+#if defined(CLEAN_IRQ_AFFINITY_HINT) || (defined(SET_PCIE_IRQ_CPU_CORE) && defined(CONFIG_ARCH_SM8150))
 			/* clean up the affinity_hint before
 			 * the unregistration of PCIe irq
 			 */
 			(void)irq_set_affinity_hint(pdev->irq, NULL);
-#endif /* SET_PCIE_IRQ_CPU_CORE && CONFIG_ARCH_SM8150 */
+#endif /* CLEAN_IRQ_AFFINITY_HINT || (SET_PCIE_IRQ_CPU_CORE && CONFIG_ARCH_SM8150) */
 			free_irq(pdev->irq, bus);
 			bus->irq_registered = FALSE;
 			if (bus->d2h_intr_method == PCIE_MSI) {
@@ -2380,6 +2374,17 @@ dhdpcie_enable_irq(dhd_bus_t *bus)
 	dev = bus->dev;
 	enable_irq(dev->irq);
 	return BCME_OK;
+}
+
+void
+dhdpcie_enable_irq_loop(dhd_bus_t *bus)
+{
+	/* Enable IRQ in a loop till host_irq_disable_count becomes 0 */
+	uint host_irq_disable_count = dhdpcie_irq_disabled(bus);
+	while (host_irq_disable_count--) {
+		dhdpcie_enable_irq(bus); /* Enable back interrupt!! */
+		bus->dpc_intr_enable_count++;
+	}
 }
 
 int
@@ -3115,7 +3120,7 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 
 	DHD_TRACE(("%s : Enter \n", __FUNCTION__));
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		/* Becasue bus_error/dongle_trap ... etc,
 		 * driver don't allow enter suspend, return FALSE
 		 */
@@ -3147,17 +3152,8 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 				DHD_GENERAL_UNLOCK(dhd, flags);
 				if (bus->dhd->rx_pending_due_to_rpm) {
 					/* Reschedule tasklet to process Rx frames */
-					DHD_ERROR(("%s: Schedule DPC to process pending"
-						" Rx packets\n", __FUNCTION__));
-					/* irq will be enabled at the end of dpc */
+					DHD_ERROR(("Schedule DPC to process pending Rx packet Rx packets\n"));
 					dhd_schedule_delayed_dpc_on_dpc_cpu(bus->dhd, 0);
-				} else {
-					/* enabling host irq deferred from system suspend */
-					if (dhdpcie_irq_disabled(bus)) {
-						dhdpcie_enable_irq(bus);
-						/* increasing intrrupt count when it enabled */
-						bus->resume_intr_enable_count++;
-					}
 				}
 				smp_wmb();
 				wake_up(&bus->rpm_queue);
@@ -3195,14 +3191,7 @@ bool dhd_runtimepm_state(dhd_pub_t *dhd)
 				DHD_ERROR(("%s: Schedule DPC to process pending Rx packets\n",
 					__FUNCTION__));
 				bus->rpm_sched_dpc_time = OSL_LOCALTIME_NS();
-				dhd_sched_dpc(bus->dhd);
-			}
-
-			/* enabling host irq deferred from system suspend */
-			if (dhdpcie_irq_disabled(bus)) {
-				dhdpcie_enable_irq(bus);
-				/* increasing intrrupt count when it enabled */
-				bus->resume_intr_enable_count++;
+				dhd_schedule_delayed_dpc_on_dpc_cpu(bus->dhd, 0);
 			}
 
 			smp_wmb();

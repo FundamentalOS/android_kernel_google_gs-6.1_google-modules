@@ -1258,7 +1258,7 @@ wl_cfg80211_change_virtual_iface(struct wiphy *wiphy, struct net_device *ndev,
 		WL_IF_CHANGE_REQ, wl_iftype, wl_mode);
 
 #if defined (BCMDONGLEHOST)
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		WL_ERR(("bus error before changing role!\n"));
 		err = -EINVAL;
 		goto fail;
@@ -2830,7 +2830,7 @@ wl_cfg80211_ap_timeout_work(struct work_struct *work)
 
 	WL_ERR(("** AP LINK UP TIMEOUT **\n"));
 	dhdp = (dhd_pub_t *)(cfg->pub);
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		return;
 	}
 #ifdef DHD_PCIE_RUNTIMEPM
@@ -6051,7 +6051,7 @@ wl_set_ap_suspend_error_handler(struct net_device *ndev, bool suspend)
 		/* IF dongle is down due to previous hang or other conditions, sending
 		* one more hang notification is not needed.
 		*/
-		if (dhd_query_bus_erros(dhdp)) {
+		if (dhd_query_bus_errors(dhdp)) {
 			return;
 		}
 		dhdp->iface_op_failed = TRUE;

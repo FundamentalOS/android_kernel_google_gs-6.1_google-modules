@@ -730,7 +730,7 @@ dhd_fw_download_status(dhd_pub_t * dhd_pub)
 #endif /* defined(LINUX) || defined(linux) || defined(DHD_EFI) */
 
 bool
-dhd_query_bus_erros(dhd_pub_t *dhdp)
+dhd_query_bus_errors(dhd_pub_t *dhdp)
 {
 	bool ret = FALSE;
 
@@ -1992,7 +1992,7 @@ dhd_wl_ioctl(dhd_pub_t *dhd_pub, int ifidx, wl_ioctl_t *ioc, void *buf, int len)
 	uint16 action = 0;
 #endif /* REPORT_FATAL_TIMEOUTS */
 
-	if (dhd_query_bus_erros(dhd_pub)) {
+	if (dhd_query_bus_errors(dhd_pub)) {
 		return -ENODEV;
 	}
 
@@ -8819,7 +8819,7 @@ dhd_cmd_timeout(void *ctx)
 			ASSERT(0);
 		}
 		dhd_wakeup_ioctl_event(pub, IOCTL_RETURN_ON_ERROR);
-		if (!dhd_query_bus_erros(pub))
+		if (!dhd_query_bus_errors(pub))
 			dhd_send_trap_to_fw_for_timeout(pub, DHD_REASON_COMMAND_TO);
 	} else {
 		DHD_TIMER_UNLOCK(pub->timeout_info->cmd_timer_lock, flags);
@@ -8950,7 +8950,7 @@ dhd_join_timeout(void *ctx)
 			DHD_ERROR(("\n%s ERROR JOIN TIMEOUT TO:%d:0x%x\n", __FUNCTION__,
 				pub->timeout_info->join_timeout_val,
 				pub->timeout_info->cmd_join_error));
-			if (!dhd_query_bus_erros(pub)) {
+			if (!dhd_query_bus_errors(pub)) {
 				dhd_send_trap_to_fw_for_timeout(pub, DHD_REASON_JOIN_TO);
 			}
 			pub->timeout_info->cmd_join_error = 0;
@@ -9071,7 +9071,7 @@ dhd_scan_timeout(void *ctx)
 		DHD_ERROR(("\nERROR SCAN TIMEOUT TO:%d\n", pub->timeout_info->scan_timeout_val));
 		DHD_TIMER_UNLOCK(pub->timeout_info->scan_timer_lock, flags);
 		dhd_stop_scan_timer(pub, FALSE, 0);
-		if (!dhd_query_bus_erros(pub))
+		if (!dhd_query_bus_errors(pub))
 			dhd_send_trap_to_fw_for_timeout(pub, DHD_REASON_SCAN_TO);
 	} else {
 		DHD_TIMER_UNLOCK(pub->timeout_info->scan_timer_lock, flags);
@@ -9202,7 +9202,7 @@ dhd_bus_timeout(void *ctx)
 			DHD_ERROR(("%s: dhd_stop_bus_timer() failed\n", __FUNCTION__));
 			ASSERT(0);
 		}
-		if (!dhd_query_bus_erros(pub)) {
+		if (!dhd_query_bus_errors(pub)) {
 			dhd_send_trap_to_fw_for_timeout(pub, DHD_REASON_OQS_TO);
 		}
 #ifdef BCMPCIE

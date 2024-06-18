@@ -3521,7 +3521,7 @@ wl_cfgnan_disable(struct bcm_cfg80211 *cfg)
 		ret = wl_cfgnan_deinit(cfg, dhdp->up);
 		if (ret != BCME_OK) {
 			WL_ERR(("failed to de-initialize NAN[%d]\n", ret));
-			if (!dhd_query_bus_erros(dhdp)) {
+			if (!dhd_query_bus_errors(dhdp)) {
 				ASSERT(0);
 			}
 		}

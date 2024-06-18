@@ -1181,7 +1181,7 @@ dhd_prot_d2h_sync_livelock(dhd_pub_t *dhd, uint32 msg_seqnum, msgbuf_ring_t *rin
 {
 	uint32 ring_seqnum = ring->seqnum;
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		return;
 	}
 
@@ -2364,7 +2364,7 @@ dhd_pktid_audit_ring_debug(dhd_pub_t *dhdp, dhd_pktid_map_t *map, uint32 pktid,
 {
 	int ret = BCME_OK;
 
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		return BCME_ERROR;
 	}
 
@@ -6253,7 +6253,7 @@ BCMFASTPATH(dhd_prot_process_msgbuf_btlogcpl)(dhd_pub_t *dhd, uint bound)
 		uint8 *msg_addr;
 		uint32 msg_len;
 
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			more = FALSE;
 			break;
 		}
@@ -6318,7 +6318,7 @@ dhd_prot_process_msgbuf_edl(dhd_pub_t *dhd)
 		return FALSE;
 	}
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		return FALSE;
 	}
 
@@ -6673,7 +6673,7 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, uint bound, int ringt
 		if (dhd_is_device_removed(dhd))
 			break;
 
-		if (dhd_query_bus_erros(dhd))
+		if (dhd_query_bus_errors(dhd))
 			break;
 
 		if (dhd->hang_was_sent)
@@ -6999,7 +6999,7 @@ BCMFASTPATH(dhd_prot_process_msgbuf_txcpl)(dhd_pub_t *dhd, uint bound, int ringt
 		uint8 *msg_addr;
 		uint32 msg_len;
 
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			more = FALSE;
 			break;
 		}
@@ -7122,7 +7122,7 @@ BCMFASTPATH(dhd_prot_process_ctrlbuf)(dhd_pub_t *dhd)
 		uint8 *msg_addr;
 		uint32 msg_len;
 
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			break;
 		}
 
@@ -9696,7 +9696,7 @@ int dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int 
 		goto done;
 	}
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		DHD_ERROR_RLMT(("%s : some BUS error. we have nothing to do\n", __FUNCTION__));
 		goto done;
 	}
@@ -10372,7 +10372,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		ret = -EIO;
 		goto out;
 	}
@@ -10396,7 +10396,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 			dhd->bus->sih->buscoreidx, dhd->bus->pcie_mailbox_int, 0, 0);
 		int host_irq_disbled = dhdpcie_irq_disabled(dhd->bus);
 		if ((intstatus) && (intstatus != (uint32)-1) &&
-			(timeleft == 0) && (!dhd_query_bus_erros(dhd))) {
+			(timeleft == 0) && (!dhd_query_bus_errors(dhd))) {
 			DHD_ERROR(("%s: iovar timeout trying again intstatus=%x"
 				" host_irq_disabled=%d\n",
 				__FUNCTION__, intstatus, host_irq_disbled));
@@ -10410,7 +10410,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 	}
 #endif /* DHD_RECOVER_TIMEOUT */
 
-	if (timeleft == 0 && (!dhd_query_bus_erros(dhd))) {
+	if (timeleft == 0 && (!dhd_query_bus_errors(dhd))) {
 		if (dhd->check_trap_rot) {
 			/* check dongle trap first */
 			DHD_ERROR(("Check dongle trap in the case of iovar timeout\n"));
@@ -10907,7 +10907,7 @@ dhd_fillup_ioct_reqst(dhd_pub_t *dhd, uint16 len, uint cmd, void* buf, int ifidx
 	s64 diff_ns;
 #endif /* DBG_DW_CHK_PCIE_READ_LATENCY */
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		return -EIO;
 	}
 

@@ -4420,7 +4420,7 @@ BCMFASTPATH(dhd_start_xmit)(struct sk_buff *skb, struct net_device *net)
 	dhd->cpu_qstats[qidx][cpuid]++;
 #endif /* DHD_MQ && DHD_MQ_STATS */
 
-	if (dhd_query_bus_erros(&dhd->pub)) {
+	if (dhd_query_bus_errors(&dhd->pub)) {
 		return -ENODEV;
 	}
 
@@ -5794,7 +5794,7 @@ dhd_check_shinfo_nrfrags(dhd_pub_t *dhdp, void *pktbuf,
 			(uint64)skb, (uint64)(skb->data), (uint64)(skb->head), (uint64)(skb->tail),
 			(uint64)(skb->end), skb->len, (uint64)shinfo, pktid));
 		prhex("shinfo", (char*)shinfo, sizeof(struct skb_shared_info));
-		if (!dhd_query_bus_erros(dhdp)) {
+		if (!dhd_query_bus_errors(dhdp)) {
 #ifdef DHD_FW_COREDUMP
 			/* Collect socram dump */
 			if (dhdp->memdump_enabled) {
@@ -9086,7 +9086,7 @@ dhd_stop(struct net_device *net)
 #endif /* DHD_HANG_SEND_UP_TEST */
 
 #if defined(WLAN_ACCEL_BOOT)
-	if (!dhd->wl_accel_force_reg_on && dhd_query_bus_erros(&dhd->pub)) {
+	if (!dhd->wl_accel_force_reg_on && dhd_query_bus_errors(&dhd->pub)) {
 		DHD_ERROR(("%s: set force reg on\n", __FUNCTION__));
 		dhd->wl_accel_force_reg_on = TRUE;
 	}
@@ -9548,7 +9548,7 @@ dhd_open(struct net_device *net)
 			return -1;
 #endif /* WLAN_ACCEL_SKIP_WQ_IN_ATTACH */
 		}
-		if (!dhd->wl_accel_force_reg_on && dhd_query_bus_erros(&dhd->pub)) {
+		if (!dhd->wl_accel_force_reg_on && dhd_query_bus_errors(&dhd->pub)) {
 			DHD_ERROR(("%s: set force reg on\n", __FUNCTION__));
 			dhd->wl_accel_force_reg_on = TRUE;
 		}
