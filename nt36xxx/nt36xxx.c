@@ -354,6 +354,10 @@ int32_t CTP_SPI_READ(struct spi_device *client, uint8_t *buf, uint16_t len)
 		if (ret == 0)
 			break;
 		retries++;
+		if (ret == -ESHUTDOWN) {
+			NVT_LOGI("wait spi_controller_resume complete!\n");
+			usleep_range(10 * 1000, 10 * 1000 + 1);
+		}
 	}
 
 	if (unlikely(retries == 5)) {
