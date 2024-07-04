@@ -22,10 +22,6 @@
 #include <linux/kernel.h>
 #include "nt36xxx.h"
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
-#define sysfs_emit(buf, fmt, ...) snprintf(buf, PAGE_SIZE, fmt, ##__VA_ARGS__)
-#endif
-
 #if NVT_TOUCH_EXT_API
 #define PLAYBACK_RAWDATA_ADDR             0x26238
 #define GET_CALIBRATION_ADDR              0x2B31A
@@ -2084,6 +2080,25 @@ static ssize_t nvt_mp_settings_mode_store(struct device *dev,
 }
 #endif // SPI_FLASH
 
+static ssize_t nvt_selftest_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret = 0;
+
+	NVT_LOGD("++\n");
+
+	if (nvt_selftest()) {
+		NVT_LOGE("abort(ret %d)!\n", ret);
+		ret = sysfs_emit(buf, "selftest abort!\n");
+		return ret;
+	}
+
+	ret = sysfs_show_selftest(buf);
+
+	NVT_LOGD("--\n");
+	return ret;
+}
+
 #if defined(CONFIG_SOC_GOOGLE)
 static DEVICE_ATTR_RW(force_touch_active);
 static DEVICE_ATTR_RW(force_release_fw);
@@ -2121,6 +2136,7 @@ static DEVICE_ATTR_RO(nvt_fw_history);
 #if SPI_FLASH
 static DEVICE_ATTR_RW(nvt_mp_settings_mode);
 #endif // SPI_FLASH
+static DEVICE_ATTR_RO(nvt_selftest);
 
 static struct attribute *nvt_api_attrs[] = {
 #if defined(CONFIG_SOC_GOOGLE)
@@ -2160,6 +2176,7 @@ static struct attribute *nvt_api_attrs[] = {
 #if SPI_FLASH
 	&dev_attr_nvt_mp_settings_mode.attr,
 #endif // SPI_FLASH
+	&dev_attr_nvt_selftest.attr,
 	NULL
 };
 

@@ -26,12 +26,6 @@
 
 #if NVT_TOUCH_MP
 
-#define nvt_mp_seq_printf(m, fmt, args...) do {	\
-	seq_printf(m, fmt, ##args);	\
-	if (!nvt_mp_test_result_printed)	\
-		pr_info(fmt, ##args);	\
-} while (0)
-
 static uint8_t *RecordResult_Short;
 static uint8_t *RecordResult_Open;
 static uint8_t *RecordResult_FW_Rawdata;
@@ -122,6 +116,14 @@ extern void nvt_read_get_num_mdata(uint32_t xdata_addr, int32_t *buffer,
 				   uint32_t num);
 int32_t nvt_mp_parse_dt(struct device_node *root,
 			const char *node_compatible);
+
+#define show_print(ker_pf, m, str, str_args...) do {	\
+	if (ker_pf && !nvt_mp_test_result_printed)	\
+		pr_info(str, ##str_args);	\
+	if (m)	\
+		seq_printf(m, str, ##str_args);	\
+} while (0)
+
 #if SPI_FLASH
 /*******************************************************
 Description:
@@ -160,11 +162,8 @@ int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode)
 	}
 
 	if (i >= retry) {
-		ts->mp_tvcl_mode = 0xff;
-		ts->mp_ibias_mode = 0xff;
 		NVT_ERR("Failed to set tvcl_mode : %d ibias_mode : %d\n",
 				tvcl_mode, ibias_mode);
-		return -EAGAIN;
 	} else {
 		ts->mp_tvcl_mode = tvcl_mode;
 		ts->mp_ibias_mode = ibias_mode;
@@ -788,6 +787,9 @@ static void nvt_print_data_log_in_one_line(int32_t *data, int32_t data_num)
 	char *tmp_log = NULL;
 	int32_t i = 0, len = 0;
 
+	if (nvt_mp_test_result_printed)
+		return;
+
 	tmp_log = (char *)kzalloc(data_num * 7 + 1, GFP_KERNEL);
 	if (!tmp_log) {
 		NVT_ERR("kzalloc for tmp_log failed!\n ");
@@ -812,6 +814,9 @@ static void nvt_print_result_log_in_one_line(uint8_t *result,
 {
 	char *tmp_log = NULL;
 	int32_t i = 0, len = 0;
+
+	if (nvt_mp_test_result_printed)
+		return;
 
 	tmp_log = (char *)kzalloc(result_num * 6 + 1, GFP_KERNEL);
 	if (!tmp_log) {
@@ -856,6 +861,9 @@ static void nvt_print_lmt_array(int32_t *array, int32_t x_ch, int32_t y_ch)
 
 static void nvt_print_criteria(void)
 {
+	/* force to suppress the logs for default criteria */
+	return;
+
 	NVT_LOGD("++\n");
 
 	//---PS_Config_Lmt_Short_Rawdata---
@@ -969,6 +977,9 @@ static void nvt_print_rawdata(int32_t *rawdata, uint8_t x_ch, uint8_t y_ch)
 {
 #if NVT_MP_DEBUG
 	uint32_t y;
+
+	if (nvt_mp_test_result_printed)
+		return;
 
 	pr_info("%s:++\n", __func__);
 
@@ -1617,19 +1628,34 @@ Description:
 return:
 	n.a.
 *******************************************************/
-void print_selftest_data(struct seq_file *m, int32_t rawdata[], uint8_t x_len, uint8_t y_len)
+void print_selftest_data(uint8_t ker_pf, struct seq_file *m, int32_t rawdata[],
+	uint8_t x_len, uint8_t y_len)
 {
 	int32_t i, j, iArrayIndex;
+	char buffer[512];
+	uint16_t cnt = 0;
 
 	for (i = 0; i < y_len; i++) {
 		for (j = 0; j < x_len; j++) {
 			iArrayIndex = i * x_len + j;
-			seq_printf(m, "%5d", rawdata[iArrayIndex]);
-			if (j != x_len - 1)
-				seq_puts(m, " ");
-			else
-				seq_puts(m, "\n");
+			if (m)
+				seq_printf(m, "%5d", rawdata[iArrayIndex]);
+			cnt += scnprintf(buffer + cnt, sizeof(buffer) - cnt, "%5d",
+				rawdata[iArrayIndex]);
+			if (j != x_len - 1) {
+				if (m)
+					seq_puts(m, " ");
+				cnt += scnprintf(buffer + cnt, sizeof(buffer) - cnt, " ");
+			} else {
+				if (m)
+					seq_puts(m, "\n");
+				cnt += scnprintf(buffer + cnt, sizeof(buffer) - cnt, "\n");
+			}
 		}
+		if (ker_pf && !nvt_mp_test_result_printed)
+			pr_info("%s\n", buffer);
+		memset(buffer, 0, sizeof(buffer));
+		cnt = 0;
 	}
 }
 
@@ -1640,7 +1666,7 @@ Description:
 return:
 	n.a.
 *******************************************************/
-void print_selftest_result(struct seq_file *m, int32_t TestResult,
+void print_selftest_result(uint8_t ker_pf, struct seq_file *m, int32_t TestResult,
 			   uint8_t RecordResult[], int32_t rawdata[], uint8_t x_len, uint8_t y_len)
 {
 	int32_t i = 0;
@@ -1652,257 +1678,292 @@ void print_selftest_result(struct seq_file *m, int32_t TestResult,
 
 	switch (TestResult) {
 	case 0:
-		nvt_mp_seq_printf(m, " PASS!\n");
+		show_print(ker_pf, m, " PASS!\n");
 		break;
 
 	case 1:
-		nvt_mp_seq_printf(m, " ERROR! Read Data FAIL!\n");
+		show_print(ker_pf, m, " ERROR! Read Data FAIL!\n");
 		break;
 
 	case -1:
-		nvt_mp_seq_printf(m, " FAIL!\n");
-		nvt_mp_seq_printf(m, "RecordResult:\n");
+		show_print(ker_pf, m, " FAIL!\n");
+		show_print(ker_pf, m, "RecordResult:\n");
 		for (i = 0; i < y_len; i++) {
 			for (j = 0; j < x_len; j++) {
 				iArrayIndex = i * x_len + j;
-				seq_printf(m, "0x%02X, ", RecordResult[iArrayIndex]);
+				show_print(false, m, "0x%02X, ", RecordResult[iArrayIndex]);
 			}
-			if (!nvt_mp_test_result_printed)
-				nvt_print_result_log_in_one_line(RecordResult + i * x_len, x_len);
-			nvt_mp_seq_printf(m, "\n");
+			nvt_print_result_log_in_one_line(RecordResult + i * x_len, x_len);
+			show_print(ker_pf, m, "\n");
 		}
 #if TOUCH_KEY_NUM > 0
 		for (k = 0; k < Key_Channel; k++) {
 			iArrayIndex = y_len * x_len + k;
-			seq_printf(m, "0x%02X, ", RecordResult[iArrayIndex]);
+			show_print(false, m, "0x%02X, ", RecordResult[iArrayIndex]);
 		}
-		if (!nvt_mp_test_result_printed)
-			nvt_print_result_log_in_one_line(RecordResult + y_len * x_len,
-							 Key_Channel);
-		nvt_mp_seq_printf(m, "\n");
+		nvt_print_result_log_in_one_line(RecordResult + y_len * x_len, Key_Channel);
+		show_print(ker_pf, m, "\n");
 #endif /* #if TOUCH_KEY_NUM > 0 */
-		nvt_mp_seq_printf(m, "ReadData:\n");
+		show_print(ker_pf, m, "ReadData:\n");
 		for (i = 0; i < y_len; i++) {
 			for (j = 0; j < x_len; j++) {
 				iArrayIndex = i * x_len + j;
-				seq_printf(m, "%5d, ", rawdata[iArrayIndex]);
+				show_print(false, m, "%5d, ", rawdata[iArrayIndex]);
 			}
-			if (!nvt_mp_test_result_printed)
-				nvt_print_data_log_in_one_line(rawdata + i * x_len, x_len);
-			nvt_mp_seq_printf(m, "\n");
+			nvt_print_data_log_in_one_line(rawdata + i * x_len, x_len);
+			show_print(ker_pf, m, "\n");
 		}
 #if TOUCH_KEY_NUM > 0
 		for (k = 0; k < Key_Channel; k++) {
 			iArrayIndex = y_len * x_len + k;
-			seq_printf(m, "%5d, ", rawdata[iArrayIndex]);
+			show_print(false, m, "%5d, ", rawdata[iArrayIndex]);
 		}
-		if (!nvt_mp_test_result_printed)
-			nvt_print_data_log_in_one_line(rawdata + y_len * x_len, Key_Channel);
-		nvt_mp_seq_printf(m, "\n");
+		nvt_print_data_log_in_one_line(rawdata + y_len * x_len, Key_Channel);
+		show_print(ker_pf, m, "\n");
 #endif /* #if TOUCH_KEY_NUM > 0 */
 		break;
 	}
-	nvt_mp_seq_printf(m, "\n");
+	show_print(ker_pf, m, "\n");
 }
 
-/*******************************************************
-Description:
-	Novatek touchscreen self-test sequence print show
-	function.
-
-return:
-	Executive outcomes. 0---succeed.
-*******************************************************/
-static int32_t c_show_selftest(struct seq_file *m, void *v)
+void show_selftest(uint8_t ker_pf_data, uint8_t ker_pf_result, struct seq_file *m)
 {
-	NVT_LOGD("++\n");
+	show_print(ker_pf_data, m, "\n***** Selftest Data *****\n");
 
-	seq_puts(m, "\n***** Selftest Data *****\n");
+	show_print(ker_pf_data, m, "\n[Short]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_Short, X_Channel, Y_Channel);
+	show_print(ker_pf_data, m, "\n[Open]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_Open, X_Channel, Y_Channel);
+	show_print(ker_pf_data, m, "\n[Rawdata]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_FW_Rawdata, X_Channel, Y_Channel);
+	show_print(ker_pf_data, m, "\n[CC]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_FW_CC, X_Channel, Y_Channel);
+	show_print(ker_pf_data, m, "\n[Noise]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_Diff_Max, X_Channel, Y_Channel);
+	print_selftest_data(ker_pf_data, m, RawData_Diff_Min, X_Channel, Y_Channel);
+	show_print(ker_pf_data, m, "\n[Pen_Rawdata]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenTipY_Raw, ts->x_gang_num, ts->y_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenRingX_Raw, ts->x_num, ts->y_gang_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenRingY_Raw, ts->x_gang_num, ts->y_num);
+	show_print(ker_pf_data, m, "\n[Pen_Noise]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_PenTipX_DiffMax, ts->x_num, ts->y_gang_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenTipX_DiffMin, ts->x_num, ts->y_gang_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenTipY_DiffMax, ts->x_gang_num, ts->y_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenTipY_DiffMin, ts->x_gang_num, ts->y_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenRingX_DiffMax, ts->x_num, ts->y_gang_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenRingX_DiffMin, ts->x_num, ts->y_gang_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenRingY_DiffMax, ts->x_gang_num, ts->y_num);
+	print_selftest_data(ker_pf_data, m, RawData_PenRingY_DiffMin, ts->x_gang_num, ts->y_num);
+	show_print(ker_pf_data, m, "\n[Pen_Rx_Max]\n\n");
+	print_selftest_data(ker_pf_data, m, RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
 
-	seq_puts(m, "\n[Short]\n\n");
-	print_selftest_data(m, RawData_Short, X_Channel, Y_Channel);
-	seq_puts(m, "\n[Open]\n\n");
-	print_selftest_data(m, RawData_Open, X_Channel, Y_Channel);
-	seq_puts(m, "\n[Rawdata]\n\n");
-	print_selftest_data(m, RawData_FW_Rawdata, X_Channel, Y_Channel);
-	seq_puts(m, "\n[CC]\n\n");
-	print_selftest_data(m, RawData_FW_CC, X_Channel, Y_Channel);
-	seq_puts(m, "\n[Noise]\n\n");
-	print_selftest_data(m, RawData_Diff_Max, X_Channel, Y_Channel);
-	print_selftest_data(m, RawData_Diff_Min, X_Channel, Y_Channel);
-	seq_puts(m, "\n[Pen_Rawdata]\n\n");
-	print_selftest_data(m, RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
-	print_selftest_data(m, RawData_PenTipY_Raw, ts->x_gang_num, ts->y_num);
-	print_selftest_data(m, RawData_PenRingX_Raw, ts->x_num, ts->y_gang_num);
-	print_selftest_data(m, RawData_PenRingY_Raw, ts->x_gang_num, ts->y_num);
-	seq_puts(m, "\n[Pen_Noise]\n\n");
-	print_selftest_data(m, RawData_PenTipX_DiffMax, ts->x_num, ts->y_gang_num);
-	print_selftest_data(m, RawData_PenTipX_DiffMin, ts->x_num, ts->y_gang_num);
-	print_selftest_data(m, RawData_PenTipY_DiffMax, ts->x_gang_num, ts->y_num);
-	print_selftest_data(m, RawData_PenTipY_DiffMin, ts->x_gang_num, ts->y_num);
-	print_selftest_data(m, RawData_PenRingX_DiffMax, ts->x_num, ts->y_gang_num);
-	print_selftest_data(m, RawData_PenRingX_DiffMin, ts->x_num, ts->y_gang_num);
-	print_selftest_data(m, RawData_PenRingY_DiffMax, ts->x_gang_num, ts->y_num);
-	print_selftest_data(m, RawData_PenRingY_DiffMin, ts->x_gang_num, ts->y_num);
-	seq_puts(m, "\n[Pen_Rx_Max]\n\n");
-	print_selftest_data(m, RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
+	show_print(ker_pf_result, m, "\n\n===== Test Result =====\n\n");
 
-	seq_puts(m, "\n\n===== Test Result =====\n\n");
+	show_print(ker_pf_result, m, "FW Version: %d\n\n", fw_ver);
 
-	nvt_mp_seq_printf(m, "FW Version: %d\n\n", fw_ver);
-
-	nvt_mp_seq_printf(m, "Short Test");
-	print_selftest_result(m, TestResult_Short, RecordResult_Short,
+	show_print(ker_pf_result, m, "Short Test");
+	print_selftest_result(ker_pf_result, m, TestResult_Short, RecordResult_Short,
 			      RawData_Short, X_Channel, Y_Channel);
 
-	nvt_mp_seq_printf(m, "Open Test");
-	print_selftest_result(m, TestResult_Open, RecordResult_Open, RawData_Open,
+	show_print(ker_pf_result, m, "Open Test");
+	print_selftest_result(ker_pf_result, m, TestResult_Open, RecordResult_Open, RawData_Open,
 			      X_Channel, Y_Channel);
 
-	nvt_mp_seq_printf(m, "FW Rawdata Test");
-	print_selftest_result(m, TestResult_FW_Rawdata, RecordResult_FW_Rawdata,
+	show_print(ker_pf_result, m, "FW Rawdata Test");
+	print_selftest_result(ker_pf_result, m, TestResult_FW_Rawdata, RecordResult_FW_Rawdata,
 			RawData_FW_Rawdata, X_Channel, Y_Channel);
 
-	nvt_mp_seq_printf(m, "FW CC Test");
-	print_selftest_result(m, TestResult_FW_CC,
+	show_print(ker_pf_result, m, "FW CC Test");
+	print_selftest_result(ker_pf_result, m, TestResult_FW_CC,
 			RecordResult_FW_CC, RawData_FW_CC, X_Channel, Y_Channel);
 
-	nvt_mp_seq_printf(m, "Noise Test");
+	show_print(ker_pf_result, m, "Noise Test");
 	if ((TestResult_Noise == 0) || (TestResult_Noise == 1)) {
-		print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax,
-				RawData_Diff_Max, X_Channel, Y_Channel);
+		print_selftest_result(ker_pf_result, m, TestResult_FW_DiffMax,
+			RecordResult_FW_DiffMax, RawData_Diff_Max, X_Channel, Y_Channel);
 	} else { // TestResult_Noise is -1
-		nvt_mp_seq_printf(m, " FAIL!\n");
+		show_print(ker_pf_result, m, " FAIL!\n");
 		if (TestResult_FW_DiffMax == -1) {
-			nvt_mp_seq_printf(m, "FW Diff Max");
-			print_selftest_result(m, TestResult_FW_DiffMax, RecordResult_FW_DiffMax,
-					      RawData_Diff_Max, X_Channel, Y_Channel);
+			show_print(ker_pf_result, m, "FW Diff Max");
+			print_selftest_result(ker_pf_result, m, TestResult_FW_DiffMax,
+				RecordResult_FW_DiffMax, RawData_Diff_Max, X_Channel, Y_Channel);
 		}
 		if (TestResult_FW_DiffMin == -1) {
-			nvt_mp_seq_printf(m, "FW Diff Min");
-			print_selftest_result(m, TestResult_FW_DiffMin, RecordResult_FW_DiffMin,
-					      RawData_Diff_Min, X_Channel, Y_Channel);
+			show_print(ker_pf_result, m, "FW Diff Min");
+			print_selftest_result(ker_pf_result, m, TestResult_FW_DiffMin,
+				RecordResult_FW_DiffMin, RawData_Diff_Min, X_Channel, Y_Channel);
 		}
 	}
 
 	if (ts->pen_support) {
-		nvt_mp_seq_printf(m, "Pen FW Rawdata Test");
+		show_print(ker_pf_result, m, "Pen FW Rawdata Test");
 		if ((TestResult_Pen_FW_Raw == 0) || (TestResult_Pen_FW_Raw == 1)) {
-			print_selftest_result(m, TestResult_Pen_FW_Raw,
+			print_selftest_result(ker_pf_result, m, TestResult_Pen_FW_Raw,
 				RecordResult_PenTipX_Raw,
 				RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
 		} else { // TestResult_Pen_FW_Raw is -1
-			nvt_mp_seq_printf(m, " FAIL!\n");
+			show_print(ker_pf_result, m, " FAIL!\n");
 			if (TestResult_PenTipX_Raw == -1) {
-				nvt_mp_seq_printf(m, "Pen Tip X Raw");
-				print_selftest_result(m, TestResult_PenTipX_Raw,
+				show_print(ker_pf_result, m, "Pen Tip X Raw");
+				print_selftest_result(ker_pf_result, m, TestResult_PenTipX_Raw,
 					RecordResult_PenTipX_Raw,
 					RawData_PenTipX_Raw, ts->x_num, ts->y_gang_num);
 			}
 			if (TestResult_PenTipY_Raw == -1) {
-				nvt_mp_seq_printf(m, "Pen Tip Y Raw");
-				print_selftest_result(m, TestResult_PenTipY_Raw,
+				show_print(ker_pf_result, m, "Pen Tip Y Raw");
+				print_selftest_result(ker_pf_result, m, TestResult_PenTipY_Raw,
 					RecordResult_PenTipY_Raw,
 					RawData_PenTipY_Raw, ts->x_gang_num, ts->y_num);
 			}
 			if (TestResult_PenRingX_Raw == -1) {
-				nvt_mp_seq_printf(m, "Pen Ring X Raw");
-				print_selftest_result(m, TestResult_PenRingX_Raw,
+				show_print(ker_pf_result, m, "Pen Ring X Raw");
+				print_selftest_result(ker_pf_result, m, TestResult_PenRingX_Raw,
 						      RecordResult_PenRingX_Raw,
 						      RawData_PenRingX_Raw, ts->x_num,
 						      ts->y_gang_num);
 			}
 			if (TestResult_PenRingY_Raw == -1) {
-				nvt_mp_seq_printf(m, "Pen Ring Y Raw");
-				print_selftest_result(m, TestResult_PenRingY_Raw,
+				show_print(ker_pf_result, m, "Pen Ring Y Raw");
+				print_selftest_result(ker_pf_result, m, TestResult_PenRingY_Raw,
 						      RecordResult_PenRingY_Raw,
 						      RawData_PenRingY_Raw, ts->x_gang_num,
 						      ts->y_num);
 			}
 		}
 
-		nvt_mp_seq_printf(m, "Pen Noise Test");
+		show_print(ker_pf_result, m, "Pen Noise Test");
 		if ((TestResult_Pen_Noise == 0) || (TestResult_Pen_Noise == 1)) {
-			print_selftest_result(m, TestResult_Pen_Noise,
+			print_selftest_result(ker_pf_result, m, TestResult_Pen_Noise,
 					      RecordResult_PenTipX_DiffMax,
 					      RawData_PenTipX_DiffMax, ts->x_num,
 					      ts->y_gang_num);
 		} else { // TestResult_Pen_Noise is -1
-			nvt_mp_seq_printf(m, " FAIL!\n");
+			show_print(ker_pf_result, m, " FAIL!\n");
 			if (TestResult_PenTipX_DiffMax == -1) {
-				nvt_mp_seq_printf(m, "Pen Tip X Diff Max");
-				print_selftest_result(m, TestResult_PenTipX_DiffMax,
+				show_print(ker_pf_result, m, "Pen Tip X Diff Max");
+				print_selftest_result(ker_pf_result, m, TestResult_PenTipX_DiffMax,
 						      RecordResult_PenTipX_DiffMax,
 						      RawData_PenTipX_DiffMax, ts->x_num,
 						      ts->y_gang_num);
 			}
 			if (TestResult_PenTipX_DiffMin == -1) {
-				nvt_mp_seq_printf(m, "Pen Tip X Diff Min");
-				print_selftest_result(m, TestResult_PenTipX_DiffMin,
+				show_print(ker_pf_result, m, "Pen Tip X Diff Min");
+				print_selftest_result(ker_pf_result, m, TestResult_PenTipX_DiffMin,
 						      RecordResult_PenTipX_DiffMin,
 						      RawData_PenTipX_DiffMin, ts->x_num,
 						      ts->y_gang_num);
 			}
 			if (TestResult_PenTipY_DiffMax == -1) {
-				nvt_mp_seq_printf(m, "Pen Tip Y Diff Max");
-				print_selftest_result(m, TestResult_PenTipY_DiffMax,
+				show_print(ker_pf_result, m, "Pen Tip Y Diff Max");
+				print_selftest_result(ker_pf_result, m, TestResult_PenTipY_DiffMax,
 						      RecordResult_PenTipY_DiffMax,
 						      RawData_PenTipY_DiffMax, ts->x_gang_num,
 						      ts->y_num);
 			}
 			if (TestResult_PenTipY_DiffMin == -1) {
-				nvt_mp_seq_printf(m, "Pen Tip Y Diff Min");
-				print_selftest_result(m, TestResult_PenTipY_DiffMin,
+				show_print(ker_pf_result, m, "Pen Tip Y Diff Min");
+				print_selftest_result(ker_pf_result, m, TestResult_PenTipY_DiffMin,
 						      RecordResult_PenTipY_DiffMin,
 						      RawData_PenTipY_DiffMin, ts->x_gang_num,
 						      ts->y_num);
 			}
 			if (TestResult_PenRingX_DiffMax == -1) {
-				nvt_mp_seq_printf(m, "Pen Ring X Diff Max");
-				print_selftest_result(m, TestResult_PenRingX_DiffMax,
+				show_print(ker_pf_result, m, "Pen Ring X Diff Max");
+				print_selftest_result(ker_pf_result, m, TestResult_PenRingX_DiffMax,
 						      RecordResult_PenRingX_DiffMax,
 						      RawData_PenRingX_DiffMax, ts->x_num,
 						      ts->y_gang_num);
 			}
 			if (TestResult_PenRingX_DiffMin == -1) {
-				nvt_mp_seq_printf(m, "Pen Ring X Diff Min");
-				print_selftest_result(m, TestResult_PenRingX_DiffMin,
+				show_print(ker_pf_result, m, "Pen Ring X Diff Min");
+				print_selftest_result(ker_pf_result, m, TestResult_PenRingX_DiffMin,
 						      RecordResult_PenRingX_DiffMin,
 						      RawData_PenRingX_DiffMin, ts->x_num,
 						      ts->y_gang_num);
 			}
 			if (TestResult_PenRingY_DiffMax == -1) {
-				nvt_mp_seq_printf(m, "Pen Ring Y Diff Max");
-				print_selftest_result(m, TestResult_PenRingY_DiffMax,
+				show_print(ker_pf_result, m, "Pen Ring Y Diff Max");
+				print_selftest_result(ker_pf_result, m, TestResult_PenRingY_DiffMax,
 						      RecordResult_PenRingY_DiffMax,
 						      RawData_PenRingY_DiffMax, ts->x_gang_num,
 						      ts->y_num);
 			}
 			if (TestResult_PenRingY_DiffMin == -1) {
-				nvt_mp_seq_printf(m, "Pen Ring Y Diff Min");
-				print_selftest_result(m, TestResult_PenRingY_DiffMin,
+				show_print(ker_pf_result, m, "Pen Ring Y Diff Min");
+				print_selftest_result(ker_pf_result, m, TestResult_PenRingY_DiffMin,
 						      RecordResult_PenRingY_DiffMin,
 						      RawData_PenRingY_DiffMin, ts->x_gang_num,
 						      ts->y_num);
 			}
 		}
 
-		nvt_mp_seq_printf(m, "Pen Detect Test");
+		show_print(ker_pf_result, m, "Pen Detect Test");
 		if (TestResult_Pen_Rx_Max == 0 || TestResult_Pen_Rx_Max == 1) {
-			print_selftest_result(m, TestResult_Pen_Rx_Max, RecordResult_Pen_Rx_Max,
-					RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
+			print_selftest_result(ker_pf_result, m, TestResult_Pen_Rx_Max,
+				RecordResult_Pen_Rx_Max, RawData_Pen_Rx_Max,
+				PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
 		} else {
-			nvt_mp_seq_printf(m, " FAIL!\n");
-			nvt_mp_seq_printf(m, "Pen Detect Rx Max");
-			print_selftest_result(m, TestResult_Pen_Rx_Max, RecordResult_Pen_Rx_Max,
-					RawData_Pen_Rx_Max, PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
+			show_print(ker_pf_result, m, " FAIL!\n");
+			show_print(ker_pf_result, m, "Pen Detect Rx Max");
+			print_selftest_result(ker_pf_result, m, TestResult_Pen_Rx_Max,
+				RecordResult_Pen_Rx_Max, RawData_Pen_Rx_Max,
+				PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN);
 		}
 	} /* if (ts->pen_support) */
 
+	// to prevent c_show_test entering multiple times
 	nvt_mp_test_result_printed = 1;
+}
+
+int32_t sysfs_show_selftest(char *buf)
+{
+	uint16_t ret = 0;
+
+	NVT_LOGD("++\n");
+
+	// kernel print data and result
+	show_selftest(false, true, NULL);
+	// print the result into buf
+	ret += sysfs_emit_at(buf, ret, "\n===== Test Result =====\n");
+	ret += sysfs_emit_at(buf, ret, "FW Version: %d\n", fw_ver);
+	ret += sysfs_emit_at(buf, ret, "\n");
+	ret += sysfs_emit_at(buf, ret, "Short Test %s\n",
+		TestResult_Short ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "Open Test %s\n",
+		TestResult_Open ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "FW Rawdata Test %s\n",
+		TestResult_FW_Rawdata ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "FW CC Test %s\n",
+		TestResult_FW_CC ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "Noise Test %s\n",
+		TestResult_Noise ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "Pen FW Rawdata Test %s\n",
+		TestResult_Pen_FW_Raw ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "Pen Noise Test %s\n",
+		TestResult_Pen_Noise ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "Pen Detect Test %s\n",
+		TestResult_Pen_Rx_Max ? "FAIL!" : "PASS!");
+	ret += sysfs_emit_at(buf, ret, "\n");
 
 	NVT_LOGD("--\n");
+	return ret;
+}
 
+/*******************************************************
+ * Description:
+ *  Novatek touchscreen self-test sequence print show
+ *  function.
+ *
+ * return:
+ *  Executive outcomes. 0---succeed.
+ ******************************************************/
+static int32_t c_show_selftest(struct seq_file *m, void *v)
+{
+	NVT_LOGD("++\n");
+	// kernel print result + seq print
+	show_selftest(false, true, m);
+	NVT_LOGD("--\n");
 	return 0;
 }
 
@@ -1956,15 +2017,10 @@ const struct seq_operations nvt_selftest_seq_ops = {
 	.show   = c_show_selftest
 };
 
-/*******************************************************
-Description:
-	Novatek touchscreen /proc/nvt_selftest open function.
-
-return:
-	Executive outcomes. 0---succeed. negative---failed.
-*******************************************************/
-static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
+int32_t nvt_selftest(void)
 {
+	int32_t ret = 0;
+	bool show_fw_history = true;
 	struct device_node *np = ts->client->dev.of_node;
 	unsigned char mpcriteria[32] = {0};	//novatek-mp-criteria-default
 
@@ -2003,6 +2059,8 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 		return -ERESTARTSYS;
 	}
 
+	nvt_mp_test_result_printed = 0;
+
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
@@ -2013,9 +2071,8 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 #endif // !SPI_FLASH
 
 	if (nvt_get_fw_info()) {
-		mutex_unlock(&ts->lock);
 		NVT_ERR("get fw info failed!\n");
-		return -EAGAIN;
+		goto failed_out;
 	}
 
 	fw_ver = ts->fw_ver;
@@ -2053,44 +2110,37 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 #else
 	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
 #endif // SPI_FLASH
-		mutex_unlock(&ts->lock);
 		NVT_ERR("check fw reset state failed!\n");
-		return -EAGAIN;
+		goto failed_out;
 	}
 
 #if SPI_FLASH
-	if (nvt_mp_settings(ts->mp_tvcl_mode, ts->mp_ibias_mode)) {
-		mutex_unlock(&ts->lock);
-		return -EAGAIN;
-	}
+	if (nvt_mp_settings(ts->mp_tvcl_mode, ts->mp_ibias_mode))
+		goto failed_out;
 #endif // SPI_FLASH
 	if (nvt_switch_FreqHopEnDis(FREQ_HOP_DISABLE)) {
-		mutex_unlock(&ts->lock);
 		NVT_ERR("switch frequency hopping disable failed!\n");
-		return -EAGAIN;
+		goto failed_out;
 	}
 
 	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
-		mutex_unlock(&ts->lock);
 		NVT_ERR("check fw reset state failed!\n");
-		return -EAGAIN;
+		goto failed_out;
 	}
 
 	msleep(100);
 
 	//---Enter Test Mode---
 	if (nvt_clear_fw_status()) {
-		mutex_unlock(&ts->lock);
 		NVT_ERR("clear fw status failed!\n");
-		return -EAGAIN;
+		goto failed_out;
 	}
 
 	nvt_change_mode(MP_MODE_CC);
 
 	if (nvt_check_fw_status()) {
-		mutex_unlock(&ts->lock);
 		NVT_ERR("check fw status failed!\n");
-		return -EAGAIN;
+		goto failed_out;
 	}
 
 	//---FW Rawdata Test---
@@ -2327,6 +2377,14 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 				  PS_Config_Lmt_Open_Rawdata_P, PS_Config_Lmt_Open_Rawdata_N);
 	}
 
+	show_fw_history = false;
+failed_out:
+	if (show_fw_history) {
+		ret = -EAGAIN;
+		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
+		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
+	}
+
 #if SPI_FLASH
 	//---Reset IC---
 	nvt_bootloader_reset();
@@ -2338,7 +2396,24 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 
 	NVT_LOGD("--\n");
 
-	nvt_mp_test_result_printed = 0;
+	return ret;
+}
+
+/*******************************************************
+ * Description:
+ *	Novatek touchscreen /proc/nvt_selftest open function.
+ *
+ * return:
+ *	Executive outcomes. 0---succeed. negative---failed.
+ ******************************************************/
+int32_t nvt_selftest_open(struct inode *inode, struct file *file)
+{
+	int32_t ret = 0;
+
+	ret = nvt_selftest();
+
+	if (ret)
+		return ret;
 
 	return seq_open(file, &nvt_selftest_seq_ops);
 }

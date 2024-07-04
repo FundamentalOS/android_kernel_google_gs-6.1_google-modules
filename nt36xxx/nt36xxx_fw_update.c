@@ -225,7 +225,7 @@ void Boot_Update_Firmware(struct work_struct *work)
 end:
 	complete(&ts->fwu_done);
 	// Setup default tvcl ibias mode. Mode value can later be altered by sysfs node
-	switch(ts->nvt_pid) {
+	switch (ts->nvt_pid) {
 	case TKI3_BOE:
 		ts->mp_tvcl_mode = MODE_1;
 		ts->mp_ibias_mode = MODE_1;

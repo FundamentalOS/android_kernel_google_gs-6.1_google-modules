@@ -91,6 +91,11 @@
 #define NVT_LOGI(fmt, args...) NVT_LOG("%s: "fmt, __func__, ##args)
 #define NVT_LOGE(fmt, args...) NVT_ERR("%s: "fmt, __func__, ##args)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define sysfs_emit(buf, fmt, ...) scnprintf(buf, PAGE_SIZE, fmt, ##__VA_ARGS__)
+#define sysfs_emit_at(buf, at, fmt, ...) scnprintf(buf + at, PAGE_SIZE - at, fmt, ##__VA_ARGS__)
+#endif
+
 //---Input device info.---
 #define NVT_TS_NAME "NVTCapacitiveTouchScreen"
 #define NVT_PEN_NAME "NVTCapacitivePen"
@@ -520,4 +525,6 @@ int nvt_ts_suspend(struct device *dev);
 void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts);
 extern struct workqueue_struct *nvt_fwu_wq;
 extern int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode);
+extern int32_t nvt_selftest(void);
+extern int32_t sysfs_show_selftest(char *buf);
 #endif /* _LINUX_NVT_TOUCH_H */
