@@ -381,9 +381,9 @@ struct nvt_ts_data {
 	u8 pen_active;
 #if SPI_FLASH
 	struct completion fwu_done;
+#endif // SPI_FLASH
 	uint8_t mp_tvcl_mode;
 	uint8_t mp_ibias_mode;
-#endif // SPI_FLASH
 };
 
 #if NVT_TOUCH_PROC

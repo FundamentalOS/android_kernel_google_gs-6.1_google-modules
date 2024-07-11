@@ -2603,6 +2603,10 @@ int32_t nvt_mp_parse_dt(struct device_node *root,
 	struct device_node *np = root;
 	struct device_node *child = NULL;
 	int32_t i = 0;
+	char cc_limit_p[50];
+	char cc_limit_n[50];
+	char * const tvcl_str[] = {"", "_0p3", "_0p4", "_0p5", "_0p7"};
+	char * const ibias_str[] = {"", "_Normal", "_Max"};
 
 	NVT_LOG("Parse mp criteria for node %s\n", node_compatible);
 
@@ -2680,11 +2684,26 @@ int32_t nvt_mp_parse_dt(struct device_node *root,
 			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_CC_P", PS_Config_Lmt_FW_CC_P,
+	if (ts->mp_tvcl_mode > MODE_4) {
+		NVT_ERR("unsupported tvcl_mode %d\n", ts->mp_tvcl_mode);
+		return -EINVAL;
+	}
+
+	if (ts->mp_ibias_mode > MODE_2) {
+		NVT_ERR("unsupported ibias_mode %d\n", ts->mp_ibias_mode);
+		return -EINVAL;
+	}
+
+	scnprintf(cc_limit_p, sizeof(cc_limit_p), "PS_Config_Lmt_FW_CC%s%s_P",
+		tvcl_str[ts->mp_tvcl_mode], ibias_str[ts->mp_ibias_mode]);
+	scnprintf(cc_limit_n, sizeof(cc_limit_n), "PS_Config_Lmt_FW_CC%s%s_N",
+		tvcl_str[ts->mp_tvcl_mode], ibias_str[ts->mp_ibias_mode]);
+
+	if (nvt_mp_parse_array(np, cc_limit_p, PS_Config_Lmt_FW_CC_P,
 			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
-	if (nvt_mp_parse_array(np, "PS_Config_Lmt_FW_CC_N", PS_Config_Lmt_FW_CC_N,
+	if (nvt_mp_parse_array(np, cc_limit_n, PS_Config_Lmt_FW_CC_N,
 			       X_Channel * Y_Channel + Key_Channel))
 		return -EPERM;
 
