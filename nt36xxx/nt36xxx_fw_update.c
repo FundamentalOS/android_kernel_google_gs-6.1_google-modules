@@ -184,10 +184,12 @@ void Boot_Update_Firmware(struct work_struct *work)
 	ret = update_firmware_request(get_fw_name());
 	if (ret) {
 		NVT_ERR("update_firmware_request failed. (%d)\n", ret);
+		complete_all(&ts->fwu_done);
 		goto end;
 	}
 
 	mutex_lock(&ts->lock);
+	ts->fw_update_in_process = true;
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -220,10 +222,11 @@ void Boot_Update_Firmware(struct work_struct *work)
 		}
 	}
 
+	ts->fw_update_in_process = false;
 	mutex_unlock(&ts->lock);
+	complete_all(&ts->fwu_done);
 	update_firmware_release();
 end:
-	complete(&ts->fwu_done);
 	// Setup default tvcl ibias mode. Mode value can later be altered by sysfs node
 	switch (ts->nvt_pid) {
 	case TKI3_BOE:
@@ -1219,6 +1222,7 @@ int32_t nvt_update_firmware(const char *firmware_name, uint8_t full)
 	ktime_t profile_end;
 #endif
 
+	ts->fw_update_in_process = true;
 	if (strncmp(firmware_name, get_fw_name(),
 		strlen(get_fw_name())) == 0) {
 		is_mp_fw = false;
@@ -1285,6 +1289,7 @@ download_fail:
 		update_firmware_release();
 request_firmware_fail:
 
+	ts->fw_update_in_process = false;
 	return ret;
 }
 

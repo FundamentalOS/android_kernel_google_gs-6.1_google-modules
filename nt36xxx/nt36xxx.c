@@ -955,8 +955,10 @@ info_retry:
 		ts->x_gang_num = buf[37];
 		ts->y_gang_num = buf[38];
 	}
-	NVT_LOG("fw_ver=0x%02X, fw_type=0x%02X, PID=0x%04X, W/H=(%d, %d)\n",
-		ts->fw_ver, buf[14], ts->nvt_pid, ts->touch_width, ts->touch_height);
+	ts->res_scale = ts->touch_width / ts->display_width;
+	NVT_LOG("fw_ver=0x%02X, fw_type=0x%02X, PID=0x%04X, Touch W/H=(%d, %d), Pen W/H=(%d, %d)\n",
+		ts->fw_ver, buf[14], ts->nvt_pid, ts->touch_width, ts->touch_height,
+		ts->pen_width, ts->pen_height);
 
 	/* Allocate buffer for heatmap(delta) data. */
 	if (!ts->heatmap_out_buf) {
@@ -1272,6 +1274,7 @@ static int32_t nvt_parse_dt(struct device *dev)
 {
 	struct device_node *np = dev->of_node;
 	int32_t ret = 0;
+	u16 values[2];
 
 #if NVT_TOUCH_SUPPORT_HW_RST
 	ts->reset_gpio = of_get_named_gpio_flags(np, "novatek,reset-gpio", 0,
@@ -1285,8 +1288,14 @@ static int32_t nvt_parse_dt(struct device *dev)
 	ts->pen_support = of_property_read_bool(np, "novatek,pen-support");
 	NVT_LOG("novatek,pen-support=%d\n", ts->pen_support);
 
-	ts->wgp_stylus = of_property_read_bool(np, "novatek,wgp-stylus");
-	NVT_LOG("novatek,wgp-stylus=%d\n", ts->wgp_stylus);
+	if (ts->pen_support) {
+		ts->pen_width = PEN_DEFAULT_MAX_WIDTH;
+		ts->pen_height = PEN_DEFAULT_MAX_HEIGHT;
+		of_property_read_u16(np, "novatek,pen-width", &ts->pen_width);
+		of_property_read_u16(np, "novatek,pen-height", &ts->pen_height);
+		ts->pen_abs_x_max = ts->pen_width - 1;
+		ts->pen_abs_y_max = ts->pen_height - 1;
+	}
 
 	ret = of_property_read_u32(np, "novatek,swrst-n8-addr", &SWRST_N8_ADDR);
 	if (ret) {
@@ -1306,6 +1315,16 @@ static int32_t nvt_parse_dt(struct device *dev)
 		NVT_LOG("SPI_RD_FAST_ADDR=0x%06X\n", SPI_RD_FAST_ADDR);
 	}
 
+	if (of_property_read_u16_array(np, "goog,display-resolution",
+		values, 2) == 0) {
+		ts->display_width = values[0];
+		ts->display_height = values[1];
+	} else {
+		ts->display_width = DEFAULT_MAX_WIDTH;
+		ts->display_height = DEFAULT_MAX_HEIGHT;
+	}
+	ts->res_scale = TOUCH_RES_SCALE;
+
 	return ret;
 }
 
@@ -1313,6 +1332,7 @@ static void nvt_get_resolutions(struct device *dev, uint32_t *pos_x_res,
 				uint32_t *pos_y_res, uint32_t *touch_major_res)
 {
 	struct device_node *np = dev->of_node;
+	struct nvt_ts_data *ts = dev_get_drvdata(dev);
 
 	/*
 	 * Retrieve any available screen surface resolutions of
@@ -1327,8 +1347,14 @@ static void nvt_get_resolutions(struct device *dev, uint32_t *pos_x_res,
 	of_property_read_u32(np, "touchscreen-abs-mt-touch-major-res",
 			     touch_major_res);
 
-	NVT_LOG("pos-x-res=%d, pos-y-res=%d, touch-major-res=%d\n",
-		*pos_x_res, *pos_y_res, *touch_major_res);
+	if (ts->high_resolution_enabled) {
+		*pos_x_res *= ts->res_scale;
+		*pos_y_res *= ts->res_scale;
+		*touch_major_res *= ts->res_scale;
+	}
+
+	NVT_LOG("pos-x-res=%d, pos-y-res=%d, touch-major-res=%d, res_scale=%d\n",
+		*pos_x_res, *pos_y_res, *touch_major_res, ts->res_scale);
 }
 #else
 static int32_t nvt_parse_dt(struct device *dev)
@@ -1639,7 +1665,12 @@ static irqreturn_t nvt_ts_isr(int irq, void *handle)
 	return IRQ_WAKE_THREAD;
 }
 
-#define POINT_DATA_LEN 65
+/*
+ * Please note any size changed need to check one by one
+ * for where to be used.
+ */
+#define POINT_DATA_LEN 65 /* basic point data size */
+#define POINT_DATA_LEN_EXTRA 29 /* only for high resolution case */
 /*******************************************************
 Description:
 	Novatek touchscreen work function.
@@ -1650,7 +1681,6 @@ return:
 static irqreturn_t nvt_ts_work_func(int irq, void *data)
 {
 	int32_t ret = -1;
-	uint8_t point_data[POINT_DATA_LEN + PEN_DATA_LEN + 1 + DUMMY_BYTES] = {0};
 	uint32_t position = 1;
 	uint32_t input_x = 0;
 	uint32_t input_y = 0;
@@ -1669,6 +1699,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint16_t info_buf_flags;
 	char trace_tag[128];
 	ktime_t pen_ktime;
+	uint8_t *point_data = ts->point_data;
+	uint16_t spi_read_len = POINT_DATA_LEN + 1;
 
 	if (!ts->probe_done)
 		return IRQ_HANDLED;
@@ -1689,10 +1721,11 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	mutex_lock(&ts->lock);
 
 	if (ts->pen_support)
-		ret = CTP_SPI_READ(ts->client, point_data,
-				   POINT_DATA_LEN + PEN_DATA_LEN + 1);
-	else
-		ret = CTP_SPI_READ(ts->client, point_data, POINT_DATA_LEN + 1);
+		spi_read_len += PEN_DATA_LEN;
+	if (ts->high_resolution_enabled)
+		spi_read_len += POINT_DATA_LEN_EXTRA;
+	ret = CTP_SPI_READ(ts->client, point_data, spi_read_len);
+
 	if (ret < 0) {
 		NVT_ERR("CTP_SPI_READ failed.(%d)\n", ret);
 		goto XFER_ERROR;
@@ -1775,15 +1808,27 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			/* update interrupt timer */
 			irq_timer = jiffies;
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
-			input_x = (uint32_t)(point_data[position + 1] << 4) + (uint32_t) (
-					  point_data[position + 3] >> 4);
-			input_y = (uint32_t)(point_data[position + 2] << 4) + (uint32_t) (
-					  point_data[position + 3] & 0x0F);
+			if (ts->high_resolution_enabled) {
+				input_x = (uint32_t)(point_data[position + 1] << 8) +
+					(uint32_t) (point_data[position + 2]);
+				input_y = (uint32_t)(point_data[position + 3] << 8) +
+					(uint32_t) (point_data[position + 4]);
+			} else {
+				input_x = (uint32_t)(point_data[position + 1] << 4) +
+					(uint32_t) (point_data[position + 3] >> 4);
+				input_y = (uint32_t)(point_data[position + 2] << 4) +
+					(uint32_t) (point_data[position + 3] & 0x0F);
+			}
 			if ((input_x < 0) || (input_y < 0))
 				continue;
 			if ((input_x > ts->abs_x_max) || (input_y > ts->abs_y_max))
 				continue;
-			input_w = (uint32_t)(point_data[position + 4]);
+
+			if (ts->high_resolution_enabled)
+				input_w = (uint32_t)(point_data[position + 5]);
+			else
+				input_w = (uint32_t)(point_data[position + 4]);
+
 			if (input_w == 0)
 				input_w = 1;
 #ifdef TOUCH_FORCE_NUM
@@ -1796,7 +1841,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				input_p = (uint32_t)(point_data[position + 5]);
 			}
 #else
-                        input_p = (uint32_t)(point_data[position + 5]);
+
+			if (ts->high_resolution_enabled)
+				input_p = (uint32_t)(point_data[i + 99]);
+			else
+				input_p = (uint32_t)(point_data[position + 5]);
+
 #endif
 			if (input_p == 0)
 				input_p = 1;
@@ -1874,6 +1924,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	if (ts->heatmap_data_type == HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP) {
 		ts->touch_heatmap_comp_len = (((point_data[62] & 0x0F) << 8) + point_data[61]) * 2;
 		NVT_DBG("heatmap_comp_len: %d\n", ts->touch_heatmap_comp_len);
+		if (ts->touch_heatmap_comp_len == 0)
+			nvt_set_heatmap_host_cmd(ts, true);
 	} else {
 		ts->touch_heatmap_comp_len = 0;
 	}
@@ -1885,7 +1937,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		uint32_t spi_read_size = 0;
 
 		/* Set heatmap type by host cmd. */
-		nvt_set_heatmap_host_cmd(ts);
+		nvt_set_heatmap_host_cmd(ts, true);
 
 		switch (ts->heatmap_data_type) {
 		case HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP:
@@ -2443,18 +2495,57 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	}
 
+#if BOOT_UPDATE_FIRMWARE
+	nvt_fwu_wq = alloc_workqueue("nvt_fwu_wq", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
+	if (!nvt_fwu_wq) {
+		NVT_ERR("nvt_fwu_wq create workqueue failed\n");
+		ret = -ENOMEM;
+		goto err_create_nvt_fwu_wq_failed;
+	}
+	INIT_DELAYED_WORK(&ts->nvt_fwu_work, Boot_Update_Firmware);
+	// please make sure boot update start after display reset(RESX) sequence
 #if SPI_FLASH
+	init_completion(&ts->fwu_done);
+#endif
+	queue_delayed_work(nvt_fwu_wq, &ts->nvt_fwu_work,
+			msecs_to_jiffies(BOOT_UPDATE_FIRMWARE_MS_DELAY));
+#endif
+
+#if SPI_FLASH
+	if (wait_for_completion_timeout(&ts->fwu_done,
+		msecs_to_jiffies(UPDATE_FIRMWARE_TIMEOUT)) == 0) {
+		complete_all(&ts->fwu_done);
+		NVT_LOGE("nvt wait for fwu_done timeout\n");
+	}
 	nvt_clear_fw_reset_state();
 	nvt_bootloader_reset();
 	nvt_check_fw_reset_state(RESET_STATE_INIT);
 	nvt_get_fw_info();
 #else
+	/*
+	 * For hostdl project, the touch W/H will update later by nvt_get_fw_info()
+	 * from nvt_update_firmware() during Boot_Update_Firmware() process.
+	 */
 	ts->touch_width = TOUCH_DEFAULT_MAX_WIDTH;
 	ts->touch_height = TOUCH_DEFAULT_MAX_HEIGHT;
 #endif // SPI_FLASH
 
 	ts->abs_x_max = ts->touch_width - 1;
 	ts->abs_y_max = ts->touch_height - 1;
+
+	ts->point_data_alloc_sz = POINT_DATA_LEN + PEN_DATA_LEN + 1 + DUMMY_BYTES;
+	if (ts->res_scale > 1) {
+		NVT_LOG("High resolution reporting enabled.\n");
+		ts->high_resolution_enabled = true;
+	}
+	ts->point_data_alloc_sz += POINT_DATA_LEN_EXTRA;
+	ts->point_data_alloc_sz = ALIGN(ts->point_data_alloc_sz, 32);
+	ts->point_data = devm_kzalloc(&ts->client->dev, ts->point_data_alloc_sz, GFP_KERNEL);
+	if (ts->point_data == NULL) {
+		NVT_ERR("allocate point_data failed\n");
+		ret = -ENOMEM;
+		goto err_input_dev_alloc_failed;
+	}
 
 	//---allocate input device---
 	ts->input_dev = input_allocate_device();
@@ -2555,8 +2646,8 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		stylus.dev = &ts->client->dev;
 		stylus.bustype = BUS_SPI;
 
-		stylus.abs_x_max = ts->touch_width * 2 - 1;
-		stylus.abs_y_max = ts->touch_height * 2 - 1;
+		stylus.abs_x_max = ts->pen_abs_x_max;
+		stylus.abs_y_max = ts->pen_abs_y_max;
 		stylus.distance_max = 0;	/* distance is not supported */
 		stylus.tilt_min = PEN_TILT_MIN;
 		stylus.tilt_max = PEN_TILT_MAX;
@@ -2605,22 +2696,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 
 #if WAKEUP_GESTURE_DEFAULT
 	device_init_wakeup(&ts->input_dev->dev, 1);
-#endif
-
-#if BOOT_UPDATE_FIRMWARE
-	nvt_fwu_wq = alloc_workqueue("nvt_fwu_wq", WQ_UNBOUND | WQ_MEM_RECLAIM, 1);
-	if (!nvt_fwu_wq) {
-		NVT_ERR("nvt_fwu_wq create workqueue failed\n");
-		ret = -ENOMEM;
-		goto err_create_nvt_fwu_wq_failed;
-	}
-	INIT_DELAYED_WORK(&ts->nvt_fwu_work, Boot_Update_Firmware);
-	// please make sure boot update start after display reset(RESX) sequence
-#if SPI_FLASH
-	init_completion(&ts->fwu_done);
-#endif // SPI_FLASH
-	queue_delayed_work(nvt_fwu_wq, &ts->nvt_fwu_work,
-			msecs_to_jiffies(BOOT_UPDATE_FIRMWARE_MS_DELAY));
 #endif
 
 	NVT_LOG("NVT_TOUCH_ESD_PROTECT is %d\n", NVT_TOUCH_ESD_PROTECT);
@@ -2772,7 +2847,6 @@ err_create_nvt_esd_check_wq_failed:
 		destroy_workqueue(nvt_fwu_wq);
 		nvt_fwu_wq = NULL;
 	}
-err_create_nvt_fwu_wq_failed:
 #endif
 #if WAKEUP_GESTURE_DEFAULT
 	device_init_wakeup(&ts->input_dev->dev, 0);
@@ -2793,6 +2867,7 @@ err_input_register_device_failed:
 		ts->input_dev = NULL;
 	}
 err_input_dev_alloc_failed:
+err_create_nvt_fwu_wq_failed:
 err_chipvertrim_failed:
 	mutex_destroy(&ts->bus_mutex);
 	mutex_destroy(&ts->xbuf_lock);

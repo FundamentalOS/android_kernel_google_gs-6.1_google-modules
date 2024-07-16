@@ -406,35 +406,39 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_SET_SENSING_MODE:
-		NVT_LOGI("set sensing %s.\n", cmd->sensing_cmd.setting ? "ON" : "OFF");
-		if (cmd->sensing_cmd.setting == GTI_SENSING_MODE_DISABLE) {
-			uint8_t spi_buf[3] = {0};
+		if (ts->fw_update_in_process == false) {
+			NVT_LOGI("set sensing %s.\n", cmd->sensing_cmd.setting ? "ON" : "OFF");
+			if (cmd->sensing_cmd.setting == GTI_SENSING_MODE_DISABLE) {
+				uint8_t spi_buf[3] = {0};
 
-			ret = 0;
-			if (sensing_enabled) {
-				spi_buf[0] = EVENT_MAP_HOST_CMD;
-				spi_buf[1] = 0x12;
-				CTP_SPI_WRITE(ts->client, spi_buf, 3);
-				msleep(20);
-				spi_buf[0] = EVENT_MAP_HOST_CMD;
-				spi_buf[1] = 0xFF;
-				CTP_SPI_READ(ts->client, spi_buf, 3);
-				ret = (spi_buf[1] == 0) ? 0 : -EIO;
-				sensing_enabled = false;
+				ret = 0;
+				if (sensing_enabled) {
+					spi_buf[0] = EVENT_MAP_HOST_CMD;
+					spi_buf[1] = 0x12;
+					CTP_SPI_WRITE(ts->client, spi_buf, 3);
+					msleep(20);
+					spi_buf[0] = EVENT_MAP_HOST_CMD;
+					spi_buf[1] = 0xFF;
+					CTP_SPI_READ(ts->client, spi_buf, 3);
+					ret = (spi_buf[1] == 0) ? 0 : -EIO;
+					sensing_enabled = false;
+				}
+			} else {
+#if SPI_FLASH
+				nvt_clear_fw_reset_state();
+				nvt_bootloader_reset();
+				if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+					mutex_unlock(&ts->lock);
+					NVT_ERR("check fw reset state failed!\n");
+					ret = -EAGAIN;
+				}
+#else
+				ret = nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
+				sensing_enabled = true;
 			}
 		} else {
-#if SPI_FLASH
-			nvt_clear_fw_reset_state();
-			nvt_bootloader_reset();
-			if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
-				mutex_unlock(&ts->lock);
-				NVT_ERR("check fw reset state failed!\n");
-				ret = -EAGAIN;
-			}
-#else
-			ret = nvt_update_firmware(get_fw_name(), 1);
-#endif // SPI_FLASH
-			sensing_enabled = true;
+			NVT_LOGD("skip GTI_CMD_SET_SENSING_MODE ops during fw update!\n");
 		}
 		break;
 
