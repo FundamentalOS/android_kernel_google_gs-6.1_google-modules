@@ -1940,8 +1940,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 						(uint32_t)(point_data[70]);
 				usi_event.pressure = (uint32_t)(point_data[71] << 8) +
 						(uint32_t)(point_data[72]);
-				usi_event.tilt_x = (int32_t)point_data[73];
-				usi_event.tilt_y = (int32_t)point_data[74];
+				usi_event.tilt_x = (int32_t)(int8_t)point_data[73];
+				usi_event.tilt_y = (int32_t)(int8_t)point_data[74];
 #ifdef PEN_DISTANCE_SUPPORT
 				usi_event.distance = (uint32_t)(point_data[75] << 8) +
 						(uint32_t)(point_data[76]);
