@@ -302,10 +302,6 @@ static void tg4c_update_irc(struct gs_panel *ctx, const enum gs_hbm_mode hbm_mod
 	struct device *dev = ctx->dev;
 	const u16 level = gs_panel_get_brightness(ctx);
 
-	if (!GS_IS_HBM_ON(hbm_mode)) {
-		dev_dbg(dev, "hbm is off, skip update irc\n");
-		return;
-	}
 	if (GS_IS_HBM_ON_IRC_OFF(hbm_mode)) {
 		/* sync from bigSurf : to achieve the max brightness with IRC off which
 		 * need to set dbv to 0xFFF */
