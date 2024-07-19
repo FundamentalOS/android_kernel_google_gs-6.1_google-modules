@@ -285,10 +285,6 @@ int nvt_callback(void *private_data,
 		/* Fixed touch report rate and no update event */
 		cmd->context_driver_cmd.context_changed.touch_report_rate = 1;
 		cmd->context_driver_cmd.touch_report_rate = 120;
-
-		cmd->context_driver_cmd.context_changed.offload_timestamp = 1;
-		cmd->context_driver_cmd.offload_timestamp =
-				ts->pen_offload_coord_timestamp;
 		ret = 0;
 		break;
 
