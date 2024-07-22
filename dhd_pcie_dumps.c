@@ -140,12 +140,15 @@ dhd_bus_dump_imp_cfg_registers(struct dhd_bus *bus)
 	uint32 devctl2 = dhd_pcie_config_read(bus, PCIECFGGEN_DEV_STATUS_CTRL2, sizeof(uint32));
 	uint32 uc_err_status = dhd_pcie_config_read(bus, PCIE_CFG_UC_ERR_STS, sizeof(uint32));
 	uint32 corr_err_status = dhd_pcie_config_read(bus, PCIE_CFG_CORR_ERR_STS, sizeof(uint32));
+	uint32 err_cap_ctrl = dhd_pcie_config_read(bus, PCI_ERR_CAP_CTRL, sizeof(uint32));
+	uint32 lane_err_status =
+		dhd_pcie_config_read(bus, PCIECFGREG_LANE_ERR_STAT, sizeof(uint32));
 
 	DHD_PRINT(("PCIE CFG regs: status_cmd(0x%x)=0x%x, pmcsr(0x%x)=0x%x "
 		"base_addr0(0x%x)=0x%x base_addr1(0x%x)=0x%x "
 		"linkctl(0x%x)=0x%x linkctl2(0x%x)=0x%x l1ssctrl(0x%x)=0x%x "
 		"devctl(0x%x)=0x%x devctl2(0x%x)=0x%x uc_err_status(0x%x)=0x%x "
-		"corr_err_status(0x%x)=0x%x\n",
+		"corr_err_status(0x%x)=0x%x err_cap_ctrl(0x%x)=0x%x lane_err_status(0x%x)=0x%x\n",
 		PCIECFGREG_STATUS_CMD, status_cmd,
 		PCIE_CFG_PMCSR, pmcsr,
 		PCIECFGREG_BASEADDR0, base_addr0,
@@ -156,7 +159,9 @@ dhd_bus_dump_imp_cfg_registers(struct dhd_bus *bus)
 		PCIECFGREG_DEV_STATUS_CTRL, devctl,
 		PCIECFGGEN_DEV_STATUS_CTRL2, devctl2,
 		PCIE_CFG_UC_ERR_STS, uc_err_status,
-		PCIE_CFG_CORR_ERR_STS, corr_err_status));
+		PCIE_CFG_CORR_ERR_STS, corr_err_status,
+		PCI_ERR_CAP_CTRL, err_cap_ctrl,
+		PCIECFGREG_LANE_ERR_STAT, lane_err_status));
 }
 
 #define PCIE_SLAVER_WRAPPER_BASE	0x18102000u
@@ -2283,6 +2288,7 @@ int
 dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 {
 	int host_irq_disabled;
+	uint32 uc_status;
 
 	DHD_PRINT(("bus->bus_low_power_state = %d\n", dhd->bus->bus_low_power_state));
 	host_irq_disabled = dhdpcie_irq_disabled(dhd->bus);
@@ -2309,9 +2315,12 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 	DHD_PRINT(("\n ------- DUMPING PCIE EP config space Registers ------- \r\n"));
 	dhd_bus_dump_imp_cfg_registers(dhd->bus);
 #ifdef EXTENDED_PCIE_DEBUG_DUMP
-	DHD_PRINT(("Pcie EP Uncorrectable Error Status Val=0x%x\n",
-		dhdpcie_ep_access_cap(dhd->bus, PCIE_EXTCAP_ID_ERR,
-		PCIE_EXTCAP_AER_UCERR_OFFSET, TRUE, FALSE, 0)));
+	uc_status = dhdpcie_ep_access_cap(dhd->bus, PCIE_EXTCAP_ID_ERR,
+		PCIE_EXTCAP_AER_UCERR_OFFSET, TRUE, FALSE, 0);
+	DHD_PRINT(("Pcie EP Uncorrectable Error Status Val=0x%x\n", uc_status));
+#ifdef DHD_COREDUMP
+	dhd->uc_status = uc_status;
+#endif /* DHD_COREDUMP */
 	DHD_PRINT(("hdrlog0(0x%x)=0x%08x hdrlog1(0x%x)=0x%08x hdrlog2(0x%x)=0x%08x "
 		"hdrlog3(0x%x)=0x%08x\n", PCI_TLP_HDR_LOG1,
 		dhd_pcie_config_read(dhd->bus, PCI_TLP_HDR_LOG1, sizeof(uint32)),
@@ -2350,7 +2359,7 @@ dhd_pcie_debug_info_dump(dhd_pub_t *dhd)
 		dhd_bus_pcie_pwr_req(dhd->bus);
 	}
 
-	dhdpcie_print_amni_regs(dhd->bus);
+	dhdpcie_print_amni_regs(dhd->bus, FALSE);
 	dhd_pcie_dump_wrapper_regs(dhd);
 #ifdef DHD_PCIE_WRAPPER_DUMP
 	dhd_pcie_get_wrapper_regs(dhd);
@@ -3556,13 +3565,22 @@ dhd_sdtc_etb_hal_file_dump(void *dhd_pub, const void *user_buf, uint32 len)
 }
 #endif /* DHD_SDTC_ETB_DUMP */
 
-#define CC_AMNI_BASE 0x1851c000u
+#define GCI_MASTER_CFG_ASNI_BASE 0x18527000u
+#define GCI_SLAVE_CFG_HMNI_BASE 0x18528000u
+#define BT_MASTER_CFG_HSNI_BASE 0x18523000u
+#define BT_SLAVE_CFG_HMNI_BASE 0x18524000u
+#define APB_CB_PMNI_BASE 0x1851e000u
+#define APB_AAON_PMNI_BASE 0x1851f000u
+#define CC_SLAVE_CFG_AMNI_BASE 0x1851c000u
+#define CC_MASTER_CFG_ASNI_BASE 0x1851a000u
+#define PCIE_MASTER_CFG_ASNI_BASE 0x1851b000u
+#define PCIE_SLAVE_CFG_AMNI_BASE 0x1851d000u
 #define IDM_ERRSTATUS 0x110u
 #define IDM_INTSTATUS 0x158u
 #define GCI_BASE 0x18010000u
 #define GCI_NCI_ERR_INT_STATUS 0xA04u
 void
-dhdpcie_print_amni_regs(dhd_bus_t *bus)
+dhdpcie_print_amni_regs(dhd_bus_t *bus, bool trap_or_rot)
 {
 #ifdef DBG_PRINT_AMNI
 	uint32 val = 0, pcie_ssctrl = 0;
@@ -3574,21 +3592,23 @@ dhdpcie_print_amni_regs(dhd_bus_t *bus)
 	/* set bar0 win to point to -
 	 * 'Slave CFG Registers for chipcommon' AMNI[0] space
 	 */
-	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), CC_AMNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), CC_SLAVE_CFG_AMNI_BASE);
 	/* enable indirect bpaccess */
 	pcie_ssctrl = OSL_PCI_READ_CONFIG(osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(uint32));
 	val = pcie_ssctrl | BP_INDACCESS_SHIFT;
 	OSL_PCI_WRITE_CONFIG(osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(uint32), val);
 
 	/* read idm_errstatus */
-	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32),
-		IDM_ERRSTATUS);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
 	idm_errstatus = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s:cc slave cfg AMNI, idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		CC_SLAVE_CFG_AMNI_BASE + IDM_ERRSTATUS, idm_errstatus));
 
 	/* read idm_interrupt_status */
-	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32),
-		IDM_INTSTATUS);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_INTSTATUS);
 	idm_intstatus = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: cc slave cfg AMNI, idm_interrupt_status(0x%x)=0x%x\n", __FUNCTION__,
+		CC_SLAVE_CFG_AMNI_BASE + IDM_INTSTATUS, idm_intstatus));
 
 	/* read gci_nci_err_int_status */
 	/* set bar0 win to point to GCI space */
@@ -3597,23 +3617,85 @@ dhdpcie_print_amni_regs(dhd_bus_t *bus)
 		GCI_NCI_ERR_INT_STATUS);
 	gci_nci_err_intstatus = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA,
 		sizeof(uint32));
+	DHD_PRINT(("%s: gci_nci_err_intstatus(0x%x)=0x%x\n", __FUNCTION__,
+		GCI_BASE + GCI_NCI_ERR_INT_STATUS, gci_nci_err_intstatus));
 
+	if (!trap_or_rot) {
+		goto exit;
+	}
+
+	/* set bar0 win to point to -
+	 * 'Master CFG Registers for chipcommon' ASNI[0] space
+	 */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), CC_MASTER_CFG_ASNI_BASE);
+	/* read idm_errstatus */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s:cc master cfg ASNI, idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		CC_MASTER_CFG_ASNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'Master CFG Registers for pcie' ASNI[10] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), PCIE_MASTER_CFG_ASNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: master cfg pcie ASNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		PCIE_MASTER_CFG_ASNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'Slave CFG Registers for pcie' AMNI[4] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), PCIE_SLAVE_CFG_AMNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: slave cfg pcie AMNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		PCIE_SLAVE_CFG_AMNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'PMNI for APB-CB' PMNI[11] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), APB_CB_PMNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: APB-CB PMNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		APB_CB_PMNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'PMNI for APB-AAON' PMNI[12] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), APB_AAON_PMNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: APB-AAON PMNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		APB_AAON_PMNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'Master CFG Registers for BT' HSNI[13] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), BT_MASTER_CFG_HSNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: BT master cfg HSNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		BT_MASTER_CFG_HSNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'Slave CFG Registers for BT' HMNI[9] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), BT_SLAVE_CFG_HMNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: BT slave cfg HMNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		BT_SLAVE_CFG_HMNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'Master CFG Registers for gci' ASNI[1] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), GCI_MASTER_CFG_ASNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: GCI master cfg ASNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		GCI_MASTER_CFG_ASNI_BASE + IDM_ERRSTATUS, val));
+
+	/* set bar0 win to point to 'Slave CFG Registers for gci' HMNI[10] */
+	OSL_PCI_WRITE_CONFIG(osh, PCI_BAR0_WIN, sizeof(uint32), GCI_SLAVE_CFG_HMNI_BASE);
+	OSL_PCI_WRITE_CONFIG(osh, PCI_CFG_INDBP_ADDR, sizeof(uint32), IDM_ERRSTATUS);
+	val = OSL_PCI_READ_CONFIG(osh, PCI_CFG_INDBP_DATA, sizeof(uint32));
+	DHD_PRINT(("%s: GCI slave cfg HMNI idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
+		GCI_SLAVE_CFG_HMNI_BASE + IDM_ERRSTATUS, val));
+
+exit:
 	/* restore back values */
 	/* restore bar0 */
 	OSL_PCI_WRITE_CONFIG(bus->osh, PCI_BAR0_WIN, sizeof(uint32), bar0);
 	/* disable indirect bpaccess */
 	OSL_PCI_WRITE_CONFIG(osh, PCIE_CFG_SUBSYSTEM_CONTROL,
 		sizeof(uint32), pcie_ssctrl);
-
-	if (idm_errstatus != (uint32)-1) {
-		DHD_PRINT(("%s: idm_errstatus(0x%x)=0x%x\n", __FUNCTION__,
-			CC_AMNI_BASE + IDM_ERRSTATUS, idm_errstatus));
-		DHD_PRINT(("%s: idm_interrupt_status(0x%x)=0x%x\n", __FUNCTION__,
-			CC_AMNI_BASE + IDM_INTSTATUS, idm_intstatus));
-	}
-	if (gci_nci_err_intstatus != (uint32)-1) {
-		DHD_PRINT(("%s: gci_nci_err_intstatus(0x%x)=0x%x\n", __FUNCTION__,
-			GCI_BASE + GCI_NCI_ERR_INT_STATUS, gci_nci_err_intstatus));
-	}
 #endif /* DBG_PRINT_AMNI */
 }

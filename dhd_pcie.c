@@ -1761,6 +1761,56 @@ exit:
 	return;
 }
 
+int
+dhdpcie_check_for_cto(dhd_bus_t *bus)
+{
+	uint32 intstatus = 0;
+	/* read pci_intstatus */
+	intstatus = dhdpcie_bus_cfg_read_dword(bus, PCI_INT_STATUS, 4);
+
+	if (intstatus == (uint32)-1 ||
+		bus->dhd->dhd_induce_error == DHD_INDUCE_PCIE_LINK_DOWN_IN_ISR) {
+		DHD_CONS_ONLY(("%s: Invalid cfg intstatus(0x%x):0x%x, "
+			"pcie link down, dhd_induce_error %u\n", __FUNCTION__,
+			PCI_INT_STATUS, intstatus, bus->dhd->dhd_induce_error));
+		dhd_bus_set_linkdown(bus->dhd, TRUE);
+		dhd_pcie_debug_info_dump(bus->dhd);
+#ifdef OEM_ANDROID
+#if defined(CONFIG_ARCH_MSM) && defined(SUPPORT_LINKDOWN_RECOVERY)
+		bus->no_cfg_restore = 1;
+#endif /* CONFIG_ARCH_MSM && SUPPORT_LINKDOWN_RECOVERY */
+		bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_EP_DETECT;
+#ifdef WL_CFGVENDOR_SEND_HANG_EVENT
+		copy_hang_info_linkdown(bus->dhd);
+#endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
+		dhd_os_send_hang_message(bus->dhd);
+#endif /* OEM_ANDROID */
+		return BCME_ERROR;
+	}
+
+	if (intstatus & PCI_CTO_INT_MASK) {
+		DHD_CONS_ONLY(("%s: ##### CTO REPORTED BY DONGLE "
+			"intstat=0x%x enab=%d\n", __FUNCTION__,
+			intstatus, bus->cto_enable));
+		bus->cto_triggered = 1;
+		bus->dhd->do_chip_bighammer = TRUE;
+		dhd_bus_dump_imp_cfg_registers(bus);
+		/*
+		 * DAR still accessible
+		 */
+		dhd_bus_dump_dar_registers(bus);
+		/* Stop Tx flow */
+		dhd_bus_stop_queue(bus);
+
+		/* Schedule CTO recovery */
+		if (bus->cto_recovery_enable) {
+			dhd_schedule_cto_recovery(bus->dhd);
+		}
+		return BCME_ERROR;
+	}
+	return BCME_OK;
+}
+
 /**
  * Name:  dhdpcie_bus_isr
  * Parameters:
@@ -1830,62 +1880,24 @@ dhdpcie_bus_isr(dhd_bus_t *bus)
 			break;
 		}
 
+		/*
+		 * For MSI case, skip reading chip intstatus as
+		 * well as cfg intstatus (for CTO) from ISR.
+		 * The cfg intstatus will be read in DPC.
+		 */
+		if (bus->d2h_intr_method == PCIE_MSI) {
+			/* For MSI, as intstatus is cleared by firmware, no need to read */
+			goto skip_intstatus_read;
+		}
+
 		if (PCIECTO_ENAB(bus)) {
-			/* read pci_intstatus */
-			intstatus = dhdpcie_bus_cfg_read_dword(bus, PCI_INT_STATUS, 4);
-
-			if (intstatus == (uint32)-1 ||
-				bus->dhd->dhd_induce_error == DHD_INDUCE_PCIE_LINK_DOWN_IN_ISR) {
-				DHD_CONS_ONLY(("%s: Invalid cfg intstatus(0x%x):0x%x, "
-					"pcie link down, dhd_induce_error %u\n", __FUNCTION__,
-					PCI_INT_STATUS, intstatus, bus->dhd->dhd_induce_error));
-				dhd_bus_set_linkdown(bus->dhd, TRUE);
-				dhdpcie_disable_irq_nosync(bus);
-				dhd_pcie_debug_info_dump(bus->dhd);
-#ifdef OEM_ANDROID
-#if defined(CONFIG_ARCH_MSM) && defined(SUPPORT_LINKDOWN_RECOVERY)
-				bus->no_cfg_restore = 1;
-#endif /* CONFIG_ARCH_MSM && SUPPORT_LINKDOWN_RECOVERY */
-				bus->dhd->hang_reason = HANG_REASON_PCIE_LINK_DOWN_EP_DETECT;
-#ifdef WL_CFGVENDOR_SEND_HANG_EVENT
-				copy_hang_info_linkdown(bus->dhd);
-#endif /* WL_CFGVENDOR_SEND_HANG_EVENT */
-				dhd_os_send_hang_message(bus->dhd);
-#endif /* OEM_ANDROID */
-				break;
-			}
-
-			if (intstatus & PCI_CTO_INT_MASK) {
-				DHD_CONS_ONLY(("%s: ##### CTO REPORTED BY DONGLE "
-					"intstat=0x%x enab=%d\n", __FUNCTION__,
-					intstatus, bus->cto_enable));
-				bus->cto_triggered = 1;
-				bus->dhd->do_chip_bighammer = TRUE;
-				dhd_bus_dump_imp_cfg_registers(bus);
-				/*
-				 * DAR still accessible
-				 */
-				dhd_bus_dump_dar_registers(bus);
-
+			if (dhdpcie_check_for_cto(bus) != BCME_OK) {
 				/* Disable further PCIe interrupts */
 #ifndef NDIS
 				dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
 #endif
-				/* Stop Tx flow */
-				dhd_bus_stop_queue(bus);
-
-				/* Schedule CTO recovery */
-				if (bus->cto_recovery_enable) {
-					dhd_schedule_cto_recovery(bus->dhd);
-				}
-
-				return TRUE;
+				break;
 			}
-		}
-
-		if (bus->d2h_intr_method == PCIE_MSI) {
-			/* For MSI, as intstatus is cleared by firmware, no need to read */
-			goto skip_intstatus_read;
 		}
 
 		intstatus = dhdpcie_bus_intstatus(bus);
@@ -1951,6 +1963,8 @@ skip_intstatus_read:
 		DHD_OS_WAKE_UNLOCK(bus->dhd);
 #else
 		bus->dpc_sched = TRUE;
+		/* Reset dpc_resched, which will be set only if tasklet got rescheduled by itself */
+		bus->dpc_resched = FALSE;
 		bus->isr_sched_dpc_time = OSL_LOCALTIME_NS();
 #ifndef NDIS
 		dhd_sched_dpc(bus->dhd);     /* queue DPC now!! */
@@ -2648,7 +2662,7 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 	}
 
 	DHD_PRINT(("%s: before si_attach\n", __FUNCTION__));
-	dhdpcie_print_amni_regs(bus);
+	dhdpcie_print_amni_regs(bus, FALSE);
 	/* si_attach() will provide an SI handle and scan the backplane */
 	if (!(bus->sih = si_attach((uint)devid, osh, regsva, PCI_BUS, bus,
 	                           &bus->vars, &bus->varsz))) {
@@ -2656,7 +2670,7 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		goto fail;
 	}
 	DHD_PRINT(("%s: after si_attach\n", __FUNCTION__));
-	dhdpcie_print_amni_regs(bus);
+	dhdpcie_print_amni_regs(bus, FALSE);
 
 	if (MULTIBP_ENAB(bus->sih) && (bus->sih->buscorerev >= 66)) {
 		/*
@@ -5344,6 +5358,10 @@ dhdpcie_checkdied(dhd_bus_t *bus, char *data, uint size)
 		/* wake up IOCTL wait event */
 		dhd_wakeup_ioctl_event(bus->dhd, IOCTL_RETURN_ON_TRAP);
 
+		if (dhdpcie_chk_cmnbp_status_indirect(bus) == BCME_OK) {
+			dhdpcie_print_amni_regs(bus, TRUE);
+		}
+
 		dhd_bus_dump_console_buffer(bus);
 		dhd_prot_debug_info_print(bus->dhd);
 
@@ -5874,8 +5892,6 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 	if (bus->is_linkdown) {
 		DHD_ERROR(("%s: PCIe link is down so skip\n", __FUNCTION__));
-		/* panic only for DUMP_MEMFILE_BUGON */
-		ASSERT(bus->dhd->memdump_enabled != DUMP_MEMFILE_BUGON);
 		ret = BCME_ERROR;
 		goto exit;
 	}
@@ -5987,10 +6003,15 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 					DHD_ERROR(("%s : Set do_chip_bighammer\n", __FUNCTION__));
 					bus->dhd->do_chip_bighammer = TRUE;
 #endif /* WBRC */
-					/* For android collect FIS dumps */
+
 #ifdef DHD_SSSR_DUMP
 					dhdp->collect_sssr = TRUE;
+#ifdef OEM_ANDROID
+					/* Only for android collect FIS dumps
+					 * It could cause pcie link down problem on oly platform
+					 */
 					dhdpcie_set_collect_fis(bus);
+#endif /* OEM_ANDROID */
 #endif /* DHD_SSSR_DUMP */
 					if (timeout) {
 						collect_cbaon_dmps = TRUE;
@@ -8099,11 +8120,11 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 		*/
 		dhdpcie_advertise_bus_cleanup(bus->dhd);
 
-		dhdpcie_print_amni_regs(bus);
+		dhdpcie_print_amni_regs(bus, FALSE);
 #ifdef OEM_ANDROID
 		dhdpcie_dongle_reset(bus);
 #endif /* OEM_ANDROID */
-		dhdpcie_print_amni_regs(bus);
+		dhdpcie_print_amni_regs(bus, FALSE);
 
 		if (bus->dhd->busstate != DHD_BUS_DOWN) {
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
@@ -8267,14 +8288,14 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 			bus->dhd->hp2p_enable = TRUE;
 #endif
 
-			dhdpcie_print_amni_regs(bus);
+			dhdpcie_print_amni_regs(bus, FALSE);
 #ifdef OEM_ANDROID
 			/* For android platforms reset (FLR) dongle during Wifi ON
 			 * this should be done before dongle attach
 			 */
 			dhdpcie_dongle_reset(bus);
 #endif /* OEM_ANDROID */
-			dhdpcie_print_amni_regs(bus);
+			dhdpcie_print_amni_regs(bus, FALSE);
 
 			bcmerror = dhdpcie_bus_dongle_attach(bus);
 			if (bcmerror) {
@@ -11859,7 +11880,7 @@ __dhdpcie_bus_download_state(dhd_bus_t *bus, bool state)
 
 		bus->arm_oor_time = OSL_LOCALTIME_NS();
 
-		dhdpcie_print_amni_regs(bus);
+		dhdpcie_print_amni_regs(bus, FALSE);
 
 		if (is_arm_ca7) {
 			/* for ARM CA7 it is enough if we clear bit5 in IO DMP ctrl
@@ -13785,6 +13806,15 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 		}
 	}
 
+	/* For MSI case, check for CTO vi cfg INTSTATUS from DPC for non rescheduled case,
+	 * to avoid more time in ISR.
+	 */
+	if ((bus->d2h_intr_method == PCIE_MSI) && !bus->dpc_resched) {
+		if (dhdpcie_check_for_cto(bus) != BCME_OK) {
+			return 0;
+		}
+	}
+
 	/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
 	 * using dongle intmask to control INTR enable/disable
 	 */
@@ -13843,6 +13873,7 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	dhd_histo_update(bus->dhd, bus->dpc_time_histo, (uint32)bus->dpc_time_usec);
 
 	bus->dpc_sched = resched;
+	bus->dpc_resched = resched;
 #ifdef DHD_FLOW_RING_STATUS_TRACE
 	if (bus->dhd->dma_h2d_ring_upd_support && bus->dhd->dma_d2h_ring_upd_support &&
 			(bus->dhd->ring_attached == TRUE)) {
@@ -14497,7 +14528,7 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 		DHD_RPM(("%s: Bus is in power save state (%d). "
 			"Skip processing rest of ring buffers.\n",
 			__FUNCTION__, bus->bus_low_power_state));
-		return FALSE;
+		return more;
 	}
 
 	/* update the flow ring cpls */
@@ -14773,7 +14804,7 @@ dhdpcie_wait_readshared_area_addr(dhd_bus_t *bus, uint32 *share_addr)
 			dhdpcie_bus_intr_disable(bus); /* Disable interrupt using IntMask!! */
 			dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
 		}
-		dhdpcie_print_amni_regs(bus);
+		dhdpcie_print_amni_regs(bus, FALSE);
 	} else {
 #ifdef GDB_PROXY
 		/* Loop while timeout is caused by firmware stop in GDB */
@@ -15789,6 +15820,17 @@ dhd_get_ewp_init_state(dhd_bus_t *bus, uint8 *init_state)
 
 	*init_state = ewp_info.init_state;
 	return;
+}
+
+void
+dhd_coredump_add_status(char* buf, char *err_tag, uint32 status)
+{
+	int len;
+	if (status) {
+		len = strlen(buf);
+		snprintf(&buf[len], DHD_MEMDUMP_LONGSTR_LEN - len,
+			"_%s0x%x", err_tag, status);
+	}
 }
 #endif /* DHD_COREDUMP */
 
@@ -17151,6 +17193,7 @@ dhdpcie_bus_get_pcie_inband_dw_state(dhd_bus_t *bus)
 const char *
 dhd_convert_dsval(uint32 val, bool d2h)
 {
+	static char invalid_str[64] = {0};
 	if (d2h) {
 		switch (val) {
 			case D2H_DEV_D3_ACK:
@@ -17164,7 +17207,8 @@ dhd_convert_dsval(uint32 val, bool d2h)
 			case D2HMB_DS_HOST_SLEEP_EXIT_ACK:
 				return "D2HMB_DS_HOST_SLEEP_EXIT_ACK";
 			default:
-				return "INVALID";
+				snprintf(invalid_str, 64, "D2H_INVALID_0x%x", val);
+				return invalid_str;
 		}
 	} else {
 		switch (val) {
@@ -17182,8 +17226,13 @@ dhd_convert_dsval(uint32 val, bool d2h)
 				return "H2D_HOST_CONS_INT";
 			case H2D_FW_TRAP:
 				return "H2D_FW_TRAP";
+			case H2D_HOST_D0_INFORM_IN_USE:
+				return "H2D_HOST_D0_INFORM_IN_USE";
+			case H2D_HOST_D0_INFORM:
+				return "H2D_HOST_D0_INFORM";
 			default:
-				return "INVALID";
+				snprintf(invalid_str, 64, "H2D_INVALID_0x%x", val);
+				return invalid_str;
 		}
 	}
 }
@@ -17194,6 +17243,9 @@ dhd_convert_inb_state_names(enum dhd_bus_ds_state inbstate)
 	switch (inbstate) {
 		case DW_DEVICE_DS_DEV_SLEEP:
 			return "DW_DEVICE_DS_DEV_SLEEP";
+		break;
+		case DW_DEVICE_DS_DEV_SLEEP_PEND:
+			return "DW_DEVICE_DS_DEV_SLEEP_PEND";
 		break;
 		case DW_DEVICE_DS_DISABLED_WAIT:
 			return "DW_DEVICE_DS_DISABLED_WAIT";

@@ -114,10 +114,10 @@ extern bool check_bcm4335_rev(void);
 #if defined(CONFIG_X86)
 #define PCIE_RC_VENDOR_ID 0x8086
 #define PCIE_RC_DEVICE_ID 0x9c1a
-#elif defined(CONFIG_ARCH_TEGRA)
+#elif defined(CONFIG_PCI_TEGRA)
 #define PCIE_RC_VENDOR_ID 0x14e4
 #define PCIE_RC_DEVICE_ID 0x4347
-#else /* CONFIG_ARCH_TEGRA */
+#else /* CONFIG_PCI_TEGRA */
 /* Dummy defn */
 #define PCIE_RC_VENDOR_ID 0xffff
 #define PCIE_RC_DEVICE_ID 0xffff
@@ -1080,10 +1080,12 @@ void __attribute__ ((weak)) dhd_plat_tx_pktcount(void *plat_info, uint cnt)
 {
 	return;
 }
+
 void __attribute__ ((weak)) dhd_plat_rx_pktcount(void *plat_info, uint cnt)
 {
 	return;
 }
+
 int __attribute__ ((weak)) dhd_plat_pcie_suspend(void *plat_info)
 {
 	return 0;

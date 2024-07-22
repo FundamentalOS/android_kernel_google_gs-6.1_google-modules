@@ -65,7 +65,9 @@
 
 #define INVALID_CHSPEC_BW	(0xFFFF)
 
-#define CELLAVOID_DEFAULT_TXCAP	127u
+#define CELLAVOID_NO_POWER_CAP (0x7FFFFFFF)
+#define CELLAVOID_TXCAP_MIN_VAL -32	/* dBm */
+#define CELLAVOID_TXCAP_MAX_VAL 31	/* dBm */
 #define CELLAVOID_MAX_CH 128u
 #define WL_CELLAVOID_INFORM(args) WL_ERR(args)
 
@@ -511,7 +513,7 @@ wl_cellavoid_clear_cell_chan_list(wl_cellavoid_info_t *cellavoid_info)
 		GCC_DIAGNOSTIC_POP();
 		list_del(&chan_info->list);
 		/* Restore channel info to the value of safe channel */
-		chan_info->pwr_cap = CELLAVOID_DEFAULT_TXCAP;
+		chan_info->pwr_cap = CELLAVOID_TXCAP_MAX_VAL;
 		list_add(&chan_info->list, &cellavoid_info->avail_chan_info_list);
 	}
 	cellavoid_info->cell_chan_info_cnt = 0;
@@ -755,9 +757,10 @@ wl_cellavoid_sort_chan_info_list(wl_cellavoid_info_t *cellavoid_info)
 /* Dump function, shows chanspec/pwrcap item both in the unsafe channel list (cellular channel list)
  * and safe channel list (avail channel list)
  */
-static void
-wl_cellavoid_dump_chan_info_list(wl_cellavoid_info_t *cellavoid_info)
+void
+wl_cellavoid_dump_chan_info_list(struct bcm_cfg80211 *cfg)
 {
+	wl_cellavoid_info_t *cellavoid_info = cfg->cellavoid_info;
 	wl_cellavoid_chan_info_t *chan_info, *next;
 	char chanspec_str[CHANSPEC_STR_LEN];
 
@@ -765,7 +768,7 @@ wl_cellavoid_dump_chan_info_list(wl_cellavoid_info_t *cellavoid_info)
 	list_for_each_entry_safe(chan_info, next, &cellavoid_info->cell_chan_info_list, list) {
 		GCC_DIAGNOSTIC_POP();
 		wf_chspec_ntoa(chan_info->chanspec, chanspec_str);
-		WL_MEM(("Cellular : chanspec %s(%x), pwrcap %d\n",
+		WL_INFORM_MEM(("Cellular : chanspec %s(%x), pwrcap %d\n",
 			chanspec_str, chan_info->chanspec, chan_info->pwr_cap));
 	}
 
@@ -773,7 +776,7 @@ wl_cellavoid_dump_chan_info_list(wl_cellavoid_info_t *cellavoid_info)
 	list_for_each_entry_safe(chan_info, next, &cellavoid_info->avail_chan_info_list, list) {
 		GCC_DIAGNOSTIC_POP();
 		wf_chspec_ntoa(chan_info->chanspec, chanspec_str);
-		WL_MEM(("Avail : chanspec %s(%x), pwrcap %d\n",
+		WL_INFORM_MEM(("Avail : chanspec %s(%x), pwrcap %d\n",
 			chanspec_str, chan_info->chanspec, chan_info->pwr_cap));
 	}
 
@@ -795,7 +798,7 @@ wl_cellavoid_alloc_chan_info(wl_cellavoid_info_t *cellavoid_info, chanspec_t cha
 	}
 
 	chan_info->chanspec = chanspec;
-	chan_info->pwr_cap = CELLAVOID_DEFAULT_TXCAP;
+	chan_info->pwr_cap = CELLAVOID_TXCAP_MAX_VAL;
 
 	return chan_info;
 }
@@ -1452,6 +1455,12 @@ wl_cellavoid_find_ap_chan_info(struct bcm_cfg80211 *cfg, struct net_device *ndev
 	if (chan_info) {
 		WL_INFORM_MEM(("Found chan info %x\n", chan_info->chanspec));
 	}
+#ifdef WL_CELLULAR_CHAN_AVOID_DUMP
+	else {
+		WL_ERR(("No channel found. dump safe/avail list:\n"));
+		wl_cellavoid_dump_chan_info_list(cfg);
+	}
+#endif /* WL_CELLULAR_CHAN_AVOID_DUMP */
 
 	return chan_info;
 }
@@ -1732,7 +1741,7 @@ wl_cellavoid_set_cell_channels(struct bcm_cfg80211 *cfg, wl_cellavoid_param_t *p
 	wl_cellavoid_sort_chan_info_list(cellavoid_info);
 
 #ifdef WL_CELLULAR_CHAN_AVOID_DUMP
-	wl_cellavoid_dump_chan_info_list(cellavoid_info);
+	wl_cellavoid_dump_chan_info_list(cfg);
 #endif /* WL_CELLULAR_CHAN_AVOID_DUMP */
 
 	/* Perform actions needs to be done (AP->CSA)
@@ -1776,12 +1785,35 @@ wl_cellavoid_update_param(struct bcm_cfg80211 *cfg, wl_cellavoid_param_t *param)
 	return err;
 }
 
+static int
+wl_cellavoid_is_pwrcap_valid(struct bcm_cfg80211 *cfg,
+	int32 fwk_val, int8 *pwrcap)
+{
+	int ret = BCME_OK;
+
+	WL_DBG_MEM(("fwk_val:0x%x\n", fwk_val));
+
+	if (fwk_val == CELLAVOID_NO_POWER_CAP) {
+		*pwrcap = CELLAVOID_TXCAP_MAX_VAL;
+	} else if ((fwk_val < CELLAVOID_TXCAP_MAX_VAL) &&
+		(fwk_val >= CELLAVOID_TXCAP_MIN_VAL)) {
+		*pwrcap = fwk_val;
+	} else {
+		WL_ERR(("unsupported value for pwr_cap:0x%x\n",
+			fwk_val));
+		ret = BCME_BADARG;
+	}
+
+	return ret;
+}
+
 /* cfg vendor interface function */
 int
 wl_cfgvendor_cellavoid_set_cell_channels(struct wiphy *wiphy,
 		struct wireless_dev *wdev, const void  *data, int len)
 {
 	int err = BCME_OK, rem, rem1, rem2, type;
+	int8 pwrcap;
 	wl_cellavoid_param_t param;
 	wl_cellavoid_chan_param_t* cur_chan_param = NULL;
 	const struct nlattr *iter, *iter1, *iter2;
@@ -1842,11 +1874,20 @@ wl_cfgvendor_cellavoid_set_cell_channels(struct wiphy *wiphy,
 								nla_get_u32(iter2);
 							break;
 						case CELLAVOID_ATTRIBUTE_PWRCAP:
-							cur_chan_param->pwr_cap =
-								nla_get_u32(iter2);
+							err = wl_cellavoid_is_pwrcap_valid(cfg,
+								nla_get_u32(iter2), &pwrcap);
+							if (err == BCME_OK) {
+								cur_chan_param->pwr_cap = pwrcap;
+							} else {
+								WL_ERR(("pwr_cap is not valid\n"));
+								goto exit;
+							}
 							break;
 					}
 				}
+				WL_DBG_MEM(("CELLAVOID PARAM - BAND:%d CHAN:%d PWR_CAP:%d\n",
+					cur_chan_param->band, cur_chan_param->center_channel,
+					cur_chan_param->pwr_cap));
 				cur_chan_param++;
 			}
 			break;

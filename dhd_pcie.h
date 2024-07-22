@@ -369,6 +369,7 @@ typedef struct dhd_bus {
 	uint32		bus;			/* gSPI or SDIO bus */
 	uint32		intstatus;		/* Intstatus bits (events) pending */
 	bool		dpc_sched;		/* Indicates DPC schedule (intrpt rcvd) */
+	bool		dpc_resched;		/* Indicates DPC rescheduled */
 	bool		fcstate;		/* State of dongle flow-control */
 
 	uint16		cl_devid;		/* cached devid for dhdsdio_probe_attach() */
@@ -1013,10 +1014,10 @@ extern void dhd_bus_doorbell_timeout_reset(struct dhd_bus *bus);
 #define DHD_PCIE_DMA_MASK_FOR_GS101 36
 #endif /* DHD_SET_PCIE_DMA_MASK_FOR_GS101 */
 
-#ifdef CONFIG_ARCH_TEGRA
+#ifdef CONFIG_PCI_TEGRA
 extern int tegra_pcie_pm_suspend(void);
 extern int tegra_pcie_pm_resume(void);
-#endif /* CONFIG_ARCH_TEGRA */
+#endif /* CONFIG_PCI_TEGRA */
 
 extern int dhd_buzzz_dump_dngl(dhd_bus_t *bus);
 extern int dhdpcie_send_mb_data(dhd_bus_t *bus, uint32 h2d_mb_data, const char *context);
@@ -1225,5 +1226,5 @@ void dhd_bus_pcie_pwr_req_clear(struct dhd_bus *bus);
 #define PCIE_SUBSYS_CTRL_BPACCESS_ENABLE 0x800C0u
 #define PCIE_SUBSYS_CTRL_BPACCESS_DISABLE 0x80080u
 #define BP_INDACCESS_SHIFT (0x1 << 6)
-void dhdpcie_print_amni_regs(dhd_bus_t *bus);
+void dhdpcie_print_amni_regs(dhd_bus_t *bus, bool trap_or_rot);
 #endif /* dhd_pcie_h */

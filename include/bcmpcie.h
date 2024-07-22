@@ -42,6 +42,7 @@ typedef struct {
 #define BCMPCIE_MAX_TX_FLOWS	40
 #endif /* ! BCMPCIE_MAX_TX_FLOWS */
 
+#define PCIE_SHARED_VERSION_10		0x0000A
 #define PCIE_SHARED_VERSION_9		0x00009
 #define PCIE_SHARED_VERSION_8		0x00008
 #define PCIE_SHARED_VERSION_7		0x00007
@@ -165,6 +166,7 @@ typedef struct {
 
 #define PCIE_SHARED3_CFG_TRAP_SUPPORT   0x00000001 /* special trap sig supported in config space */
 #define PCIE_SHARED3_TXDESC_ATTR_SUPPORT  0x00000002 /* txdesc.ext_flags supported */
+#define PCIE_SHARED3_TXDESC_ETH_HDR	0x00000004 /* host address will point to ethernet header */
 
 #define PCIE_SHARED_D2H_MAGIC		0xFEDCBA09
 #define PCIE_SHARED_H2D_MAGIC		0x12345678
@@ -352,7 +354,10 @@ typedef struct {
 	uint8	rxpost_max;	/* max aggregated work items in rxpost, filled by host */
 	uint8	txcpl_max;	/* max aggregated work items in txcpl, filled by dongle */
 	uint8	rxcpl_max;	/* max aggregated work items in rxcpl, filled by dongle */
-	uint16	resvd;		/* reserved */
+	union {
+		uint16  resvd;		/* reserved in rev9   */
+		uint16	rxbuf_len;	/* host rxbuf_post_len in rev10 */
+	};
 } pcie_aggr_sh_t;
 
 /**
@@ -432,7 +437,7 @@ typedef struct {
 	/* Pointer to ewp_info_t data structure [ipc v9] */
 	uint32		PHYS_ADDR_N(ewp_info_addr);
 
-	/* aggregated work item shared information [ipc v9] */
+	/* aggregated work item shared information [ipc v9 & v10] */
 	pcie_aggr_sh_t	aggr_sh_info;
 } pciedev_shared_t;
 
@@ -467,7 +472,7 @@ typedef struct {
 #define HOSTCAP_EDL_RING			0x10000000
 #define HOSTCAP_PKT_TIMESTAMP			0x20000000
 #define HOSTCAP_PKT_HP2P			0x40000000
-#define HOSTCAP_HWA				0x80000000
+#define HOSTCAP_TXDESC_ETH_HDR			0x80000000
 
 #define HOSTCAP2_DURATION_SCALE_MASK            0x0000003Fu
 #define HOSTCAP2_PCIE_PTM			0x00000100u
@@ -542,6 +547,10 @@ typedef struct {
 #define D2H_DEV_TRAP_PING_HOST_FAILURE			0x08000000
 #define D2H_DEV_TRAP_DS_ACK_TIMEOUT			0x00100000u
 #define D2H_DEV_TRAP_FATAL				0x00200000u
+/* Indication of coex-CPU trap */
+#define D2H_DEV_COEX_CPU_TRAP				0x00400000u
+/* Indication of dump request for coex-CPU trap */
+#define D2H_DEV_COEX_CPU_DUMP_REQ			0x00800000u
 #define D2H_FWTRAP_MASK		0x0000001F	/* Adding maskbits for TRAP information */
 
 #define D2HMB_FWHALT                    D2H_DEV_FWHALT

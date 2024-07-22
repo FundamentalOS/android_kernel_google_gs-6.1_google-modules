@@ -1167,8 +1167,15 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 	u16 wl_iftype;
 	u16 wl_mode;
 	struct net_device *primary_ndev;
+	struct net_device *ndev = NULL;
+	dhd_pub_t *dhdp;
 
 	if (!cfg) {
+		return -EINVAL;
+	}
+
+	dhdp = (dhd_pub_t *)(cfg->pub);
+	if (!dhdp) {
 		return -EINVAL;
 	}
 
@@ -1179,10 +1186,11 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 		return -ENODEV;
 	}
 
+	ndev = wdev_to_ndev(wdev);
 #ifdef WL_STATIC_IF
 	/* interface delete is invalid for static interface */
-	if (IS_CFG80211_STATIC_IF(cfg, wdev_to_ndev(wdev))) {
-		WL_ERR(("Invalid request to delete static interface %s\n", wdev->netdev->name));
+	if (IS_CFG80211_STATIC_IF(cfg, ndev)) {
+		WL_ERR(("Invalid request to delete static interface %s\n", ndev->name));
 		return -EINVAL;
 	}
 #endif /* WL_STATIC_IF */
@@ -1193,9 +1201,15 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 		return -ENODEV;
 	}
 
+	if (ndev) {
+		dhd_set_del_in_progress(dhdp, ndev);
+	}
 	if ((ret = wl_cfgvif_del_if(cfg, primary_ndev,
 			wdev, NULL)) < 0) {
 		WL_ERR(("IF del failed\n"));
+	}
+	if (ndev) {
+		dhd_clear_del_in_progress(dhdp, ndev);
 	}
 
 	return ret;
@@ -1215,6 +1229,8 @@ wl_cfg80211_change_p2prole(struct wiphy *wiphy, struct net_device *ndev, enum nl
 #ifdef BCMDONGLEHOST
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* BCMDONGLEHOST */
+	u16 wl_iftype;
+	u16 wl_mode;
 
 	WL_INFORM_MEM(("Enter. current_role:%d new_role:%d \n", ndev->ieee80211_ptr->iftype, type));
 
@@ -1247,7 +1263,11 @@ wl_cfg80211_change_p2prole(struct wiphy *wiphy, struct net_device *ndev, enum nl
 	 * channel. so retrieve the current channel of primary interface and
 	 * then start the virtual interface on that.
 	 */
-	chspec = wl_cfg80211_get_shared_freq(wiphy);
+	if (cfg80211_to_wl_iftype(type, &wl_iftype, &wl_mode) < 0) {
+		WL_ERR(("Unsupported if type %d\n", type));
+		return BCME_UNSUPPORTED;
+	}
+	chspec = wl_cfg80211_get_shared_freq(wiphy, wl_iftype);
 	if (type == NL80211_IFTYPE_P2P_GO) {
 		/* Dual p2p doesn't support multiple P2PGO interfaces,
 		 * p2p_go_count is the counter for GO creation
@@ -1577,7 +1597,7 @@ wl_cfg80211_cleanup_virtual_ifaces(struct bcm_cfg80211 *cfg, bool rtnl_lock_reqd
 					/* hold the rtnl lock explicitly for vendor hal callers */
 					rtnl_lock_reqd = true;
 				}
-				wl_cfg80211_post_ifdel(iter->ndev, rtnl_lock_reqd, 0);
+				_wl_cfg80211_post_ifdel(iter->ndev, rtnl_lock_reqd, 0);
 			}
 		}
 	}
@@ -2304,6 +2324,9 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 		cur_chspec =
 			wl_cellavoid_find_widechspec_fromchspec(cfg->cellavoid_info, chspec, dev);
 		if (cur_chspec == INVCHANSPEC) {
+#ifdef WL_CELLULAR_CHAN_AVOID_DUMP
+			wl_cellavoid_dump_chan_info_list(cfg);
+#endif /* WL_CELLULAR_CHAN_AVOID_DUMP */
 			wl_cellavoid_sync_unlock(cfg);
 			return BCME_ERROR;
 		}
@@ -8350,6 +8373,49 @@ wl_cfgvif_sta_multilink_config(struct bcm_cfg80211 *cfg, wl_assoc_state_t assoc_
 	}
 }
 
+#ifdef WL_AGGRESSIVE_ROAM
+void
+wl_cfgvif_enable_aggressive_roam(struct bcm_cfg80211 *cfg, struct net_device *dev,
+	bool enable)
+{
+	int ret = BCME_OK;
+	int roam_trigger[2];
+	struct net_info *netinfo = wl_get_netinfo_by_wdev(cfg, dev->ieee80211_ptr);
+
+	if (!cfg || !dev || !netinfo) {
+		WL_ERR(("%s: invalid args\n", __FUNCTION__));
+		return;
+	}
+
+	if (enable) {
+		roam_trigger[0] = WL_AGGR_ROAM_TRIGGER_VALUE;
+	} else {
+		if (netinfo->aggressive_roam == FALSE) {
+			/* Already in default state. Do nothing */
+			return;
+		}
+		roam_trigger[0] = WL_AUTO_ROAM_TRIGGER;
+#ifdef WBTEXT
+		/* on aggressive roam disable, revert back the roam prof */
+		wl_cfg80211_wbtext_set_default(dev);
+#endif /* WBTEXT */
+	}
+
+	roam_trigger[1] = WLC_BAND_ALL;
+	ret = wldev_ioctl_set(dev, WLC_SET_ROAM_TRIGGER, roam_trigger,
+			sizeof(roam_trigger));
+	if (ret != BCME_OK) {
+		WL_ERR(("failed to set roam trigger (%d)\n", ret));
+		return;
+	}
+
+	netinfo->aggressive_roam = enable;
+	WL_INFORM_MEM(("[%s] aggressive_roam:%d connected_stas:%d\n",
+		dev->name, enable, cfg->stas_associated));
+	return;
+}
+#endif /* WL_AGGRESSIVE_ROAM */
+
 void
 wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		wl_roam_conf_t state)
@@ -8358,6 +8424,10 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 	bool conc_conflict = FALSE;
 	bool attempt_roam_enable = FALSE;
 	bool force_roam_disable = FALSE;
+#ifdef DYN_RSDB_ROAM_DISABLE
+	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
+	bool dyn_rsdb = FW_SUPPORTED(dhd, sdb_modesw);
+#endif /* DYN_RSDB_ROAM_DISABLE */
 
 	if (!cfg || !dev) {
 		WL_ERR(("invalid args\n"));
@@ -8399,8 +8469,10 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		primary_sta = bcmcfg_to_prmry_ndev(cfg);
 	}
 
+#ifdef DYN_RSDB_ROAM_DISABLE
 	/* check states for whether to attempt or disable roam */
 	conc_conflict = wl_get_drv_status_all(cfg, AP_CREATED) ? TRUE : FALSE;
+#endif /* DYN_RSDB_ROAM_DISABLE */
 #if defined(WL_NAN) && defined(ROAM_DISABLE_NAN_STA_CONC)
 	if (!conc_conflict) {
 		conc_conflict = wl_cfgnan_is_enabled(cfg) ? TRUE : FALSE;
@@ -8424,13 +8496,14 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		force_roam_disable = TRUE;
 	} if ((state == ROAM_CONF_LINKDOWN) ||
 		(state == ROAM_CONF_PRIMARY_STA) || (state == ROAM_CONF_LINKUP) ||
-		(state == ROAM_CONF_AP_DISABLE)) {
+		(state == ROAM_CONF_AP_DISABLE) || (state == ROAM_CONF_ROAM_ENAB_REQ)) {
 		attempt_roam_enable = TRUE;
 	}
 
 	/* ROAM_CONF_ROAM_ENABLE/DISAB_REQ are framework commands and expected to
 	 * operate on the interface on which it is applied. Since we support roam
-	 * only on one interface, disable roam on other interface.
+	 * only on one interface, disable roam on other interface and enable only
+	 * on primary interface.
 	 */
 	if (state == ROAM_CONF_ROAM_DISAB_REQ) {
 		/* roam off for incoming ndev interface */
@@ -8440,14 +8513,9 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 #endif /* OEM_ANDROID */
 		wl_roam_off_config(dev, TRUE);
 		return;
-	} else if ((state == ROAM_CONF_ROAM_ENAB_REQ) && !conc_conflict) {
-		/* If roam enable comes with > 1 iface connected, enable it on primary */
+	} else if (state == ROAM_CONF_ROAM_ENAB_REQ) {
+		/* Update fwk roam state and fall through for roam config */
 		cfg->disable_fw_roam = FALSE;
-		if (primary_sta) {
-			/* Enable roam on primary, disable on others */
-			wl_sta_enable_roam(cfg, primary_sta, TRUE);
-			return;
-		}
 	}
 
 	if (cfg->disable_fw_roam && attempt_roam_enable) {
@@ -8456,10 +8524,14 @@ wl_cfgvif_roam_config(struct bcm_cfg80211 *cfg, struct net_device *dev,
 		return;
 	}
 
-	if ((attempt_roam_enable) && !conc_conflict) {
+	if (attempt_roam_enable) {
 		/* Enable roam on primary, disable on others */
-		WL_DBG_MEM(("state:%d attempt roam enable\n", state));
-		wl_sta_enable_roam(cfg, primary_sta, TRUE);
+		if (conc_conflict) {
+			WL_DBG_MEM(("state:%d skip roam enable due to concurrency\n", state));
+		} else {
+			WL_DBG_MEM(("state:%d attempt roam enable\n", state));
+			wl_sta_enable_roam(cfg, primary_sta, TRUE);
+		}
 		return;
 	}
 

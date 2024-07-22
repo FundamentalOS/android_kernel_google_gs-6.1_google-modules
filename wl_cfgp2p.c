@@ -3058,7 +3058,7 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	 * so retrieve the current channel of primary interface and then start the virtual
 	 * interface on that.
 	 */
-	chspec = wl_cfg80211_get_shared_freq(wiphy);
+	chspec = wl_cfg80211_get_shared_freq(wiphy, wl_iftype);
 
 	/* For P2P mode, use P2P-specific driver features to create the
 	 * bss: "cfg p2p_ifadd"
@@ -3146,8 +3146,11 @@ wl_cfgp2p_if_del(struct wiphy *wiphy, struct wireless_dev *wdev)
 
 #ifdef WL_CFG80211_P2P_DEV_IF
 	if (wdev->iftype == NL80211_IFTYPE_P2P_DEVICE) {
+		cfg->p2p_cleanup = TRUE;
 		/* Handle dedicated P2P discovery interface. */
-		return wl_cfgp2p_del_p2p_disc_if(wdev, cfg);
+		err = wl_cfgp2p_del_p2p_disc_if(wdev, cfg);
+		cfg->p2p_cleanup = FALSE;
+		return err;
 	}
 #endif /* WL_CFG80211_P2P_DEV_IF */
 

@@ -1282,6 +1282,10 @@ rtt_unpack_xtlv_cbfn(void *ctx, const uint8 *p_data, uint16 tlvid, uint16 len)
 		break;
 	}
 
+	if (ret != BCME_OK) {
+		DHD_RTT_ERR(("rtt_unpack_xtlv_cbfn error:%d for TLV ID %d len:%d \n",
+				ret, tlvid, len));
+	}
 	return ret;
 }
 
@@ -4864,7 +4868,7 @@ dhd_rtt_convert_results_to_host_v2(rtt_mc_az_result_t *rtt_result, const uint8 *
 	/* show 'avg_rtt' sample */
 	/* in v2, avg_rtt is the first element of the variable rtt[] */
 	p_sample_avg = &p_data_info->rtt[0];
-	ftm_tmu_value_to_logstr(ltoh16_ua(&p_sample_avg->rtt.tmu));
+
 	DHD_RTT((">\tavg_rtt sample: rssi=%d rtt=%d%s std_deviation =%d.%d"
 		"ratespec=0x%08x chanspec=0x%08x\n",
 		(int16) ltoh16_ua(&p_sample_avg->rssi),
@@ -4929,19 +4933,22 @@ dhd_rtt_convert_results_to_host_v2(rtt_mc_az_result_t *rtt_result, const uint8 *
 		rtt_report->rtt = (wifi_timespan)(FTM_INTVL2NSEC(&rtt) * 1000);
 	}
 
-	rtt_report->rtt_sd = ltoh16_ua(&p_data_info->sd_rtt); /* nano -> 0.1 nano */
-	DHD_RTT(("rtt_report->rtt : %lld\n", rtt_report->rtt));
-	DHD_RTT(("rtt_report->rssi : %d (0.5db)\n", rtt_report->rssi));
+	/* sd_rtt is in 0.1ps unit. rtt_sd in rtt_report should be in picosecond unit */
+	rtt_report->rtt_sd = ltoh16_ua(&p_data_info->sd_rtt) / 10u; /* 0.1 pico -> pico */
+	DHD_RTT(("rtt_report->rtt : %lld %s rtt_sd : %lld %s rtt_report->rssi : %d (0.5db)\n",
+		rtt_report->rtt, ftm_tmu_value_to_logstr(rtt.tmu),
+		rtt_report->rtt_sd, ftm_tmu_value_to_logstr(rtt.tmu),
+		rtt_report->rssi));
 
 	/* average distance */
 	if (avg_dist != FTM_INVALID) {
 		rtt_report->distance = (avg_dist >> 8) * 1000; /* meter -> mm */
-		rtt_report->distance += (avg_dist & 0xff) * 1000 / 256;
-		/* rtt_sd is in 0.1 ns.
+		rtt_report->distance += ((avg_dist & 0xff) * 1000) / 256;
+		/* rtt_report->rtt_sd is converted to ps.
 		* host needs distance_sd in milli mtrs
-		* (0.1 * rtt_sd/2 * 10^-9) * C * 1000
+		* (1 * rtt_sd/2 * 10^-12) * C * 1000
 		*/
-		rtt_report->distance_sd = rtt_report->rtt_sd * 15; /* mm */
+		rtt_report->distance_sd = (rtt_report->rtt_sd * 15) / 100u; /* mm */
 	} else {
 		rtt_report->distance = FTM_INVALID;
 	}
@@ -5351,7 +5358,8 @@ dhd_rtt_convert_az_results_to_host_v1(rtt_mc_az_result_t *rtt_result,
 	*/
 	if (((ftm_status == WL_FTM_E_TIMEOUT) ||
 			(ftm_status == WL_FTM_E_CANCELED) ||
-			(ftm_status == WL_FTM_E_OFF_CHAN)) &&
+			(ftm_status == WL_FTM_E_OFF_CHAN) ||
+			(ftm_status == WL_FTM_E_REMOTE_CANCEL)) &&
 			rtt_report->success_num) {
 		ftm_status = RTT_STATUS_SUCCESS;
 	}
@@ -5441,7 +5449,8 @@ dhd_rtt_convert_az_results_to_host_v2(rtt_mc_az_result_t *rtt_result,
 	*/
 	if (((ftm_status == WL_FTM_E_TIMEOUT) ||
 			(ftm_status == WL_FTM_E_CANCELED) ||
-			(ftm_status == WL_FTM_E_OFF_CHAN)) &&
+			(ftm_status == WL_FTM_E_OFF_CHAN) ||
+			(ftm_status == WL_FTM_E_REMOTE_CANCEL)) &&
 			rtt_report->success_num) {
 		ftm_status = RTT_STATUS_SUCCESS;
 	}
@@ -5465,6 +5474,9 @@ dhd_rtt_convert_az_results_to_host_v2(rtt_mc_az_result_t *rtt_result,
 		sizeof(rtt_result->u.az_result.rtt_detail);
 	rtt_result->u.az_result.rtt_detail.i2r_ltf_rep = p_data_info->i2r_ltf_rep;
 	rtt_result->u.az_result.rtt_detail.r2i_ltf_rep = p_data_info->r2i_ltf_rep;
+
+	rtt_result->u.az_result.rtt_detail.i2r_sts = p_data_info->i2r_sts;
+	rtt_result->u.az_result.rtt_detail.r2i_sts = p_data_info->r2i_sts;
 
 	if (p_data_info->chanspec) {
 			chanspec = ltoh16_ua(&p_data_info->chanspec);
@@ -5779,6 +5791,7 @@ exit:
 	return ret;
 
 }
+
 
 static int
 dhd_rtt_parse_az_result_event(wl_proxd_event_t *proxd_ev_data,

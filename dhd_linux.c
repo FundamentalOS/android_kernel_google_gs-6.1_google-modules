@@ -3284,7 +3284,9 @@ dhd_ifdel_event_handler(void *handle, void *event_info, u8 event)
 	dhd_info_t *dhd = handle;
 	int ifidx;
 	dhd_if_event_t *if_event = event_info;
-
+	dhd_pub_t *dhdp = &dhd->pub;
+	struct net_device *ndev = NULL;
+	bool del_cmd_in_progress = NULL;
 
 	if (event != DHD_WQ_WORK_IF_DEL) {
 		DHD_ERROR(("%s: unexpected event \n", __FUNCTION__));
@@ -3311,6 +3313,20 @@ dhd_ifdel_event_handler(void *handle, void *event_info, u8 event)
 		DHD_ERROR(("Netdev not found! Do nothing.\n"));
 		goto done;
 	}
+
+	/* Check whether command context has set del in progress */
+	del_cmd_in_progress = dhd_check_del_in_progress(dhdp, ifidx);
+
+	ndev = dhd_idx2net(dhdp, ifidx);
+	if (!ndev) {
+		DHD_ERROR(("ndev null\n"));
+		goto done;
+	}
+
+	if (!del_cmd_in_progress) {
+		dhd_set_del_in_progress(dhdp, ndev);
+	}
+
 #if defined(WL_CFG80211) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0))
 	if (if_event->event.ifidx > 0) {
 		/* Do the post interface del ops */
@@ -3325,6 +3341,10 @@ dhd_ifdel_event_handler(void *handle, void *event_info, u8 event)
 	dhd_remove_if(&dhd->pub, ifidx, TRUE);
 #endif /* WL_CFG80211 && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0) */
 
+
+	if (!del_cmd_in_progress) {
+		dhd_clear_del_in_progress(dhdp, ndev);
+	}
 
 done:
 	MFREE(dhd->pub.osh, if_event, sizeof(dhd_if_event_t));
@@ -3441,8 +3461,9 @@ dhd_set_mcast_list_handler(void *handle, void *event_info, u8 event)
 
 	ifp = dhd->iflist[ifidx];
 
-	if (ifp == NULL || !dhd->pub.up) {
-		DHD_ERROR(("%s: interface info not available/down \n", __FUNCTION__));
+	if (ifp == NULL || !dhd->pub.up || ifp->del_in_progress) {
+		DHD_ERROR(("%s: interface info not available/down/del_cmd in prog\n",
+			__FUNCTION__));
 		goto done;
 	}
 
@@ -7787,7 +7808,8 @@ dhd_get_ifp_by_ndev(dhd_pub_t *dhdp, struct net_device *ndev)
 		}
 	} while (ifidx--);
 
-	DHD_ERROR(("no entry found for %s\n", ndev->name));
+	/* if match not found, ndev may be freed. so avoid dereference */
+	DHD_ERROR(("no entry found for ndev ptr\n"));
 	return NULL;
 }
 
@@ -9780,6 +9802,10 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 
 	dhd_state |= DHD_ATTACH_STATE_LB_ATTACH_DONE;
 #endif /* DHD_LB */
+
+#ifdef DHD_VALIDATE_PKT_ADDRESS
+	skb_queue_head_init(&dhd->inv_addr_queue);
+#endif /* DHD_VALIDATE_PKT_ADDRESS */
 
 #if defined(DNGL_AXI_ERROR_LOGGING) && defined(DHD_USE_WQ_FOR_DNGL_AXI_ERROR)
 	INIT_WORK(&dhd->axi_error_dispatcher_work, dhd_axi_error_dispatcher_fn);
@@ -15170,6 +15196,11 @@ void dhd_detach(dhd_pub_t *dhdp)
 		}
 		dhd_net_if_unlock_local(dhd);
 
+#if defined(WL_STATIC_IF)
+		for (i = DHD_MAX_IFS; i < (DHD_MAX_IFS + DHD_MAX_STATIC_IFS); i++) {
+			MFREE(dhd->pub.osh, dhd->iflist[i], sizeof(*ifp));
+		}
+#endif /* WL_STATIC_IF */
 		/* 'ifp' indicates primary interface 0, clean it up. */
 		if (ifp && ifp->net) {
 #if (defined(BCM_ROUTER_DHD) && defined(HNDCTF))
@@ -15290,6 +15321,10 @@ void dhd_detach(dhd_pub_t *dhdp)
 		DHD_LB_STATS_DEINIT(&dhd->pub);
 	}
 #endif /* DHD_LB */
+
+#ifdef DHD_VALIDATE_PKT_ADDRESS
+	skb_queue_purge(&dhd->inv_addr_queue);
+#endif /* DHD_VALIDATE_PKT_ADDRESS */
 
 #if defined(DNGL_AXI_ERROR_LOGGING) && defined(DHD_USE_WQ_FOR_DNGL_AXI_ERROR)
 	dhd_cancel_work_sync(&dhd->axi_error_dispatcher_work);
@@ -16893,12 +16928,12 @@ done:
 	return ret;
 }
 
-int
+uint64
 dhd_dev_get_feature_set(struct net_device *dev)
 {
 	dhd_info_t *ptr = *(dhd_info_t **)netdev_priv(dev);
 	dhd_pub_t *dhd = (&ptr->pub);
-	int feature_set = 0;
+	uint64 feature_set = 0;
 
 	/* tdls capability or othters can be missed because of initialization */
 	if (dhd_get_fw_capabilities(dhd) < 0) {
@@ -16984,14 +17019,20 @@ dhd_dev_get_feature_set(struct net_device *dev)
 #ifdef WL_LATENCY_MODE
 	feature_set |= WIFI_FEATURE_SET_LATENCY_MODE;
 #endif /* WL_LATENCY_MODE */
+
+#ifdef WL_AGGRESSIVE_ROAM
+	feature_set |= WIFI_FEATURE_ROAMING_MODE_CONTROL;
+#endif /* WL_AGGRESSIVE_ROAM */
+
+	DHD_PRINT(("Supported feature_set %llx\n", feature_set));
 	return feature_set;
 }
 
-int
+uint64
 dhd_dev_get_feature_set_matrix(struct net_device *dev, int num)
 {
-	int feature_set_full;
-	int ret = 0;
+	uint64 feature_set_full;
+	uint64 ret = 0;
 
 	feature_set_full = dhd_dev_get_feature_set(dev);
 
@@ -17036,6 +17077,15 @@ dhd_dev_get_feature_set_matrix(struct net_device *dev, int num)
 		break;
 	}
 
+	if (ret > WIFI_FEATURE_INVALID) {
+		DHD_ERROR(("%s: Out of range feature_set_matrix: %llx\n", __FUNCTION__, ret));
+		ret = WIFI_FEATURE_INVALID;
+		/*
+		 * Max supported feature set matrix is upto u32,
+		 * beyond it requires further changes.
+		 *
+		 */
+	}
 	return ret;
 }
 
@@ -20484,7 +20534,9 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	bool collect_coredump = FALSE;
 	char trap_code[DHD_TRAP_CODE_LEN] = {0};
 	char trap_subcode[DHD_TRAP_CODE_LEN] = {0};
+	char trap_str[DHD_TRAP_STR_LEN] = {0};
 	int written_len;
+	uint32 uc_status;
 	uint8 ewp_init_state;
 #endif /* DHD_COREDUMP */
 	uint32 memdump_type;
@@ -20525,6 +20577,7 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 #endif /* DHD_SSSR_DUMP */
 #ifdef DHD_COREDUMP
 	ewp_init_state = dhdp->ewp_init_state;
+	uc_status = dhdp->uc_status;
 #endif /* DHD_COREDUMP */
 
 	DHD_GENERAL_LOCK(dhdp, flags);
@@ -20684,6 +20737,14 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 	dhd_convert_memdump_type_to_str(memdump_type, dhdp->memdump_str,
 		DHD_MEMDUMP_LONGSTR_LEN, dhdp->debug_dump_subcmd);
 	written_len = strlen(dhdp->memdump_str);
+
+	if (dhdp->dongle_trap_occured) {
+		tr = &dhdp->last_trap_info;
+		dhd_lookup_map(dhdp->osh, map_path,
+			ltoh32(tr->epc), pc_fn, ltoh32(tr->r14), lr_fn);
+		snprintf(trap_str, DHD_TRAP_STR_LEN, "_%.79s_%.79s", pc_fn, lr_fn);
+	}
+
 	if (memdump_type == DUMP_TYPE_DONGLE_TRAP &&
 		dhdp->dongle_trap_occured == TRUE) {
 
@@ -20695,12 +20756,12 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 					"_%s_%s", trap_code, trap_subcode);
 		}
 
-		tr = &dhdp->last_trap_info;
-		dhd_lookup_map(dhdp->osh, map_path,
-			ltoh32(tr->epc), pc_fn, ltoh32(tr->r14), lr_fn);
 		written_len = strlen(dhdp->memdump_str);
 		snprintf(&dhdp->memdump_str[written_len], DHD_MEMDUMP_LONGSTR_LEN - written_len,
-			 "_%.79s_%.79s", pc_fn, lr_fn);
+			"%s", trap_str);
+
+		/* append additional status code with tag string */
+		dhd_coredump_add_status(dhdp->memdump_str, "UC", uc_status);
 	} else if (memdump_type == DUMP_TYPE_DONGLE_INIT_FAILURE) {
 		snprintf(&dhdp->memdump_str[written_len], DHD_MEMDUMP_LONGSTR_LEN - written_len,
 			 "_0x%x_0x%x_0x%x", ewp_init_state, dhdp->armpc, dhdp->arm_assert_phy_addr);
@@ -20709,8 +20770,8 @@ dhd_mem_dump(void *handle, void *event_info, u8 event)
 
 #ifdef DHD_SSSR_COREDUMP
 	/* Only for dongle trap case, generate coredump header and TLVs */
-	if (dhd_is_coredump_reqd(dhdp->memdump_str,
-		strnlen(dhdp->memdump_str, DHD_MEMDUMP_LONGSTR_LEN), dhdp)) {
+	if (dhd_is_coredump_reqd(trap_str,
+		strnlen(trap_str, DHD_TRAP_STR_LEN), dhdp)) {
 		ret = dhd_collect_coredump(dhdp, dump, collect_sssr, collect_fis);
 		if (ret == BCME_ERROR) {
 			DHD_ERROR(("%s: dhd_collect_coredump() failed.\n",
@@ -24777,6 +24838,22 @@ dhd_cancel_delayed_work(void *dwork)
 	return ret;
 }
 
+bool
+dhd_check_del_in_progress(dhd_pub_t *dhdp, uint8 ifindex)
+{
+	dhd_if_t *ifp = NULL;
+	unsigned long flags;
+	bool ret = TRUE;
+
+	DHD_GENERAL_LOCK(dhdp, flags);
+	ifp = dhd_get_ifp(dhdp, ifindex);
+	if (ifp) {
+		ret = ifp->del_in_progress;
+	}
+	DHD_GENERAL_UNLOCK(dhdp, flags);
+	return ret;
+}
+
 void
 dhd_set_del_in_progress(dhd_pub_t *dhdp, struct net_device *ndev)
 {
@@ -24804,7 +24881,8 @@ dhd_clear_del_in_progress(dhd_pub_t *dhdp, struct net_device *ndev)
 	DHD_PRINT(("%s\n", __FUNCTION__));
 	ifp = dhd_get_ifp_by_ndev(dhdp, ndev);
 	if (ifp == NULL) {
-		DHD_ERROR(("DHD Iface Info corresponding to %s not found\n", ndev->name));
+		/* use ndev addr only for finding ifp, the ndev may be freed already */
+		DHD_ERROR(("DHD Iface Info not found for given ndev\n"));
 		return;
 	}
 
@@ -25150,6 +25228,15 @@ dhd_get_module_exit_status(struct dhd_pub *dhdp)
 {
 	return OSL_ATOMIC_READ(dhdp->osh, &exit_in_progress);
 }
+
+#ifdef DHD_VALIDATE_PKT_ADDRESS
+void
+dhd_enqueue_inv_address_queue(struct dhd_pub *dhdp, void *pkt)
+{
+	dhd_info_t *dhd = (dhd_info_t *)(dhdp->info);
+	skb_queue_tail(&dhd->inv_addr_queue, (struct sk_buff *)pkt);
+}
+#endif /* DHD_VALIDATE_PKT_ADDRESS */
 
 /**
  * Given an skb list, walkthrough the list of skbs and print the skb address to dmesg

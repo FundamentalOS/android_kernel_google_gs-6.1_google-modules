@@ -3810,6 +3810,46 @@ typedef struct wlc_btc_stats_v13 {
 	uint16 fbaci_nsamples_idx3;	/* number of samples at index3 */
 	uint16 idle2fbc_cnt;		/* count of radio state changes from IDle to FBC */
 	uint16 idle2wlauxrx_cnt;	/* count of radio state changes from IDle to Aux Ded Rx. */
+	uint32 fbcx_ovd_cnt;		/* FBC override cnt */
+	uint32 fbcx_ovd_dur;		/* FBC override duration */
+	uint32 fbcx_bt_forced_fbc_cnt;	/* bt fored fbc cnt */
+	uint32 fbcx_bt_forced_fbc_dur;	/* bt forced fbc_dur */
+	uint32 fbcx_bt_auto_fbc_cnt;	/* bt auto fbc cnt */
+	uint32 fbcx_act_cfg;		/* bt act cfg mask to put bt in fbc */
+	uint8 fbaci_acipwr_cdf_idx_c0_ch0;
+	/* core0, channel0 histogram index of  2% ACI power */
+	uint8 fbaci_acipwr_cdf_idx_c1_ch0;
+	/* core1, channel0 histogram index of  2% ACI power */
+	uint16 fbaci_acipwr_cdf_cnt_c0_ch0;
+	/* core0, channel0 histogram count of ACI power (2%) */
+	uint16 fbaci_acipwr_cdf_cnt_c1_ch0;
+	/* core1, channel0 histogram count of ACI power (2%) */
+	uint8 fbaci_acipwr_cdf_idx_c0_ch1;
+	/* core0, channel1 histogram index of  2% ACI power */
+	uint8 fbaci_acipwr_cdf_idx_c1_ch1;
+	/* core1, channel1 histogram index of  2% ACI power */
+	uint16 fbaci_acipwr_cdf_cnt_c0_ch1;
+	/* core0, channel1 histogram count of ACI power (2%) */
+	uint16 fbaci_acipwr_cdf_cnt_c1_ch1;
+	/* core1, channel1 histogram count of ACI power (2%) */
+	uint8 fbaci_acipwr_cdf_idx_c0_ch2;
+	/* core0, channel2 histogram index of  2% ACI power */
+	uint8 fbaci_acipwr_cdf_idx_c1_ch2;
+	/* core1, channel2 histogram index of  2% ACI power */
+	uint16 fbaci_acipwr_cdf_cnt_c0_ch2;
+	/* core0, channel2 histogram count of ACI power (2%) */
+	uint16 fbaci_acipwr_cdf_cnt_c1_ch2;
+	/* core1, channel2 histogram count of ACI power (2%) */
+	uint8 fbaci_acipwr_cdf_idx_c0_ch3;
+	/* core0, channel3 histogram index of  2% ACI power */
+	uint8 fbaci_acipwr_cdf_idx_c1_ch3;
+	/* core1, channel3 histogram index of  2% ACI power */
+	uint16 fbaci_acipwr_cdf_cnt_c0_ch3;
+	/* core0, channel3 histogram count of ACI power (2%) */
+	uint16 fbaci_acipwr_cdf_cnt_c1_ch3;
+	/* core1, channel3 histogram count of ACI power (2%) */
+	uint32 fbagc_fbc_gain_stuck_cnt;
+	/* fbc gain stuck counter */
 } wlc_btc_stats_v13_t;
 
 #define BTCX_STATS_VER_12 12
@@ -7367,6 +7407,12 @@ typedef struct wl_sc_multi_scan_cnts_v1 {
 	uint32  dsss_fcs_pass;
 	uint32  tot_queue_drop;
 	uint32  tot_aborted;
+	uint32	tot_be_busy;		/* Added from dsss and ofdm */
+	uint32	tot_filt_reject;	/* Added from dsss and ofdm */
+	uint32	tot_fifo_drop;		/* Added from dsss and ofdm */
+	uint32	tot_unsupported;	/* Added from dsss and ofdm */
+	uint32	tot_fcs_fail;		/* Added from dsss and ofdm */
+	uint32	tot_fcs_pass;		/* Added from dsss and ofdm */
 	uint32  fe_ofdm_crs_detect[WL_SC_MULTI_SCAN_FES_V1];
 	uint32  fe_ofdm_be_busy[WL_SC_MULTI_SCAN_FES_V1];
 	uint32  fe_ofdm_fcs_fail[WL_SC_MULTI_SCAN_FES_V1];
@@ -7382,6 +7428,9 @@ typedef struct wl_sc_multi_scan_cnts_v1 {
 	uint32  fe_tot_aborted[WL_SC_MULTI_SCAN_FES_V1];
 	uint32  fe_tot_timeout[WL_SC_MULTI_SCAN_FES_V1];
 	uint32  fe_tot_reset[WL_SC_MULTI_SCAN_FES_V1];
+	uint32	fe_tot_be_busy[WL_SC_MULTI_SCAN_FES_V1];	/* Added from dsss and ofdm */
+	uint32	fe_tot_fcs_fail[WL_SC_MULTI_SCAN_FES_V1];	/* Added from dsss and ofdm */
+	uint32	fe_tot_fcs_pass[WL_SC_MULTI_SCAN_FES_V1];	/* Added from dsss and ofdm */
 } wl_sc_multi_scan_cnts_v1_t;
 
 /* LLW stats */
@@ -7458,4 +7507,26 @@ typedef struct wl_llw_rx_info {
 	ratespec_t rspec;
 	/* more info can be added later */
 } wl_llw_rx_info_t;
+
+/* PHY RX counters in WL counters. SW based counters */
+typedef struct wl_cnt_phy_rx_stats_block_v1 {
+	uint8 stats_block_idx;
+	uint8 pad[3];
+	/* chup_mode0 and chup_mode1 need to be next to each other */
+	uint32 chup_mode0;
+	uint32 chup_mode1;
+	/* dmd_mode0 and dmd_mode1 need to be next to each other */
+	uint32 dmd_mode0;
+	uint32 dmd_mode1;
+} wl_cnt_phy_rx_stats_block_v1_t;
+
+#define WL_CNT_PHY_RX_STATS_V1		(1u)
+typedef struct wl_cnt_phy_rx_stats_v1_t {
+	uint16	version;
+	uint16	len;
+	uint8	num_stats_blocks; /* Number of stats blocks supported on slice */
+	uint8	pad[3];
+	/* Per ML Link PHY RX counters (esp. eMLSR) */
+	uint8	counters[];
+} wl_cnt_phy_rx_stats_v1_t;
 #endif /* _wlioctl_counters_h_ */

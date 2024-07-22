@@ -412,11 +412,11 @@ wl_cfgvendor_get_feature_set(struct wiphy *wiphy,
 {
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	int reply;
+	uint64 reply;
 
 	reply = dhd_dev_get_feature_set(bcmcfg_to_prmry_ndev(cfg));
 
-	err =  wl_cfgvendor_send_cmd_reply(wiphy, &reply, sizeof(int));
+	err =  wl_cfgvendor_send_cmd_reply(wiphy, &reply, sizeof(uint64));
 	if (unlikely(err))
 		WL_ERR(("Vendor Command reply failed ret:%d \n", err));
 
@@ -430,7 +430,7 @@ wl_cfgvendor_get_feature_set_matrix(struct wiphy *wiphy,
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	struct sk_buff *skb;
-	int reply;
+	uint32 reply;
 	int mem_needed, i;
 
 	mem_needed = VENDOR_REPLY_OVERHEAD +
@@ -2322,7 +2322,7 @@ wl_cfgvendor_rtt_evt(void *ctx, void *rtt_data)
 				goto free_mem;
 			}
 
-			ret = nla_put_u32(skb, RTT_ATTRIBUTE_NTB_MIN_DELTA,
+			ret = nla_put_u32(skb, RTT_ATTRIBUTE_RESULT_NTB_MIN_DELTA,
 				rtt_result->u.az_result.rtt_detail.min_delta);
 			if (ret < 0) {
 				WL_ERR(("Failed to put RTT_ATTRIBUTE_NTB_MIN_DELTA, ret:%d\n",
@@ -2330,7 +2330,7 @@ wl_cfgvendor_rtt_evt(void *ctx, void *rtt_data)
 				goto free_mem;
 			}
 
-			ret = nla_put_u32(skb, RTT_ATTRIBUTE_NTB_MAX_DELTA,
+			ret = nla_put_u32(skb, RTT_ATTRIBUTE_RESULT_NTB_MAX_DELTA,
 				rtt_result->u.az_result.rtt_detail.max_delta);
 			if (ret < 0) {
 				WL_ERR(("Failed to put RTT_ATTRIBUTE_NTB_MAX_DELTA, ret:%d\n",
@@ -2338,6 +2338,21 @@ wl_cfgvendor_rtt_evt(void *ctx, void *rtt_data)
 				goto free_mem;
 			}
 
+			ret = nla_put_u8(skb, RTT_ATTRIBUTE_RESULT_NTB_I2R_STS,
+				rtt_result->u.az_result.rtt_detail.i2r_sts);
+			if (ret < 0) {
+				WL_ERR(("Failed to put RTT_ATTRIBUTE_RESULT_NTB_I2R_STS, ret:%d\n",
+					ret));
+				goto free_mem;
+			}
+
+			ret = nla_put_u8(skb, RTT_ATTRIBUTE_RESULT_NTB_R2I_STS,
+				rtt_result->u.az_result.rtt_detail.r2i_sts);
+			if (ret < 0) {
+				WL_ERR(("Failed to put RTT_ATTRIBUTE_RESULT_NTB_R2I_STS, ret:%d\n",
+					ret));
+				goto free_mem;
+			}
 		}
 		nla_nest_end(skb, rtt_nl_hdr);
 		cfg80211_vendor_event(skb, kflags);
@@ -3448,7 +3463,8 @@ exit:
 #ifdef ROAMEXP_SUPPORT
 typedef enum {
 	FW_ROAMING_DISABLE,
-	FW_ROAMING_ENABLE
+	FW_ROAMING_ENABLE,
+	ROAMING_AGGRESSIVE
 } fw_roaming_state_t;
 
 static int
@@ -3458,7 +3474,7 @@ wl_cfgvendor_set_fw_roaming_state(struct wiphy *wiphy,
 	fw_roaming_state_t requested_roaming_state;
 	int type;
 	int err = 0;
-	wl_roam_conf_t roam_req;
+	wl_roam_conf_t roam_req = ROAM_CONF_INVALID;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(wdev_to_ndev(wdev));
 
 	if (!data) {
@@ -3483,8 +3499,16 @@ wl_cfgvendor_set_fw_roaming_state(struct wiphy *wiphy,
 
 	if (requested_roaming_state == FW_ROAMING_ENABLE) {
 		roam_req = ROAM_CONF_ROAM_ENAB_REQ;
+#ifdef WL_AGGRESSIVE_ROAM
+		wl_cfgvif_enable_aggressive_roam(cfg, wdev->netdev, FALSE);
+#endif /* WL_AGGRESSIVE_ROAM */
 	} else if (requested_roaming_state == FW_ROAMING_DISABLE) {
 		roam_req = ROAM_CONF_ROAM_DISAB_REQ;
+#ifdef WL_AGGRESSIVE_ROAM
+	} else if (requested_roaming_state == ROAMING_AGGRESSIVE) {
+		roam_req = ROAM_CONF_ROAM_ENAB_REQ;
+		wl_cfgvif_enable_aggressive_roam(cfg, wdev->netdev, TRUE);
+#endif /* WL_AGGRESSIVE_ROAM */
 	} else {
 		WL_ERR(("unexpected roam_state_request:%d\n", requested_roaming_state));
 		return -EINVAL;
@@ -9268,6 +9292,7 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	u8 link_idx, u8 link_id, char **output, uint *total_len)
 {
 	static char iovar_buf[WLC_IOCTL_MAXLEN];
+	static char rate_iovar_buf[WLC_IOCTL_MAXLEN];
 	wifi_rate_stat_v1 *p_wifi_rate_stat_v1 = NULL;
 	wifi_rate_stat *p_wifi_rate_stat = NULL;
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
@@ -9284,7 +9309,6 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	chanspec_t chanspec = INVCHANSPEC;
 	bss_peer_list_info_t *peer_list_info;
 	wl_bssload_t *bssload;
-	uint32 rspec = 0;
 
 	COMPAT_STRUCT_IFACE(wifi_link_stat, iface);
 
@@ -9417,6 +9441,13 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 			WIFI_VSDB_TIMESLICE_DUTY_CYCLE);
 	}
 
+	if (!wl_get_drv_status(cfg, CONNECTED, inet_ndev)) {
+		WL_ERR(("Sta is not connected to an AP!\n"));
+		COMPAT_MEMCOPY_IFACE(*output, *total_len, wifi_link_stat, iface, wifi_rate_stat_v1);
+		err = BCME_OK;
+		goto exit;
+	}
+
 	COMPAT_ASSIGN_VALUE(iface, num_peers, NUM_PEER);
 
 	err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "bss_peer_info",
@@ -9437,18 +9468,26 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	}
 
 	if ((err == BCME_OK) && (peer_list_info && peer_list_info->count > 0)) {
-		err = wldev_link_iovar_getint(inet_ndev, link_idx, "nrate", (int*)&rspec);
+		err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "ratestat", NULL, 0,
+			rate_iovar_buf, WLC_IOCTL_MAXLEN, NULL);
 		if (err != BCME_OK) {
-			WL_ERR(("Error (%d) in getting nrate\n", err));
+			WL_ERR(("failed to fetch the rate_stat: error (%d)\n", err));
+			goto exit;
+		}
+		p_wifi_rate_stat = (wifi_rate_stat *)rate_iovar_buf;
+		if (p_wifi_rate_stat->version != WLC_LINKSTATS_RATESTATS_V1) {
+			err = BCME_VERSION;
 			goto exit;
 		}
 
-		if (WL_CFG_RSPEC_ISEHT(rspec)) {
-			num_rate = NUM_RATE;
-		} else {
-			num_rate = NUM_RATE_NONBE;
+		if (p_wifi_rate_stat->length < sizeof(*p_wifi_rate_stat)) {
+			err = BCME_BADLEN;
+			goto exit;
 		}
-		WL_DBG_MEM(("num_rate %d\n", num_rate));
+
+		num_rate = p_wifi_rate_stat->length/sizeof(*p_wifi_rate_stat);
+		WL_INFORM_MEM(("num_rate %d\n", num_rate));
+
 		COMPAT_ASSIGN_VALUE(iface, peer_info->num_rate, num_rate);
 	}
 
@@ -9464,6 +9503,8 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 		err = BCME_OK;
 	} else if (err == BCME_NOTASSOCIATED) {
 		WL_ERR(("bssload_report IOVAR failed. STA is not associated.\n"));
+		err = BCME_OK;
+		goto exit;
 	} else {
 		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_bssload_t)));
 		goto exit;
@@ -9472,15 +9513,9 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	COMPAT_MEMCOPY_IFACE(*output, *total_len, wifi_link_stat, iface, wifi_rate_stat_v1);
 
 	if ((err == BCME_OK) && (peer_list_info && peer_list_info->count > 0)) {
-		err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "ratestat", NULL, 0,
-			iovar_buf, WLC_IOCTL_MAXLEN, NULL);
-		if (err != BCME_OK && err != BCME_UNSUPPORTED) {
-			WL_ERR(("error (%d) - size = %zu\n", err, num_rate*sizeof(wifi_rate_stat)));
-			goto exit;
-		}
 		for (i = 0; i < num_rate; i++) {
 			p_wifi_rate_stat =
-				(wifi_rate_stat *)(iovar_buf + i*sizeof(wifi_rate_stat));
+				(wifi_rate_stat *)(rate_iovar_buf + i*sizeof(wifi_rate_stat));
 			p_wifi_rate_stat_v1 = (wifi_rate_stat_v1 *)*output;
 			p_wifi_rate_stat_v1->rate.preamble = p_wifi_rate_stat->rate.preamble;
 			p_wifi_rate_stat_v1->rate.nss = p_wifi_rate_stat->rate.nss;
@@ -14687,8 +14722,10 @@ const struct nla_policy rtt_attr_policy[RTT_ATTRIBUTE_MAX] = {
 	.len = sizeof(struct rtt_mc_result_detail) },
 	[RTT_ATTRIBUTE_RESULT_I2R_LTF_REP_COUNT] = { .type = NLA_U8 },
 	[RTT_ATTRIBUTE_RESULT_R2I_LTF_REP_COUNT] = { .type = NLA_U8 },
-	[RTT_ATTRIBUTE_NTB_MIN_DELTA] = { .type = NLA_U32 },
-	[RTT_ATTRIBUTE_NTB_MAX_DELTA] = { .type = NLA_U32 },
+	[RTT_ATTRIBUTE_RESULT_NTB_MIN_DELTA] = { .type = NLA_U32 },
+	[RTT_ATTRIBUTE_RESULT_NTB_MAX_DELTA] = { .type = NLA_U32 },
+	[RTT_ATTRIBUTE_RESULT_NTB_I2R_STS] = { .type = NLA_U8 },
+	[RTT_ATTRIBUTE_RESULT_NTB_R2I_STS] = { .type = NLA_U8 },
 };
 #endif /* RTT_SUPPORT */
 
@@ -16485,6 +16522,9 @@ int wl_cfgvendor_attach(struct wiphy *wiphy, dhd_pub_t *dhd)
 	wiphy->vendor_events	= wl_vendor_events;
 	wiphy->n_vendor_events	= ARRAY_SIZE(wl_vendor_events);
 
+#ifdef DHD_ECNTRS_EXPOSED_DBGRING
+	dhd_os_dbg_register_callback(ECNTRS_RING_ID, wl_cfgvendor_dbg_ring_send_evt);
+#endif /* DHD_ECNTRS_EXPOSED_DBGRING */
 #ifdef DEBUGABILITY
 	dhd_os_dbg_register_callback(FW_VERBOSE_RING_ID, wl_cfgvendor_dbg_ring_send_evt);
 #ifdef DHD_DEBUGABILITY_EVENT_RING

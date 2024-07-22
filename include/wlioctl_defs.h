@@ -1485,6 +1485,7 @@ typedef uint32 ratespec_t;
 #define WL_DYNBW_DBG_VAL	0x00000020
 #define WL_RATE_INFO_VAL	0x00000040
 #define WL_RATE_TRACE_VAL	0x00000080
+#define WL_KM_INFO_VAL		0x00000100
 
 /* number of bytes needed to define a proper bit mask for MAC event reporting */
 #define BCMIO_ROUNDUP(x, y)	((((x) + ((y) - 1)) / (y)) * (y))
@@ -2774,6 +2775,7 @@ enum wl_cnt_xtlv_id {
 	WL_CNT_XTLV_DATA_BW_STATS = 0x100e,		/* corerev >= 89 DataBW stats */
 	WL_CNT_XTLV_MACST_TX_V4 = 0x100f,		/* corerev >= 88 ucode macstats V4 - tx */
 	WL_CNT_XTLV_MULTI_SCAN_STATS = 0x1010,		/* Multi Scan stats */
+	WL_CNT_XTLV_PHY_RX_STATS = 0x1011,		/* PHY RX stats */
 	/* XLTVs in this gap are available for use */
 	/* scan aux core related additional counters */
 	WL_CNT_XTLV_SCANAUX_UCODE_V1 = 0x1012,
@@ -3446,6 +3448,7 @@ enum wlc_capext_feature_bitpos {
 #define WL_DBG_CRSH_TYPE_SR_RXIQCAL1			0x51u
 #define WL_DBG_CRSH_TYPE_SR_TEMP0			0x60u
 #define WL_DBG_CRSH_TYPE_SR_TEMP1			0x61u
+#define WL_DBG_CRSH_TYPE_SR_TEMP2			0x62u
 #define WL_DBG_CRSH_TYPE_SR_FULLCAL0			0x70u
 #define WL_DBG_CRSH_TYPE_SR_FULLCAL1			0x71u
 #define WL_DBG_CRSH_TYPE_SR_MPCAL0			0x80u

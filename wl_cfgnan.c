@@ -2717,11 +2717,17 @@ wl_cfgnan_set_nan_soc_chans(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		wl_cellavoid_sync_unlock(cfg);
 		if (!allowed_soc_2g) {
 			WL_ERR(("2G social channel is in the unsafe list\n"));
+#ifdef WL_CELLULAR_CHAN_AVOID_DUMP
+			wl_cellavoid_dump_chan_info_list(cfg);
+#endif /* WL_CELLULAR_CHAN_AVOID_DUMP */
 			return BCME_ERROR;
 		}
 		if (!allowed_soc_5g) {
 			WL_ERR(("5G social channel is in the unsafe list\n"));
 			soc_chans->soc_chan_5g = 0;
+#ifdef WL_CELLULAR_CHAN_AVOID_DUMP
+			wl_cellavoid_dump_chan_info_list(cfg);
+#endif /* WL_CELLULAR_CHAN_AVOID_DUMP */
 		}
 #endif /* WL_CELLULAR_CHAN_AVOID */
 	} else {
@@ -3447,9 +3453,9 @@ wl_cfgnan_pairing_request_n_response(struct net_device *ndev, struct bcm_cfg8021
 		pairing_cmd->role = WL_NAN_PAIRING_ROLE_INITIATOR;
 		pairing_cmd->pub_id = cmd_data->req_inst_id;
 
-		WL_INFORM_MEM(("[NAN] Pairing Request cmd rcvd, peer: " MACDBG ", pub_id %d "
+		WL_INFORM_MEM(("[NAN] Pairing Request cmd rcvd, peer: " MACDBG ", type %d pub_id %d"
 			"policy %d caching %d is_oppur %d key_type %d key_len %d \n",
-			MAC2STRDBG(&cmd_data->mac_addr), pairing_cmd->pub_id,
+			MAC2STRDBG(&cmd_data->mac_addr), pairing_cmd->type, pairing_cmd->pub_id,
 			pairing_cmd->pasn_policy, pairing_cmd->flags, cmd_data->is_opportunistic,
 			cmd_data->key_type, cmd_data->key.dlen));
 	} else if (cmd == NAN_WIFI_SUBCMD_PAIRING_RESPONSE) {
@@ -3469,9 +3475,9 @@ wl_cfgnan_pairing_request_n_response(struct net_device *ndev, struct bcm_cfg8021
 		pairing_cmd->response_code = cmd_data->rsp_code;
 		pairing_cmd->pairing_id = cmd_data->inst_id;
 
-		WL_INFORM_MEM(("[NAN] Pairing Response cmd rcvd, pairing_id: %d resp_code %d "
+		WL_INFORM_MEM(("[NAN] Pairing Response cmd rcvd, pairing_id %d type %d resp_code %d"
 			"policy %d caching %d is_oppur %d key_type %d key_len %d \n",
-			pairing_cmd->pairing_id, pairing_cmd->response_code,
+			pairing_cmd->pairing_id, pairing_cmd->type, pairing_cmd->response_code,
 			pairing_cmd->pasn_policy, pairing_cmd->flags, cmd_data->is_opportunistic,
 			cmd_data->key_type, cmd_data->key.dlen));
 	}
@@ -4548,6 +4554,7 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 		return BCME_ERROR;
 	}
 
+	nancfg->rng_nan_enab_start_ts = OSL_LOCALTIME_NS();
 	/* Protect discovery creation. Ensure proper mutex precedence.
 	 * If if_sync & nan_mutex comes together in same context, nan_mutex
 	 * should follow if_sync.
@@ -4942,6 +4949,9 @@ wl_cfgnan_start_handler(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 	}
 
 	nancfg->nan_enable = true;
+	nancfg->rng_nan_enabled_ts = OSL_LOCALTIME_NS();
+	WL_ERR(("nan enable latency = %d us \n",
+		(uint32)((nancfg->rng_nan_enabled_ts - nancfg->rng_nan_enab_start_ts) / 1000)));
 	WL_INFORM_MEM(("[NAN] Enable successfull\n"));
 	goto done;
 
@@ -6416,6 +6426,12 @@ wl_cfgnan_check_disc_result_for_ranging(struct bcm_cfg80211 *cfg,
 		ASSERT((ranging_inst->range_role == NAN_RANGING_ROLE_INITIATOR) ||
 			NAN_RANGING_IS_IN_PROG(ranging_inst->range_status));
 
+		cfg->nancfg->rng_subscribe_match_ts = OSL_LOCALTIME_NS();
+		WL_ERR(("subscribe match latency = %d us svc_id = %d\n",
+			(uint32)(cfg->nancfg->rng_subscribe_match_ts -
+			cfg->nancfg->rng_subscribe_ts)/1000u,
+			svc->svc_id));
+
 		/*
 		 * On rec disc result with ranging required, add target, if
 		 * ranging role is responder (range state has to be in prog always)
@@ -7648,6 +7664,8 @@ wl_cfgnan_subscribe_handler(struct net_device *ndev,
 	rtt_status_info_t *rtt_status = GET_RTTSTATE(dhd);
 #endif /* RTT_GEOFENCE_CONT */
 #endif /* RTT_SUPPORT */
+
+	cfg->nancfg->rng_subscribe_ts = OSL_LOCALTIME_NS();
 
 	NAN_DBG_ENTER();
 	NAN_MUTEX_LOCK();
@@ -10016,6 +10034,19 @@ wl_cfgnan_notify_disc_with_ranging(struct bcm_cfg80211 *cfg,
 					(svc_info->svc_id == disc_res[j].sub_id)) {
 					ret = wl_nan_cache_to_event_data(&disc_res[j],
 						nan_event_data, cfg->osh);
+
+					cfg->nancfg->rng_end_ts = OSL_LOCALTIME_NS();
+
+					WL_ERR(("latency in us: enab_time = %d  merge_time = %d "
+						"sub_match time = %d  rng_time = %d \n",
+						(uint32)((cfg->nancfg->rng_nan_enabled_ts -
+						cfg->nancfg->rng_nan_enab_start_ts)/1000),
+						(uint32)((cfg->nancfg->rng_nan_merge_ts -
+						cfg->nancfg->rng_nan_enabled_ts)/1000),
+						(uint32)((cfg->nancfg->rng_subscribe_match_ts -
+						cfg->nancfg->rng_subscribe_ts)/1000),
+						(uint32)((cfg->nancfg->rng_end_ts -
+						cfg->nancfg->rng_start_ts) / 1000)));
 					ret = wl_cfgnan_event_disc_result(cfg, nan_event_data);
 					/* If its not match once, clear it as the FW indicates
 					 * again.
@@ -10398,6 +10429,7 @@ wl_cfgnan_reset_geofence_ranging(struct bcm_cfg80211 *cfg,
 	 */
 
 	/* schedule RTT */
+	cfg->nancfg->rng_start_ts = OSL_LOCALTIME_NS();
 	dhd_rtt_schedule_rtt_work_thread(dhd, sched_reason);
 
 exit:
@@ -10758,6 +10790,12 @@ wl_cfgnan_notify_nan_status(struct bcm_cfg80211 *cfg,
 		WL_DBG((">> Nan Mac Event Received: %s (num=%d, len=%d)\n",
 			nan_event_to_str(event_num), event_num, data_len));
 		WL_DBG(("Nan Device Role %s\n", nan_role_to_str(nstatus->role)));
+		if (event_num == WL_NAN_EVENT_MERGE) {
+			cfg->nancfg->rng_nan_merge_ts = OSL_LOCALTIME_NS();
+			WL_ERR(("NAN cluster merge latency = %d us \n",
+			(uint32)(cfg->nancfg->rng_nan_merge_ts -
+			cfg->nancfg->rng_nan_enabled_ts) / 1000u));
+		}
 		/* Mapping to common struct between DHD and HAL */
 		nan_event_data->enabled = nstatus->enabled;
 		ret = memcpy_s(&nan_event_data->local_nmi, ETHER_ADDR_LEN,

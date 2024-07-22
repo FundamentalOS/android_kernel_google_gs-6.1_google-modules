@@ -1542,10 +1542,6 @@ BCMPOSTTRAPFASTPATH(pktpool_free)(pktpool_t *pktp, void *p)
 
 #ifdef URB
 	if (URB_ENAB()) {
-		if (PKTISRXFRAG(OSH_NULL, p)) {
-			pktp->cb_haddr.cb(pktp, pktp->cb_haddr.arg, p, REMOVE_RXCPLID, NULL);
-			PKTRESETRXFRAG(OSH_NULL, p);
-		}
 #ifdef USE_URB_CHAINED_RX_CB
 		if (pktp->dmarxurb.cb) {
 			pktp->dmarxurb.cb(pktp, pktp->dmarxurb.arg, p, 1u);
@@ -1557,6 +1553,10 @@ BCMPOSTTRAPFASTPATH(pktpool_free)(pktpool_t *pktp, void *p)
 			PKT_CLR_RX_PKT(OSH_NULL, p);
 		}
 #endif /* USE_URB_CHAINED_RX_CB */
+		if (PKTISRXFRAG(OSH_NULL, p)) {
+			pktp->cb_haddr.cb(pktp, pktp->cb_haddr.arg, p, REMOVE_RXCPLID, NULL);
+			PKTRESETRXFRAG(OSH_NULL, p);
+		}
 	}
 #endif /* URB */
 
@@ -1737,6 +1737,7 @@ pktpool_t *pktpool_resv_alfrag_data = NULL;
 #endif /* BCMRESVFRAGPOOL */
 
 pktpool_t *pktpool_shared_rxlfrag = NULL;
+pktpool_t *pktpool_rxlfrag_reclaim = NULL;
 
 /* Rx data pool w/o rxfrag structure */
 pktpool_t *pktpool_shared_rxdata = NULL;
@@ -1834,6 +1835,19 @@ BCMATTACHFN(hnd_pktpool_init)(osl_t *osh)
 		goto error;
 	}
 #endif /* defined(BCMRXFRAGPOOL) && !defined(BCMRXFRAGPOOL_DISABLED) */
+
+#if ((defined(BCMRXDATAPOOL) && !defined(BCMRXDATAPOOL_DISABLE)) || \
+	(defined(URB) && !defined(URB_DISABLED)))
+	/* Allocate the packet pool used for dma_rxreclaim() operations on dma instances
+	 * that need to allocate lfrags to return resources.
+	 */
+	pktpool_rxlfrag_reclaim = MALLOCZ(osh, sizeof(pktpool_t));
+	if (pktpool_rxlfrag_reclaim == NULL) {
+		ASSERT(0);
+		err = BCME_NOMEM;
+		goto error;
+	}
+#endif // BCMRXDATAPOOL || URB
 
 #if defined(BCMRXDATAPOOL) && !defined(BCMRXDATAPOOL_DISABLE)
 	pktpool_shared_rxdata = MALLOCZ(osh, sizeof(pktpool_t));
@@ -1974,6 +1988,20 @@ BCMATTACHFN(hnd_pktpool_init)(osl_t *osh)
 	pktpool_setmaxlen(pktpool_shared_rxlfrag, SHARED_RXFRAG_POOL_LEN);
 #endif /* defined(BCMRXFRAGPOOL) && !defined(BCMRXFRAGPOOL_DISABLED) */
 
+#if ((defined(BCMRXDATAPOOL) && !defined(BCMRXDATAPOOL_DISABLE)) || \
+	(defined(URB) && !defined(URB_DISABLED)))
+	/* Init the packet pool used for dma_rxreclaim() operations on dma instances
+	 * that need to allocate lfrags to return resources.
+	 */
+	n = 1;
+	if ((err = pktpool_init(osh, pktpool_rxlfrag_reclaim, &n, 0, FALSE, lbuf_rxfrag,
+			FALSE, 0, 0)) != BCME_OK) {
+		ASSERT(0);
+		goto error;
+	}
+	pktpool_setmaxlen(pktpool_rxlfrag_reclaim, 1);
+#endif // BCMRXDATAPOOL || URB
+
 #if defined(BCMFRWDPOOLREORG) && !defined(BCMFRWDPOOLREORG_DISABLED)
 	/* Attach poolreorg module */
 	if ((frwd_poolreorg_info = poolreorg_attach(osh,
@@ -2017,6 +2045,18 @@ BCMATTACHFN(hnd_pktpool_deinit)(osl_t *osh)
 		poolreorg_detach(frwd_poolreorg_info);
 	}
 #endif /* defined(BCMFRWDPOOLREORG) && !defined(BCMFRWDPOOLREORG_DISABLED) */
+
+#if ((defined(BCMRXDATAPOOL) && !defined(BCMRXDATAPOOL_DISABLE)) || \
+	(defined(URB) && !defined(URB_DISABLED)))
+	if (pktpool_rxlfrag_reclaim != NULL) {
+		if (pktpool_rxlfrag_reclaim->inited) {
+			pktpool_deinit(osh, pktpool_rxlfrag_reclaim);
+		}
+
+		hnd_free(pktpool_rxlfrag_reclaim);
+		pktpool_rxlfrag_reclaim = (pktpool_t *)NULL;
+	}
+#endif // BCMRXDATAPOOL || URB
 
 #if defined(BCMRXFRAGPOOL) && !defined(BCMRXFRAGPOOL_DISABLED)
 	if (pktpool_shared_rxlfrag != NULL) {
