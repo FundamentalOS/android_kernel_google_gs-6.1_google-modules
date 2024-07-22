@@ -277,8 +277,7 @@ struct sec_info {
 #define SIPC_MULTI_FRAME_MORE_BIT	(0x80)
 #define SIPC_MULTI_FRAME_ID_MASK	(0x7F)
 #define SIPC_MULTI_FRAME_ID_BITS	7
-#define NUM_SIPC_MULTI_FRAME_IDS	(2 ^ SIPC_MULTI_FRAME_ID_BITS)
-#define MAX_SIPC_MULTI_FRAME_ID		(NUM_SIPC_MULTI_FRAME_IDS - 1)
+#define NUM_SIPC_MULTI_FRAME_IDS	(1 << SIPC_MULTI_FRAME_ID_BITS)
 
 struct __packed sipc_fmt_hdr {
 	u16 len;
@@ -791,6 +790,8 @@ struct modem_ctl {
 	u32 tp_threshold;
 	u32 tp_hysteresis;
 	bool pcie_dynamic_spd_enabled;
+
+	bool cp_ever_powered_on;
 };
 
 static inline bool cp_offline(struct modem_ctl *mc)
