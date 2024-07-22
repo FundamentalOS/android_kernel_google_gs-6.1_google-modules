@@ -65,26 +65,6 @@
 #define TOUCH_HEATMAP_TH_MAX 92
 #define TOUCH_HEATMAP_TH_BASE TOUCH_HEATMAP_TH_MIN
 
-enum {
-	CMD_DISABLE = 0,
-	MODE_1,
-	CMD_ENABLE = 1,
-	MODE_2,
-	MODE_3,
-	MODE_4,
-	MODE_5,
-	MODE_6,
-	MODE_7,
-	MODE_8,
-	MODE_9,
-	MODE_10,
-	MODE_11,
-	MODE_12,
-	MODE_13,
-	MODE_14,
-	MODE_15
-};
-
 uint32_t cc_uniformity_spi_buf_size;
 uint32_t rawdata_uniformity_spi_buf_size;
 uint32_t playback_spi_buf_size;
@@ -703,7 +683,17 @@ static ssize_t nvt_sw_reset_store(struct device *dev,
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
 
+#if SPI_FLASH
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+		mutex_unlock(&ts->lock);
+		NVT_ERR("check fw reset state failed!\n");
+		return -EAGAIN;
+	}
+#else
 	nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 	mutex_unlock(&ts->lock);
 
 	NVT_LOGD("--\n");
@@ -730,7 +720,18 @@ static ssize_t nvt_sensing_store(struct device *dev,
 	switch (mode) {
 	case CMD_ENABLE:
 		NVT_LOG("Enable Sensing Mode\n");
+#if SPI_FLASH
+		nvt_clear_fw_reset_state();
+		nvt_bootloader_reset();
+		ret = nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN);
+		if (ret) {
+			mutex_unlock(&ts->lock);
+			NVT_ERR("check fw reset state failed!\n");
+			return -EAGAIN;
+		}
+#else
 		ret = nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 		break;
 	case CMD_DISABLE:
 		NVT_LOG("Disable Sensing Mode\n");
@@ -1089,16 +1090,20 @@ static int32_t nvt_get_cc_uniformity(void)
 
 	if (mutex_lock_interruptible(&ts->lock))
 		return -ERESTARTSYS;
-
+#if !SPI_FLASH
 	nvt_update_firmware(get_mp_fw_name(), 1);
-
+#endif // !SPI_FLASH
 	if (nvt_get_fw_info()) {
 		mutex_unlock(&ts->lock);
 		NVT_ERR("get fw info failed!\n");
 		return -EAGAIN;
 	}
 
-	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
+#if SPI_FLASH
+    if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+#else
+    if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
+#endif // SPI_FLASH
 		mutex_unlock(&ts->lock);
 		NVT_ERR("check fw reset state failed!\n");
 		return -EAGAIN;
@@ -1145,7 +1150,17 @@ static int32_t nvt_get_cc_uniformity(void)
 		     cc_uniformity_spi_buf_size);
 
 	nvt_change_mode(NORMAL_MODE);
+#if SPI_FLASH
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+		mutex_unlock(&ts->lock);
+		NVT_ERR("check fw reset state failed!\n");
+		return -EAGAIN;
+	}
+#else
 	nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 	mutex_unlock(&ts->lock);
 
 	cal_uniformity(cc_uniformity_spi_buf, cc_uniformity_spi_buf_size);
@@ -1973,6 +1988,19 @@ static ssize_t nvt_dttw_detection_window_edge_store(struct device *dev,
 static ssize_t nvt_fw_history_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
+#if SPI_FLASH
+	NVT_LOGD("++\n");
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT0);
+	nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
+	mutex_unlock(&ts->lock);
+	NVT_LOGD("--\n");
+	return 0;
+#else
 	int idx = 0;
 
 	NVT_LOGD("++\n");
@@ -1992,6 +2020,83 @@ static ssize_t nvt_fw_history_show(struct device *dev,
 	mutex_unlock(&ts->lock);
 	NVT_LOGD("--\n");
 	return idx;
+#endif // SPI_FLASH
+}
+
+#if SPI_FLASH
+static ssize_t nvt_mp_settings_mode_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret;
+
+	NVT_LOGD("++\n");
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = sysfs_emit(buf, "mp_tvcl_mode = %d, mp_ibias_mode = %d\n",
+			ts->mp_tvcl_mode, ts->mp_ibias_mode);
+
+	mutex_unlock(&ts->lock);
+
+	NVT_LOGD("--\n");
+	return ret;
+}
+
+static ssize_t nvt_mp_settings_mode_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	uint8_t tvcl_mode, ibias_mode;
+	int32_t ret = 0;
+
+	NVT_LOGD("++\n");
+
+	ret = sscanf(buf, "%hhu %hhu", &tvcl_mode, &ibias_mode);
+	if (ret != 2) {
+		NVT_ERR("must be two number\n");
+		return -EINVAL;
+	}
+
+	if (tvcl_mode > MODE_4 || tvcl_mode < MODE_1)
+		return -EINVAL;
+
+	if (ibias_mode > MODE_2 || ibias_mode < MODE_1)
+		return -EINVAL;
+
+	if (mutex_lock_interruptible(&ts->lock))
+		return -ERESTARTSYS;
+
+	ret = nvt_mp_settings(tvcl_mode, ibias_mode);
+
+	mutex_unlock(&ts->lock);
+
+	if (ret) {
+		NVT_ERR("failed, ret = %d\n", ret);
+		return -EINVAL;
+	} else {
+		NVT_LOGD("--\n");
+		return count;
+	}
+}
+#endif // SPI_FLASH
+
+static ssize_t nvt_selftest_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int32_t ret = 0;
+
+	NVT_LOGD("++\n");
+
+	if (nvt_selftest()) {
+		NVT_LOGE("abort(ret %d)!\n", ret);
+		ret = sysfs_emit(buf, "selftest abort!\n");
+		return ret;
+	}
+
+	ret = sysfs_show_selftest(buf);
+
+	NVT_LOGD("--\n");
+	return ret;
 }
 
 #if defined(CONFIG_SOC_GOOGLE)
@@ -2028,6 +2133,10 @@ static DEVICE_ATTR_RW(nvt_dttw_tap_gap_duration_min);
 static DEVICE_ATTR_RW(nvt_dttw_motion_tolerance);
 static DEVICE_ATTR_RW(nvt_dttw_detection_window_edge);
 static DEVICE_ATTR_RO(nvt_fw_history);
+#if SPI_FLASH
+static DEVICE_ATTR_RW(nvt_mp_settings_mode);
+#endif // SPI_FLASH
+static DEVICE_ATTR_RO(nvt_selftest);
 
 static struct attribute *nvt_api_attrs[] = {
 #if defined(CONFIG_SOC_GOOGLE)
@@ -2064,6 +2173,10 @@ static struct attribute *nvt_api_attrs[] = {
 	&dev_attr_nvt_dttw_motion_tolerance.attr,
 	&dev_attr_nvt_dttw_detection_window_edge.attr,
 	&dev_attr_nvt_fw_history.attr,
+#if SPI_FLASH
+	&dev_attr_nvt_mp_settings_mode.attr,
+#endif // SPI_FLASH
+	&dev_attr_nvt_selftest.attr,
 	NULL
 };
 

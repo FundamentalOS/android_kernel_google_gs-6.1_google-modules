@@ -10,9 +10,9 @@ kernel_module(
     ]) + [
         "Kbuild",
         "//private/google-modules/display/samsung:headers",
-        "//private/google-modules/display/samsung/include:headers",
         "//private/google-modules/soc/gs:gs_soc_headers",
         "//private/google-modules/touch/common:headers",
+        "//private/google-modules/touch/common/usi:headers",
     ],
     outs = [
         "nvt_touch.ko",
@@ -25,5 +25,6 @@ kernel_module(
     deps = [
         "//private/google-modules/soc/gs:gs_soc_module",
         "//private/google-modules/touch/common:touch.common",
+        "//private/google-modules/touch/common/usi:touch.common.usi",
     ],
 )

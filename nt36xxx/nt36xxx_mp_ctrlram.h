@@ -1454,8 +1454,8 @@ static int32_t PS_Config_Lmt_PenRingY_FW_Diff_P2P_N[PEN_X_Y_DIMENSION_MAX] = {
 	1, 1, 1, 1,
 	1, 1, 1, 1,
 };
-static int32_t PS_Config_Lmt_Pen_Rx_Max_P[1] = {300};
-static int32_t PS_Config_Lmt_Pen_Rx_Max_N[1] = {100};
+static int32_t PS_Config_Lmt_Pen_Rx_Max_P[1] = {65535};
+static int32_t PS_Config_Lmt_Pen_Rx_Max_N[1] = {0};
 static int32_t PS_Config_Diff_Test_Frame = 50;
 
 #endif /* #if NVT_TOUCH_MP */

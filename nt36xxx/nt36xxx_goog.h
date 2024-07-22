@@ -54,6 +54,7 @@ static inline void unregister_panel_bridge(struct drm_bridge *bridge)
 #endif /* defined(CONFIG_SOC_GOOGLE) && defined(NVT_TS_PANEL_BRIDGE) */
 
 #if defined(CONFIG_SOC_GOOGLE)
+bool nvt_ts_check_tid(struct nvt_ts_data *ts, u8 *tid);
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
 ssize_t force_touch_active_store(struct device *dev,
@@ -102,6 +103,10 @@ static inline int nvt_ts_pm_resume(struct device *dev)
 /*
  * Enums, and constants.
  */
+#if defined(CONFIG_SOC_GOOGLE)
+static u8 tid_nt36523n[NVT_ID_BYTE_MAX] = {0x17, 0xFF, 0xFF, 0x23, 0x65, 0x03};
+#endif /* defined(CONFIG_SOC_GOOGLE) */
+
 
 #define NVT_SUSPEND_WORK_MS_DELAY	0
 #define NVT_SUSPEND_POST_MS_DELAY	80

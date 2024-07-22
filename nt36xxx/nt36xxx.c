@@ -47,6 +47,7 @@
 #endif
 
 #include "nt36xxx.h"
+#include "nt36xxx_ext_usi.h"
 #if NVT_TOUCH_ESD_PROTECT
 #include <linux/jiffies.h>
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
@@ -81,7 +82,7 @@ extern void nvt_mp_proc_deinit(void);
 struct nvt_ts_data *ts;
 
 #if BOOT_UPDATE_FIRMWARE
-static struct workqueue_struct *nvt_fwu_wq;
+struct workqueue_struct *nvt_fwu_wq;
 extern void Boot_Update_Firmware(struct work_struct *work);
 #endif
 
@@ -101,7 +102,9 @@ static void nvt_ts_early_suspend(struct early_suspend *h);
 static void nvt_ts_late_resume(struct early_suspend *h);
 #endif
 
+#if !SPI_FLASH
 uint32_t ENG_RST_ADDR  = 0x7FFF80;
+#endif // !SPI_FLASH
 uint32_t SWRST_N8_ADDR; //read from dtsi
 uint32_t SPI_RD_FAST_ADDR;	//read from dtsi
 
@@ -351,6 +354,10 @@ int32_t CTP_SPI_READ(struct spi_device *client, uint8_t *buf, uint16_t len)
 		if (ret == 0)
 			break;
 		retries++;
+		if (ret == -ESHUTDOWN) {
+			NVT_LOGI("wait spi_controller_resume complete!\n");
+			usleep_range(10 * 1000, 10 * 1000 + 1);
+		}
 	}
 
 	if (unlikely(retries == 5)) {
@@ -451,6 +458,7 @@ int32_t nvt_write_addr(uint32_t addr, uint8_t data)
 	return ret;
 }
 
+#if !SPI_FLASH
 /*******************************************************
 Description:
 	Novatek touchscreen enable hw bld crc function.
@@ -485,20 +493,30 @@ return:
 *******************************************************/
 void nvt_fw_crc_enable(void)
 {
-	uint8_t buf[4] = {0};
+	uint8_t clear_cmd[7] = {0};
+	uint8_t crc_cmd[3] = {0};
+	uint16_t clear_cmd_size = 0;
+	uint16_t crc_cmd_size = 0;
+
+	if (nvt_ts_check_tid(ts, tid_nt36523n)) {
+		clear_cmd_size = 7;
+		crc_cmd_size = 3;
+	} else {
+		clear_cmd_size = 2;
+		crc_cmd_size = 2;
+	}
 
 	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 
 	//---clear fw reset status---
-	buf[0] = EVENT_MAP_RESET_COMPLETE & (0x7F);
-	buf[1] = 0x00;
-	CTP_SPI_WRITE(ts->client, buf, 2);
+	clear_cmd[0] = EVENT_MAP_RESET_COMPLETE & (0x7F);
+	CTP_SPI_WRITE(ts->client, clear_cmd, clear_cmd_size);
 
 	//---enable fw crc---
-	buf[0] = EVENT_MAP_HOST_CMD & (0x7F);
-	buf[1] = 0xAE;	//enable fw crc command
-	CTP_SPI_WRITE(ts->client, buf, 2);
+	crc_cmd[0] = EVENT_MAP_HOST_CMD & (0x7F);
+	crc_cmd[1] = 0xAE; //enable fw crc command
+	CTP_SPI_WRITE(ts->client, crc_cmd, crc_cmd_size);
 }
 
 /*******************************************************
@@ -606,7 +624,7 @@ void nvt_sw_reset(void)
 
 	msleep(10);
 }
-
+#endif // !SPI_FLASH
 /*******************************************************
 Description:
 	Novatek touchscreen reset MCU then into idle mode
@@ -623,6 +641,77 @@ void nvt_sw_reset_idle(void)
 	msleep(15);
 }
 
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen reset MCU then into idle mode
+    function.
+
+return:
+	n.a.
+*******************************************************/
+void nvt_sw_reset_idle_no_delay(void)
+{
+	//---MCU idle cmds to SWRST_N8_ADDR---
+	nvt_write_addr(SWRST_N8_ADDR, 0xAA);
+}
+
+/*******************************************************
+Description:
+	Novatek touchscreen write value to specific register.
+
+return:
+	Executive outcomes. 0---succeed. -5---access fail.
+*******************************************************/
+int32_t nvt_write_reg(nvt_ts_reg_t reg, uint8_t val)
+{
+	int32_t ret = 0;
+	uint32_t addr = 0;
+	uint8_t mask = 0;
+	uint8_t shift = 0;
+	uint8_t buf[8] = {0};
+	uint8_t temp = 0;
+
+	addr = reg.addr;
+	mask = reg.mask;
+	/* get shift */
+	temp = reg.mask;
+	shift = 0;
+	while (1) {
+		if ((temp >> shift) & 0x01)
+			break;
+		if (shift == 8) {
+			NVT_ERR("mask all bits zero!\n");
+			break;
+		}
+		shift++;
+	}
+	/* read the byte including this register */
+	nvt_set_page(addr);
+	buf[0] = addr & 0xFF;
+	buf[1] = 0x00;
+	ret = CTP_SPI_READ(ts->client, buf, 2);
+	if (ret < 0) {
+		NVT_ERR("CTP_SPI_READ failed!(%d)\n", ret);
+		goto nvt_write_register_exit;
+	}
+	/* set register's value in its field of the byte */
+	temp = buf[1] & (~mask);
+	temp |= ((val << shift) & mask);
+	/* write back the whole byte including this register */
+	buf[0] = addr & 0xFF;
+	buf[1] = temp;
+	ret = CTP_SPI_WRITE(ts->client, buf, 2);
+	if (ret < 0) {
+		NVT_ERR("CTP_SPI_WRITE failed!(%d)\n", ret);
+		goto nvt_write_register_exit;
+	}
+
+nvt_write_register_exit:
+	return ret;
+}
+#endif // SPI_FLASH
+
 /*******************************************************
 Description:
 	Novatek touchscreen reset MCU (boot) function.
@@ -635,8 +724,11 @@ void nvt_bootloader_reset(void)
 	//---reset cmds to SWRST_N8_ADDR---
 	nvt_write_addr(SWRST_N8_ADDR, 0x69);
 
+#if SPI_FLASH
+	mdelay(35);	//wait tBRST2FR after Bootload RST
+#else
 	mdelay(5);	//wait tBRST2FR after Bootload RST
-
+#endif // SPI_FLASH
 	if (SPI_RD_FAST_ADDR) {
 		/* disable SPI_RD_FAST */
 		nvt_write_addr(SPI_RD_FAST_ADDR, 0x00);
@@ -738,7 +830,11 @@ int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state)
 	uint8_t buf[8] = {0};
 	int32_t ret = 0;
 	int32_t retry = 0;
+#if SPI_FLASH
+	int32_t retry_max = 100;
+#else
 	int32_t retry_max = (check_reset_state == RESET_STATE_INIT) ? 10 : 50;
+#endif
 
 	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_RESET_COMPLETE);
@@ -768,6 +864,27 @@ int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state)
 	return ret;
 }
 
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen clear reset state function.
+
+return:
+	Executive outcomes. 0---success. -1---fail.
+*******************************************************/
+void nvt_clear_fw_reset_state(void)
+{
+	uint8_t buf[2] = {0};
+
+	nvt_sw_reset_idle();
+
+	nvt_set_page(ts->mmap->EVENT_BUF_ADDR | EVENT_MAP_RESET_COMPLETE);
+	//---clear fw reset state---
+	buf[0] = EVENT_MAP_RESET_COMPLETE;
+	buf[1] = 0x00;
+	CTP_SPI_WRITE(ts->client, buf, 2);
+}
+#endif // SPI_FLASH
 /*******************************************************
 Description:
 	Novatek touchscreen get firmware related information
@@ -838,7 +955,11 @@ info_retry:
 
 	/* Allocate buffer for SPI heatmap(delta) data. */
 	if (!ts->heatmap_spi_buf) {
-		ts->heatmap_data_type = HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP;
+#if SPI_FLASH
+		ts->heatmap_data_type = HEATMAP_DATA_TYPE_DISABLE; // TODO: track heatmap function with flash mode
+#else
+		ts->heatmap_data_type = HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP; // keep the default
+#endif // SPI_FLASH
 		ts->heatmap_host_cmd_addr = HEATMAP_TOUCH_ADDR;
 		/* Need one stuffing byte for I/O transfer. */
 		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
@@ -1243,7 +1364,8 @@ static int nvt_gpio_config(struct nvt_ts_data *ts)
 
 err_request_irq_gpio:
 #if NVT_TOUCH_SUPPORT_HW_RST
-	gpio_free(ts->reset_gpio);
+	if (gpio_is_valid(ts->reset_gpio))
+		gpio_free(ts->reset_gpio);
 err_request_reset_gpio:
 #endif
 	return ret;
@@ -1302,8 +1424,13 @@ static void nvt_esd_check_func(struct work_struct *work)
 	if ((timer > NVT_TOUCH_ESD_CHECK_PERIOD) && esd_check) {
 		mutex_lock(&ts->lock);
 		NVT_ERR("do ESD recovery, timer = %d, retry = %d\n", timer, esd_retry);
+#if SPI_FLASH
+		/* do esd recovery, bootloader reset */
+		nvt_bootloader_reset();
+#else
 		/* do esd recovery, reload fw */
 		nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 		mutex_unlock(&ts->lock);
 		/* update interrupt timer */
 		irq_timer = jiffies;
@@ -1446,251 +1573,42 @@ static int32_t nvt_ts_point_data_checksum(uint8_t *buf, uint8_t length)
 }
 #endif /* POINT_DATA_CHECKSUM */
 
-static enum power_supply_property pen_battery_props[] = {
-	POWER_SUPPLY_PROP_PRESENT,
-	POWER_SUPPLY_PROP_CAPACITY,
-	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
-#if NVT_TOUCH_EXT_USI
-	POWER_SUPPLY_PROP_SERIAL_NUMBER,
-#endif
-	POWER_SUPPLY_PROP_STATUS,
-	POWER_SUPPLY_PROP_SCOPE,
-};
-
-static int pen_get_battery_property(struct power_supply *psy,
-		enum power_supply_property prop, union power_supply_propval *val)
-{
-	int low, capacity;
-
-	low = ts->pen_bat_capa & 0x80;
-	capacity = ts->pen_bat_capa & 0x7f;
-
-	switch (prop) {
-	case POWER_SUPPLY_PROP_PRESENT:
-		val->intval = 1;
-		break;
-
-	case POWER_SUPPLY_PROP_CAPACITY:
-		/* stylus doesn't support fuel gauge */
-		if (capacity == 127) {
-			if (low) /* low battery flag */
-				val->intval = 1;
-			else /* no low battery flag */
-				val->intval = 100;
-		} else { /* 1 ~ 100 */
-			val->intval = capacity;
-		}
-		break;
-
-	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
-		/* battery capacity is never updated */
-		if (capacity == 0) {
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
-			break;
-		}
-
-		if (low)
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
-		else if (capacity != 100) /* 127, 1 ~ 99 */
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
-		else /* 100 */
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_FULL;
-
-		break;
-
-#if NVT_TOUCH_EXT_USI
-	case POWER_SUPPLY_PROP_SERIAL_NUMBER:
-		/* the latest serial number */
-		mutex_lock(&ts->lock);
-		val->strval = ts->battery_serial_number_str;
-		mutex_unlock(&ts->lock);
-
-		break;
-#endif
-	case POWER_SUPPLY_PROP_STATUS:
-		val->intval = POWER_SUPPLY_STATUS_UNKNOWN;
-		break;
-
-	case POWER_SUPPLY_PROP_SCOPE:
-		val->intval = POWER_SUPPLY_SCOPE_DEVICE;
-		break;
-
-	default:
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static struct power_supply *pen_setup_battery(struct device *parent)
-{
-	int error;
-	struct power_supply_desc *psy_desc;
-	struct power_supply *battery;
-
-	psy_desc = kzalloc(sizeof(*psy_desc), GFP_KERNEL);
-	if (!psy_desc) {
-		NVT_ERR("cannot allocate psy_desc\n");
-		return NULL;
-	}
-
-	psy_desc->name = NVT_PEN_BATTERY_NAME;
-	psy_desc->type = POWER_SUPPLY_TYPE_UNKNOWN;
-	psy_desc->properties = pen_battery_props;
-	psy_desc->num_properties = ARRAY_SIZE(pen_battery_props);
-	psy_desc->get_property = pen_get_battery_property;
-
-	battery = power_supply_register(parent, psy_desc, NULL);
-	if (IS_ERR(battery)) {
-		error = PTR_ERR(battery);
-		kfree(psy_desc);
-		NVT_ERR("Can't register power supply, err  = %d\n", error);
-		return NULL;
-	}
-
-	return battery;
-}
-
-static void pen_clean_battery(struct power_supply *battery)
-{
-	const struct power_supply_desc *psy_desc = battery->desc;
-
-	power_supply_unregister(battery);
-	kfree(psy_desc);
-}
-
-#if NVT_TOUCH_EXT_USI
 static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_buf)
 {
-	uint32_t pen_serial_high;
-	uint32_t pen_serial_low;
-	uint8_t pen_bat_capa;
-
 	if (info_buf_flags & USI_GID_FLAG) {
-		nvt_usi_store_gid(info_buf + USI_GID_OFFSET);
-		nvt_usi_get_serial_number(&pen_serial_high, &pen_serial_low);
-		nvt_usi_store_pen_model_index(info_buf + USI_PEN_MODEL_IDX_OFFSET);
-		if (ts->pen_serial_high != pen_serial_high ||
-		    ts->pen_serial_low != pen_serial_low) {
-			int idx = 0;
-			int sz = sizeof(ts->battery_serial_number_str);
-
-			idx += scnprintf(ts->battery_serial_number_str + idx, sz - idx,
-					 "%08X", pen_serial_high);
-			idx += scnprintf(ts->battery_serial_number_str + idx, sz - idx,
-					 "%08X", pen_serial_low);
-
-			ts->pen_serial_high = pen_serial_high;
-			ts->pen_serial_low = pen_serial_low;
-
-			power_supply_changed(ts->pen_bat_psy);
-		}
+		goog_usi_report_gid(ts->g_usi_handle, info_buf + USI_GID_OFFSET);
+		goog_usi_set_drvdata(ts->g_usi_handle,
+				     (void *)(uintptr_t)*(info_buf + USI_PEN_MODEL_IDX_OFFSET));
 	}
 
 	if (info_buf_flags & USI_NORMAL_PAIR_FLAG) {
-		uint8_t hash_id[2] = {0};
+		struct g_usi_pairing_info  pairing_info;
+		u8 usi_version = 0x20;	/* USI version is always 2.0 */
 
-		/* clear stylus info map if the HASH ID is not available or not matched */
-		if (nvt_usi_get_hash_id(hash_id) || hash_id[0] != *(info_buf + USI_HASH_ID_OFFSET) ||
-			    hash_id[1] != *(info_buf + USI_HASH_ID_OFFSET + 1))
-			nvt_usi_clear_stylus_read_map();
+		pairing_info.hash_id[0] = *(info_buf + USI_HASH_ID_OFFSET);
+		pairing_info.hash_id[1] = *(info_buf + USI_HASH_ID_OFFSET + 1);
+		pairing_info.session_id[0] = *(info_buf + USI_SESSION_ID_OFFSET);
+		pairing_info.session_id[1] = *(info_buf + USI_SESSION_ID_OFFSET + 1);
+		pairing_info.freq_sel = *(info_buf + USI_FREQ_SEED_OFFSET);
+		pairing_info.additional_data = NULL;
+		goog_usi_update_status(ts->g_usi_handle,
+				       G_USI_UPDATE_NORMAL_PAIRING_DONE, &pairing_info);
+		goog_usi_report_usi_version(ts->g_usi_handle, &usi_version);
 	}
 
+	if (info_buf_flags & USI_FAST_PAIR_FLAG)
+		goog_usi_update_status(ts->g_usi_handle,
+				       G_USI_UPDATE_FAST_PAIRING_DONE, NULL);
+
 	if (info_buf_flags & USI_BATTERY_FLAG) {
-		nvt_usi_store_battery(info_buf + USI_BATTERY_OFFSET);
-		nvt_usi_get_battery(&pen_bat_capa);
-		if (ts->pen_bat_capa != pen_bat_capa) {
-			NVT_LOG("USI BAT Changed 0x%02X\n", pen_bat_capa);
-			ts->pen_bat_capa = pen_bat_capa;
-			power_supply_changed(ts->pen_bat_psy);
-		}
+		goog_usi_report_battery(ts->g_usi_handle, info_buf + USI_BATTERY_OFFSET);
 	}
 
 	if (info_buf_flags & USI_FW_VERSION_FLAG)
-		nvt_usi_store_fw_version(info_buf + USI_FW_VERSION_OFFSET);
+		goog_usi_report_fw_version(ts->g_usi_handle, info_buf + USI_FW_VERSION_OFFSET);
 
 	if (info_buf_flags & USI_CAPABILITY_FLAG)
-		nvt_usi_store_capability(info_buf + USI_CAPABILITY_OFFSET);
-
-	if (info_buf_flags & USI_HASH_ID_FLAG)
-		nvt_usi_store_hash_id(info_buf + USI_HASH_ID_OFFSET);
-
-	if (info_buf_flags & USI_SESSION_ID_FLAG)
-		nvt_usi_store_session_id(info_buf + USI_SESSION_ID_OFFSET);
-
-	if (info_buf_flags & USI_FREQ_SEED_FLAG)
-		nvt_usi_store_freq_seed(info_buf + USI_FREQ_SEED_OFFSET);
-}
-#endif
-
-static struct input_dev *create_pen_input_device(uint16_t vid, uint16_t pid)
-{
-	struct input_dev *pen_input_dev;
-	int32_t ret = -1;
-
-	//---allocate pen input device---
-	pen_input_dev = input_allocate_device();
-	if (pen_input_dev == NULL) {
-		NVT_ERR("allocate pen input device failed\n");
-		return NULL;
-	}
-
-	//---set pen input device info.---
-	pen_input_dev->evbit[0] = BIT_MASK(EV_SYN) | BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
-	pen_input_dev->keybit[BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH);
-	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_PEN)] |= BIT_MASK(BTN_TOOL_PEN);
-	pen_input_dev->keybit[BIT_WORD(BTN_TOOL_RUBBER)] |= BIT_MASK(BTN_TOOL_RUBBER);
-	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS)] |= BIT_MASK(BTN_STYLUS);
-	pen_input_dev->keybit[BIT_WORD(BTN_STYLUS2)] |= BIT_MASK(BTN_STYLUS2);
-	pen_input_dev->propbit[0] = BIT(INPUT_PROP_DIRECT);
-
-	if (ts->wgp_stylus) {
-		input_set_abs_params(pen_input_dev, ABS_X, 0, ts->touch_width * 2 - 1, 0, 0);
-		input_set_abs_params(pen_input_dev, ABS_Y, 0, ts->touch_height * 2 - 1, 0, 0);
-	} else {
-		input_set_abs_params(pen_input_dev, ABS_X, 0, ts->abs_x_max, 0, 0);
-		input_set_abs_params(pen_input_dev, ABS_Y, 0, ts->abs_y_max, 0, 0);
-	}
-	input_set_abs_params(pen_input_dev, ABS_PRESSURE, 0, PEN_PRESSURE_MAX, 0, 0);
-#ifdef PEN_DISTANCE_SUPPORT
-	input_set_abs_params(pen_input_dev, ABS_DISTANCE, 0, PEN_DISTANCE_MAX, 0, 0);
-#endif
-	input_set_abs_params(pen_input_dev, ABS_TILT_X, PEN_TILT_MIN, PEN_TILT_MAX, 0, 0);
-	input_set_abs_params(pen_input_dev, ABS_TILT_Y, PEN_TILT_MIN, PEN_TILT_MAX, 0, 0);
-
-#if NVT_TOUCH_EXT_USI
-	__set_bit(EV_MSC, pen_input_dev->evbit);
-	__set_bit(MSC_SERIAL, pen_input_dev->mscbit);
-#endif
-	pen_input_dev->name = ts->pen_name;
-	pen_input_dev->uniq = pen_input_dev->name;
-	pen_input_dev->phys = ts->pen_phys;
-	pen_input_dev->dev.parent = &ts->client->dev;
-	pen_input_dev->id.bustype = BUS_SPI;
-	pen_input_dev->id.vendor = vid;
-	pen_input_dev->id.product = pid;
-	pen_input_dev->id.version = NVT_VERSION;
-
-	//---register pen input device---
-	ret = input_register_device(pen_input_dev);
-	if (ret) {
-		NVT_ERR("register pen input device (%s) failed. ret=%d\n",
-			pen_input_dev->name, ret);
-		goto err_pen_input_register_device_failed;
-	}
-
-	ts->pen_input_idx = !ts->pen_input_idx;
-
-	return pen_input_dev;
-
-err_pen_input_register_device_failed:
-	input_free_device(pen_input_dev);
-	return NULL;
-}
-
-static void destroy_pen_input_device(struct input_dev *pen_input_dev)
-{
-	input_unregister_device(pen_input_dev);
+		goog_usi_report_capability(ts->g_usi_handle, info_buf + USI_CAPABILITY_OFFSET);
 }
 
 static irqreturn_t nvt_ts_isr(int irq, void *handle)
@@ -1723,26 +1641,12 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 	uint8_t press_id[TOUCH_MAX_FINGER_NUM] = {0};
 	int32_t i = 0;
 	int32_t finger_cnt = 0;
-	uint32_t pen_x = 0;
-	uint32_t pen_y = 0;
-	uint32_t pen_pressure = 0;
-#ifdef PEN_DISTANCE_SUPPORT
-	uint32_t pen_distance = 0;
-#endif
-	int8_t pen_tilt_x = 0;
-	int8_t pen_tilt_y = 0;
-	uint32_t pen_btn1 = 0;
-	uint32_t pen_btn2 = 0;
-	uint32_t pen_btn3 = 0;
+	struct g_usi_event usi_event;
+	struct g_usi_event_leave usi_event_leave;
 	uint8_t touch_freq_index;
 	uint8_t pen_freq_index;
-#if NVT_TOUCH_EXT_USI
 	uint8_t info_buf[INFO_BUF_SIZE] = {0};
-	uint32_t pen_serial_low;
 	uint16_t info_buf_flags;
-	uint16_t pen_vid;
-	uint16_t pen_pid;
-#endif
 	char trace_tag[128];
 	ktime_t pen_ktime;
 
@@ -2029,63 +1933,39 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 					ktime_to_ns(ktime_sub(pen_ktime, ts->timestamp)));
 				ATRACE_BEGIN(trace_tag);
 				// report pen data
-				pen_x = (uint32_t)(point_data[67] << 8) + (uint32_t)(point_data[68]);
-				pen_y = (uint32_t)(point_data[69] << 8) + (uint32_t)(point_data[70]);
-				pen_pressure = (uint32_t)(point_data[71] << 8) + (uint32_t)(
-						       point_data[72]);
-				pen_tilt_x = (int32_t)point_data[73];
-				pen_tilt_y = (int32_t)point_data[74];
+				usi_event.timestamp = ts->timestamp;
+				usi_event.x = (uint32_t)(point_data[67] << 8) +
+						(uint32_t)(point_data[68]);
+				usi_event.y = (uint32_t)(point_data[69] << 8) +
+						(uint32_t)(point_data[70]);
+				usi_event.pressure = (uint32_t)(point_data[71] << 8) +
+						(uint32_t)(point_data[72]);
+				usi_event.tilt_x = (int32_t)(int8_t)point_data[73];
+				usi_event.tilt_y = (int32_t)(int8_t)point_data[74];
 #ifdef PEN_DISTANCE_SUPPORT
-				pen_distance = (uint32_t)(point_data[75] << 8) + (uint32_t)(
-						       point_data[76]);
+				usi_event.distance = (uint32_t)(point_data[75] << 8) +
+						(uint32_t)(point_data[76]);
 #endif
-				pen_btn1 = (uint32_t)(point_data[77] & 0x01);
-				pen_btn2 = (uint32_t)((point_data[77] >> 1) & 0x01);
-				pen_btn3 = (uint32_t)((point_data[77] >> 2) & 0x01);
+				usi_event.buttons = (uint32_t)point_data[77];
 //				printk("x=%d,y=%d,p=%d,tx=%d,ty=%d,d=%d,b1=%d,b2=%d,b3=%d,bat=%d\n", pen_x, pen_y, pen_pressure,
 //						pen_tilt_x, pen_tilt_y, pen_distance, pen_btn1, pen_btn2, pen_btn3, pen_battery);
-
-				input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
 				/* Snapshot some stylus context information for
 				 * offload
 				 */
 				if (!ts->pen_active) {
-					NVT_LOG("USI paired");
 					ts->pen_active = 1;
 				}
 #ifdef GOOG_TOUCH_INTERFACE
 				ts->pen_offload_coord.status = COORD_STATUS_PEN;
-				ts->pen_offload_coord.x = pen_x;
-				ts->pen_offload_coord.y = pen_y;
-				ts->pen_offload_coord.pressure = pen_pressure;
+				ts->pen_offload_coord.x = usi_event.x;
+				ts->pen_offload_coord.y = usi_event.y;
+				ts->pen_offload_coord.pressure = usi_event.pressure;
 #endif
-				ts->pen_offload_coord_timestamp = ts->timestamp;
+				ts->pen_offload_coord_timestamp = usi_event.timestamp;
 
-				input_report_abs(ts->pen_input_dev, ABS_X, pen_x);
-				input_report_abs(ts->pen_input_dev, ABS_Y, pen_y);
-				input_report_abs(ts->pen_input_dev, ABS_PRESSURE, pen_pressure);
-				input_report_key(ts->pen_input_dev, BTN_TOUCH, !!pen_pressure);
-				input_report_abs(ts->pen_input_dev, ABS_TILT_X, pen_tilt_x);
-				input_report_abs(ts->pen_input_dev, ABS_TILT_Y, pen_tilt_y);
-#ifdef PEN_DISTANCE_SUPPORT
-				input_report_abs(ts->pen_input_dev, ABS_DISTANCE, pen_distance);
-#endif
-				input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 1);
-				input_report_key(ts->pen_input_dev, BTN_STYLUS, pen_btn1);
-				input_report_key(ts->pen_input_dev, BTN_STYLUS2, pen_btn2);
-				input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, pen_btn3);
-#if NVT_TOUCH_EXT_USI
-				/*
-				 * Input Subsystem doesn't support 64bits serial number.
-				 * So we only reports the lower 32bit.
-				 */
-				if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
-					input_event(ts->pen_input_dev, EV_MSC,
-						    MSC_SERIAL, pen_serial_low);
-#endif
-				input_sync(ts->pen_input_dev);
-#if NVT_TOUCH_EXT_USI
+				goog_usi_send_event(ts->g_usi_handle, &usi_event);
+
 				info_buf_flags = point_data[63] + (point_data[64] << 8);
 
 				if (info_buf_flags) {
@@ -2096,7 +1976,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 
 					process_usi_responses(info_buf_flags, info_buf);
 				}
-#endif
+
 				ATRACE_END();
 			} else if (ts->pen_format_id == 0xF0) {
 				// report Pen ID
@@ -2111,54 +1991,17 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				ktime_to_ns(ts->timestamp), ktime_to_ns(pen_ktime),
 				ktime_to_ns(ktime_sub(pen_ktime, ts->timestamp)));
 			ATRACE_BEGIN(trace_tag);
-			input_set_timestamp(ts->pen_input_dev, ts->timestamp);
 
 			/* Snapshot some stylus context information for offload */
 			ts->pen_active = 0;
-			NVT_LOG("USI un-paired");
 			ts->pen_offload_coord_timestamp = ts->timestamp;
 #ifdef GOOG_TOUCH_INTERFACE
 			memset(&ts->pen_offload_coord, 0,
 			       sizeof(ts->pen_offload_coord));
 #endif
-			input_report_abs(ts->pen_input_dev, ABS_X, 0);
-			input_report_abs(ts->pen_input_dev, ABS_Y, 0);
-			input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
-			input_report_abs(ts->pen_input_dev, ABS_TILT_X, 0);
-			input_report_abs(ts->pen_input_dev, ABS_TILT_Y, 0);
-#ifdef PEN_DISTANCE_SUPPORT
-			input_report_abs(ts->pen_input_dev, ABS_DISTANCE, PEN_DISTANCE_MAX);
-#endif
-			input_report_key(ts->pen_input_dev, BTN_TOUCH, 0);
-			input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
-			input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
-			input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
-			input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, 0);
-#if NVT_TOUCH_EXT_USI
-			if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
-				input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
-#endif
-			input_sync(ts->pen_input_dev);
-#if NVT_TOUCH_EXT_USI
-			if (!nvt_usi_get_vid_pid(&pen_vid, &pen_pid) &&
-			    (ts->pen_vid != pen_vid || ts->pen_pid != pen_pid)) {
-				struct input_dev *new_pen_input_dev;
+			usi_event_leave.timestamp = ts->timestamp;
+			goog_usi_send_event_leave(ts->g_usi_handle, &usi_event_leave);
 
-				ts->pen_vid = pen_vid;
-				ts->pen_pid = pen_pid;
-
-				new_pen_input_dev = create_pen_input_device(pen_vid, pen_pid);
-
-				if (!new_pen_input_dev) {
-					NVT_ERR("create pen input device failed.\n");
-				} else {
-					destroy_pen_input_device(ts->pen_input_dev);
-					ts->pen_input_dev = new_pen_input_dev;
-					NVT_LOG("USI Stylus Switched(v:0x%02X,p:0x%02X)\n",
-						pen_vid, pen_pid);
-				}
-			}
-#endif
 			ATRACE_END();
 		}
 	} /* if (ts->pen_support) */
@@ -2185,6 +2028,65 @@ XFER_ERROR:
 	return IRQ_HANDLED;
 }
 
+#if SPI_FLASH
+/*******************************************************
+Description:
+	Novatek touchscreen check and stop crc reboot loop.
+
+return:
+	n.a.
+*******************************************************/
+void nvt_stop_crc_reboot(void)
+{
+	uint8_t buf[8] = {0};
+	int32_t retry = 0;
+
+	//read unexpected buffer to check CRC fail reboot is happening or not
+
+	//---change SPI index to prevent geting 0xFF, but not 0xFC---
+	nvt_set_page(CHIP_VER_TRIM_ADDR);
+
+	//---read to check if buf is 0xFC which means IC is in CRC reboot ---
+	buf[0] = CHIP_VER_TRIM_ADDR & 0xFF;
+	CTP_SPI_READ(ts->client, buf, 4);
+
+	if ((buf[1] == 0xFC) ||
+		((buf[1] == 0xFF) && (buf[2] == 0xFF) && (buf[3] == 0xFF))) {
+
+		//IC is in CRC fail reboot loop, needs to be stopped!
+		for (retry = 5; retry > 0; retry--) {
+
+			//---write spi cmds to reset idle : 1st---
+			nvt_sw_reset_idle_no_delay();
+
+			//---write spi cmds to reset idle : 2rd---
+			nvt_sw_reset_idle_no_delay();
+			msleep(1);
+
+			//---clear CRC_ERR_FLAG---
+			nvt_set_page(CRC_ERR_FLAG_ADDR);
+
+			buf[0] = CRC_ERR_FLAG_ADDR & 0xFF;
+			buf[1] = 0xA5;
+			CTP_SPI_WRITE(ts->client, buf, 2);
+
+			//---check CRC_ERR_FLAG---
+			nvt_set_page(CRC_ERR_FLAG_ADDR);
+
+			buf[0] = CRC_ERR_FLAG_ADDR & 0xFF;
+			buf[1] = 0x00;
+			CTP_SPI_READ(ts->client, buf, 2);
+
+			if (buf[1] == 0xA5)
+				break;
+		}
+		if (retry == 0)
+			NVT_ERR("CRC auto reboot is not able to be stopped! buf[1]=0x%02X\n", buf[1]);
+	}
+
+	return;
+}
+#endif // SPI_FLASH
 
 /*******************************************************
 Description:
@@ -2202,11 +2104,18 @@ static int8_t nvt_ts_check_chip_ver_trim(uint32_t chip_ver_trim_addr)
 	int32_t found_nvt_chip = 0;
 	int32_t ret = -1;
 
+#if SPI_FLASH
+	nvt_bootloader_reset(); // NOT in retry loop
+#endif // SPI_FLASH
+
 	//---Check for 5 times---
 	for (retry = 5; retry > 0; retry--) {
 
+#if SPI_FLASH
+		nvt_sw_reset_idle();
+#else
 		nvt_bootloader_reset();
-
+#endif // SPI_FLASH
 		nvt_set_page(chip_ver_trim_addr);
 
 		buf[0] = chip_ver_trim_addr & 0x7F;
@@ -2219,6 +2128,15 @@ static int8_t nvt_ts_check_chip_ver_trim(uint32_t chip_ver_trim_addr)
 		CTP_SPI_READ(ts->client, buf, 7);
 		NVT_LOG("buf[1]=0x%02X, buf[2]=0x%02X, buf[3]=0x%02X, buf[4]=0x%02X, buf[5]=0x%02X, buf[6]=0x%02X\n",
 			buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
+
+#if SPI_FLASH
+		//---Stop CRC check to prevent IC auto reboot---
+		if ((buf[1] == 0xFC) ||
+				((buf[1] == 0xFF) && (buf[2] == 0xFF) && (buf[3] == 0xFF))) {
+			nvt_stop_crc_reboot();
+			continue;
+		}
+#endif // SPI_FLASH
 
 		// compare read chip id on supported list
 		for (list = 0;
@@ -2303,6 +2221,7 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 		NVT_LOG("fw_name: %s.\n", ts->fw_name);
 
 		name = NULL;
+#if !SPI_FLASH
 		of_property_read_string_index(np, "novatek,mp_firmware_names",
 				ts->initial_panel_index, &name);
 		if (name)
@@ -2310,6 +2229,7 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 		else
 			ts->mp_fw_name = MP_UPDATE_FIRMWARE_NAME;
 		NVT_LOG("mp_fw_name: %s.\n", ts->mp_fw_name);
+#endif // !SPI_FLASH
 	}
 
 	return 0;
@@ -2342,6 +2262,15 @@ static int nvt_ts_check_dt(struct nvt_ts_data *ts)
 }
 #endif
 #endif
+
+static int32_t nvt_usi_send_uplink(g_usi_handle_t handle, uint8_t beacon[5], uint8_t response[3])
+{
+	return nvt_get_usi_data_diag(beacon, response);
+}
+
+static struct g_usi_callbacks nvt_usi_cbs = {
+	.g_usi_send_uplink = nvt_usi_send_uplink,
+};
 
 /*******************************************************
 Description:
@@ -2472,11 +2401,14 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	mutex_init(&ts->xbuf_lock);
 	mutex_init(&ts->bus_mutex);
 
+#if !SPI_FLASH
 	//---eng reset before TP_RESX high
 	nvt_eng_reset();
+#endif // !SPI_FLASH
 
 #if NVT_TOUCH_SUPPORT_HW_RST
-	gpio_set_value(ts->reset_gpio, 1);
+	if (gpio_is_valid(ts->reset_gpio))
+		gpio_set_value(ts->reset_gpio, 1);
 #endif
 
 	// need 10ms delay after POR(power on reset)
@@ -2494,8 +2426,16 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		}
 	}
 
+#if SPI_FLASH
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	nvt_check_fw_reset_state(RESET_STATE_INIT);
+	nvt_get_fw_info();
+#else
 	ts->touch_width = TOUCH_DEFAULT_MAX_WIDTH;
 	ts->touch_height = TOUCH_DEFAULT_MAX_HEIGHT;
+#endif // SPI_FLASH
+
 	ts->abs_x_max = ts->touch_width - 1;
 	ts->abs_y_max = ts->touch_height - 1;
 
@@ -2590,25 +2530,28 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 
 	if (ts->pen_support) {
-		snprintf(ts->pen_phys, sizeof(ts->pen_phys), "input/pen");
-		snprintf(ts->pen_name, sizeof(ts->pen_name), NVT_PEN_NAME);
+		struct g_usi stylus;
 
-		ts->pen_bat_psy = pen_setup_battery(&client->dev);
-		if (ts->pen_bat_psy == NULL) {
-			NVT_ERR("register pen battery failed.\n");
-			goto err_pen_setup_battery_failed;
-		}
+		memset(&stylus, 0, sizeof(stylus));
 
-		/*
-		 * Use 0xFFFF as the initial VID/PID so we can create new evdev
-		 * for the first stroke after boot.
-		 */
-		ts->pen_vid = 0xFFFF;
-		ts->pen_pid = 0xFFFF;
-		ts->pen_input_dev = create_pen_input_device(ts->pen_vid, ts->pen_pid);
-		if (!ts->pen_input_dev) {
-			NVT_ERR("create pen input device failed.\n");
-			goto err_create_pen_input_device_failed;
+		/* setup new USI controller */
+		stylus.dev = &ts->client->dev;
+		stylus.bustype = BUS_SPI;
+
+		stylus.abs_x_max = ts->touch_width * 2 - 1;
+		stylus.abs_y_max = ts->touch_height * 2 - 1;
+		stylus.distance_max = 0;	/* distance is not supported */
+		stylus.tilt_min = PEN_TILT_MIN;
+		stylus.tilt_max = PEN_TILT_MAX;
+
+		stylus.is_flex_beacon = true;	/* the controller works with the flex beacon */
+		stylus.cbs = &nvt_usi_cbs;
+
+		/* register USI controller */
+		ts->g_usi_handle = goog_usi_register(&stylus);
+		if (ts->g_usi_handle == G_USI_INVALID_HANDLE) {
+			NVT_ERR("goog_usi_register failed.\n");
+			goto err_goog_usi_register_failed;
 		}
 	} /* if (ts->pen_support) */
 
@@ -2663,6 +2606,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 	INIT_DELAYED_WORK(&ts->nvt_fwu_work, Boot_Update_Firmware);
 	// please make sure boot update start after display reset(RESX) sequence
+#if SPI_FLASH
+	init_completion(&ts->fwu_done);
+#endif // SPI_FLASH
 	queue_delayed_work(nvt_fwu_wq, &ts->nvt_fwu_work,
 			msecs_to_jiffies(BOOT_UPDATE_FIRMWARE_MS_DELAY));
 #endif
@@ -2706,14 +2652,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	if (ret) {
 		NVT_ERR("nvt extra api init failed. ret=%d\n", ret);
 		goto err_extra_api_init_failed;
-	}
-#endif
-
-#if NVT_TOUCH_EXT_USI
-	ret = nvt_extra_usi_init();
-	if (ret) {
-		NVT_ERR("nvt extra usi init failed. ret=%d\n", ret);
-		goto err_extra_usi_init_failed;
 	}
 #endif
 
@@ -2795,10 +2733,6 @@ err_register_early_suspend_failed:
 	nvt_mp_proc_deinit();
 err_mp_proc_init_failed:
 #endif
-#if NVT_TOUCH_EXT_USI
-	nvt_extra_usi_deinit();
-err_extra_usi_init_failed:
-#endif
 #if NVT_TOUCH_EXT_API
 	nvt_extra_api_deinit();
 err_extra_api_init_failed:
@@ -2838,12 +2772,9 @@ err_goog_pm_register:
 #endif
 	goog_touch_interface_remove(ts->gti);
 err_goog_touch_interface:
-	destroy_pen_input_device(ts->pen_input_dev);
-	ts->pen_input_dev = NULL;
-err_create_pen_input_device_failed:
-	pen_clean_battery(ts->pen_bat_psy);
-	ts->pen_bat_psy = NULL;
-err_pen_setup_battery_failed:
+	goog_usi_unregister(ts->g_usi_handle);
+	ts->g_usi_handle = G_USI_INVALID_HANDLE;
+err_goog_usi_register_failed:
 	input_unregister_device(ts->input_dev);
 err_input_register_device_failed:
 	if (ts->input_dev) {
@@ -2913,9 +2844,6 @@ static void nvt_ts_remove(struct spi_device *client)
 #if NVT_TOUCH_MP
 	nvt_mp_proc_deinit();
 #endif
-#if NVT_TOUCH_EXT_USI
-	nvt_extra_usi_deinit();
-#endif
 #if NVT_TOUCH_EXT_API
 	nvt_extra_api_deinit();
 #endif
@@ -2961,9 +2889,9 @@ static void nvt_ts_remove(struct spi_device *client)
 	nvt_gpio_deconfig(ts);
 
 	if (ts->pen_support) {
-		if (ts->pen_input_dev) {
-			input_unregister_device(ts->pen_input_dev);
-			ts->pen_input_dev = NULL;
+		if (ts->g_usi_handle != G_USI_INVALID_HANDLE) {
+			goog_usi_unregister(ts->g_usi_handle);
+			ts->g_usi_handle = G_USI_INVALID_HANDLE;
 		}
 	}
 
@@ -3021,9 +2949,6 @@ static void nvt_ts_shutdown(struct spi_device *client)
 #if NVT_TOUCH_MP
 	nvt_mp_proc_deinit();
 #endif
-#if NVT_TOUCH_EXT_USI
-	nvt_extra_usi_deinit();
-#endif
 #if NVT_TOUCH_EXT_API
 	nvt_extra_api_deinit();
 #endif
@@ -3069,10 +2994,7 @@ int nvt_ts_suspend(struct device *dev)
 #ifndef GOOG_TOUCH_INTERFACE
 	uint32_t i = 0;
 #endif
-
-#if NVT_TOUCH_EXT_USI
-	uint32_t pen_serial_low;
-#endif
+	struct g_usi_event_leave usi_event_leave;
 
 	if (!ts->bTouchIsAwake) {
 		NVT_LOG("Touch is already suspend\n");
@@ -3120,25 +3042,8 @@ int nvt_ts_suspend(struct device *dev)
 
 	/* release pen event */
 	if (ts->pen_support) {
-		input_set_timestamp(ts->pen_input_dev, ktime_get());
-		input_report_abs(ts->pen_input_dev, ABS_X, 0);
-		input_report_abs(ts->pen_input_dev, ABS_Y, 0);
-		input_report_abs(ts->pen_input_dev, ABS_PRESSURE, 0);
-		input_report_abs(ts->pen_input_dev, ABS_TILT_X, 0);
-		input_report_abs(ts->pen_input_dev, ABS_TILT_Y, 0);
-#ifdef PEN_DISTANCE_SUPPORT
-		input_report_abs(ts->pen_input_dev, ABS_DISTANCE, PEN_DISTANCE_MAX);
-#endif
-		input_report_key(ts->pen_input_dev, BTN_TOUCH, 0);
-		input_report_key(ts->pen_input_dev, BTN_TOOL_PEN, 0);
-		input_report_key(ts->pen_input_dev, BTN_STYLUS, 0);
-		input_report_key(ts->pen_input_dev, BTN_STYLUS2, 0);
-		input_report_key(ts->pen_input_dev, BTN_TOOL_RUBBER, 0);
-#if NVT_TOUCH_EXT_USI
-		if (!nvt_usi_get_serial_number(NULL, &pen_serial_low))
-			input_event(ts->pen_input_dev, EV_MSC, MSC_SERIAL, pen_serial_low);
-#endif
-		input_sync(ts->pen_input_dev);
+		usi_event_leave.timestamp = ktime_get();
+		goog_usi_send_event_leave(ts->g_usi_handle, &usi_event_leave);
 
 		ts->pen_active = 0;
 		ts->pen_offload_coord_timestamp = ts->timestamp;
@@ -3205,11 +3110,25 @@ int nvt_ts_resume(struct device *dev)
 
 	// please make sure display reset(RESX) sequence and mipi dsi cmds sent before this
 #if NVT_TOUCH_SUPPORT_HW_RST
-	gpio_set_value(ts->reset_gpio, 1);
+	if (gpio_is_valid(ts->reset_gpio))
+		gpio_set_value(ts->reset_gpio, 1);
 #endif
+
+#if SPI_FLASH
+	/*
+	 * clear before check, please call the nvt_ts_resume function 10ms right
+	 * after the RESX to prevent bootload reset delaying the first touch.
+	 */
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_REK)) {
+		NVT_ERR("FW is not ready! Try to bootloader reset\n");
+		nvt_bootloader_reset();
+#else
 	if (nvt_update_firmware(get_fw_name(), 0)) {
 		NVT_ERR("download firmware failed, ignore check fw state\n");
 	} else {
+#endif // SPI_FLASH
 		nvt_check_fw_reset_state(RESET_STATE_REK);
 	}
 
@@ -3224,36 +3143,33 @@ int nvt_ts_resume(struct device *dev)
 
 	/* Restore fast-pairing configuration. */
 	if (ts->pen_support) {
-		uint8_t buf[7], hash_id[2], session_id[2], fw_version[2];
-		uint8_t freq_seed = 0, pen_model_index = 0;
+		uint8_t buf[7], fw_version[2];
+		uint8_t pen_model_index = 0;
 		uint16_t validity_flags = 0;
+		uint32_t info_flags;
+		struct g_usi_pairing_info pairing_info;
+		void *data = (void *)0;
 
-		if (nvt_usi_get_hash_id(hash_id)) {
-			hash_id[0] = 0; /* set 0 if error */
-			hash_id[1] = 0;
-		}
-
-		if (nvt_usi_get_session_id(session_id)) {
-			session_id[0] = 0; /* set 0 if error */
-			session_id[1] = 0;
-		}
+		if (goog_usi_get_pairing_info(ts->g_usi_handle, &pairing_info))
+			memset(&pairing_info, 0, sizeof(pairing_info)); /* set 0 if error */
 
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x70;
 		buf[2] = 0x81;
-		buf[3] = hash_id[0];
-		buf[4] = hash_id[1];
-		buf[5] = session_id[0];
-		buf[6] = session_id[1];
+		buf[3] = pairing_info.hash_id[0];
+		buf[4] = pairing_info.hash_id[1];
+		buf[5] = pairing_info.session_id[0];
+		buf[6] = pairing_info.session_id[1];
 		CTP_SPI_WRITE(ts->client, buf, sizeof(buf));
 		NVT_LOG("fast-pairing: hash_id: 0x%02X%02X, session_id: 0x%02X%02X\n",
-				hash_id[1], hash_id[0], session_id[1], session_id[0]);
+				pairing_info.hash_id[1], pairing_info.hash_id[0],
+				pairing_info.session_id[1], pairing_info.session_id[0]);
 
 		msleep(20);
 
-		nvt_usi_get_pen_model_index(&pen_model_index);
-		nvt_usi_get_freq_seed(&freq_seed);
-		if (nvt_usi_get_fw_version(fw_version)){
+		goog_usi_get_drvdata(ts->g_usi_handle, &data);
+		pen_model_index = (u8)(uintptr_t)data;
+		if (goog_usi_get_fw_version(ts->g_usi_handle, fw_version)) {
 			fw_version[0] = 0; /* set 0 if error */
 			fw_version[1] = 0;
 		}
@@ -3261,16 +3177,36 @@ int nvt_ts_resume(struct device *dev)
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x70;
 		buf[2] = 0x82;
-		buf[3] = freq_seed;
+		buf[3] = pairing_info.freq_sel;
 		buf[4] = fw_version[0];
 		buf[5] = fw_version[1];
 		buf[6] = pen_model_index;
 		CTP_SPI_WRITE(ts->client, buf, 7);
 		NVT_LOG("Write pen_freq_seed = %02X, pen_fw_ver = 0x%02X%02X, model_idx = %d\n",
-				freq_seed, fw_version[1], fw_version[0], pen_model_index);
+			pairing_info.freq_sel, fw_version[1], fw_version[0], pen_model_index);
 		msleep(20);
 
-		nvt_usi_get_validity_flags(&validity_flags);
+		/*
+		 * validity_flag is to show what data is available in the driver.
+		 * the validity_flag is sent to the controller FW during the resume()
+		 * so that the controller only asks stylus the data that the driver doesn't have.
+		 */
+		goog_usi_get_stylus_info_flags(ts->g_usi_handle, &info_flags);
+
+		if (info_flags & G_USI_FW_VERSION_FLAG) {
+			NVT_LOG(">> FW Version\n");
+			validity_flags = 1; /* update TIC with the FW version is available */
+		}
+
+		if (info_flags & G_USI_CAPABILITY_FLAG) {
+			NVT_LOG(">> Capability\n");
+			validity_flags |= 2; /* update TIC with the Capability is available */
+		}
+
+		if (info_flags & G_USI_GID_FLAG) {
+			NVT_LOG(">> GID\n");
+			validity_flags |= 4; /* update TIC with the GID is available */
+		}
 
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x70;
@@ -3379,7 +3315,11 @@ static int nvt_fb_notifier_callback(struct notifier_block *self,
 	struct nvt_ts_data *ts =
 		container_of(self, struct nvt_ts_data, fb_notif);
 
+#if SPI_FLASH
+	if (evdata && evdata->data && event == FB_EARLY_EVENT_BLANK) {
+#else
 	if (evdata && evdata->data && event == FB_EVENT_BLANK) {
+#endif // SPI_FLASH
 		blank = evdata->data;
 		if (*blank == FB_BLANK_POWERDOWN) {
 			NVT_LOG("event=%lu, *blank=%d\n", event, *blank);

@@ -211,7 +211,17 @@ err_read:
 	nvt_change_mode(NORMAL_MODE);
 	if (ret == -EAGAIN) {
 		NVT_LOG("Reload FW to recover unexcepted return!");
+#if SPI_FLASH
+		nvt_clear_fw_reset_state();
+		nvt_bootloader_reset();
+		if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+			mutex_unlock(&ts->lock);
+			NVT_ERR("check fw reset state failed!\n");
+			return -EAGAIN;
+		}
+#else
 		nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 	}
 	mutex_unlock(&ts->lock);
 	NVT_DBG("--, ret(%d)\n", ret);
@@ -237,7 +247,18 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_RESET:
+#if SPI_FLASH
+		nvt_clear_fw_reset_state();
+		nvt_bootloader_reset();
+		ret = nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN);
+		if (ret) {
+			mutex_unlock(&ts->lock);
+			NVT_ERR("check fw reset state failed!\n");
+			ret = -EAGAIN;
+		}
+#else
 		ret = nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 		break;
 
 	case GTI_CMD_SELFTEST: {
@@ -302,7 +323,9 @@ int nvt_callback(void *private_data,
 			ts->trim_table->id[0], ts->trim_table->id[1],
 			ts->trim_table->id[2], ts->trim_table->id[3],
 			ts->trim_table->id[4], ts->trim_table->id[5]);
+#if !SPI_FLASH
 		buf_idx += scnprintf(buf + buf_idx, size, "mp_fw_name= %s\n", get_mp_fw_name());
+#endif // !SPI_FLASH
 		buf_idx += scnprintf(buf + buf_idx, size, "fw_name= %s\n", get_fw_name());
 		ret = 0;
 		NVT_LOG("GTI_CMD_GET_FW_VERSION.\n");
@@ -452,7 +475,17 @@ int nvt_callback(void *private_data,
 				sensing_enabled = false;
 			}
 		} else {
+#if SPI_FLASH
+			nvt_clear_fw_reset_state();
+			nvt_bootloader_reset();
+			if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN)) {
+				mutex_unlock(&ts->lock);
+				NVT_ERR("check fw reset state failed!\n");
+				ret = -EAGAIN;
+			}
+#else
 			ret = nvt_update_firmware(get_fw_name(), 1);
+#endif // SPI_FLASH
 			sensing_enabled = true;
 		}
 		break;
@@ -506,6 +539,18 @@ int nvt_callback(void *private_data,
 #endif /* GOOG_TOUCH_INTERFACE */
 
 #if defined(CONFIG_SOC_GOOGLE)
+bool nvt_ts_check_tid(struct nvt_ts_data *ts, u8 *tid)
+{
+	if (tid == NULL || ts == NULL ||
+	    ts->trim_table == NULL)
+		return false;
+
+	if (memcmp(ts->trim_table->id, tid, NVT_ID_BYTE_MAX))
+		return false;
+	else
+		return true;
+}
+
 ssize_t force_touch_active_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
