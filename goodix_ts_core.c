@@ -1067,7 +1067,7 @@ static int gti_selftest(void *private_data, struct gti_selftest_cmd *cmd)
 	int ret = 0;
 	bool test_result = true;
 
-	ret =  driver_test_selftest(cd, cmd->buffer, &test_result);
+	ret =  driver_test_selftest(cd, cmd->buffer, &test_result, cmd->is_ical);
 	cmd->result = test_result ? GTI_SELFTEST_RESULT_DONE :
 		GTI_SELFTEST_RESULT_FAIL;
 	return ret;

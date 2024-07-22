@@ -1020,7 +1020,8 @@ void goodix_ts_esd_on(struct goodix_ts_core *cd);
 void goodix_ts_esd_off(struct goodix_ts_core *cd);
 void print_ic_info(struct goodix_ic_info *ic_info);
 
-int driver_test_selftest(struct goodix_ts_core *cd, char *buf, bool *result);
+int driver_test_selftest(struct goodix_ts_core *cd, char *buf, bool *result,
+	bool is_ical);
 int driver_test_proc_init(struct goodix_ts_core *core_data);
 void driver_test_proc_remove(struct goodix_ts_core *core_data);
 int goodix_do_inspect(struct goodix_ts_core *cd, struct ts_rawdata_info *info);

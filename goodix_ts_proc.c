@@ -88,6 +88,9 @@ const static char *cmd_list[] = { CMD_FW_UPDATE, CMD_AUTO_TEST, CMD_OPEN_TEST,
 #define CSV_TP_SPECIAL_FREQ_STYLUSRAW_MIN "special_freq_stylusraw_min"
 #define CSV_TP_NOISE_LIMIT "noise_data_limit"
 #define CSV_TP_SELFNOISE_LIMIT "noise_selfdata_limit"
+#define CSV_TP_ICAL_RAW_MIN "ical_raw_min"
+#define CSV_TP_ICAL_RAW_MAX "ical_raw_max"
+#define CSV_TP_ICAL_SHORT_THRESHOLD "ical_shortciurt_threshold"
 #define CSV_TP_TEST_CONFIG "test_config"
 
 #define PALM_FUNC 0
@@ -418,6 +421,7 @@ struct goodix_ts_test {
 	s16 avdd_value;
 
 	int freq;
+	bool is_ical;
 	int stylus_test_freq;
 	struct ts_test_rawdata *rawdata;
 	struct ts_test_rawdata *deltadata;
@@ -1720,6 +1724,7 @@ static int goodix_obtain_testlimits(struct goodix_ts_core *cd)
 	char *temp_buf = NULL;
 	char *raw_limit_min = CSV_TP_SPECIAL_RAW_MIN;
 	char *raw_limit_max = CSV_TP_SPECIAL_RAW_MAX;
+	char *short_threshold = CSV_TP_SHORT_THRESHOLD;
 	s16 data_buf[7];
 	int ret;
 
@@ -1747,6 +1752,9 @@ static int goodix_obtain_testlimits(struct goodix_ts_core *cd)
 		if (ts_test->freq > 0) {
 			raw_limit_min = CSV_TP_SPECIAL_FREQ_RAW_MIN;
 			raw_limit_max = CSV_IP_SPECIAL_FREQ_RAW_MAX;
+		} else if (ts_test->is_ical) {
+			raw_limit_min = CSV_TP_ICAL_RAW_MIN;
+			raw_limit_max = CSV_TP_ICAL_RAW_MAX;
 		}
 
 		/* obtain mutual_raw min */
@@ -1803,9 +1811,12 @@ static int goodix_obtain_testlimits(struct goodix_ts_core *cd)
 	}
 
 	if (ts_test->item[GTP_SHORT_TEST]) {
+		if (ts_test->is_ical)
+			short_threshold = CSV_TP_ICAL_SHORT_THRESHOLD;
+
 		/* obtain short_params */
 		ret = parse_csvfile(temp_buf, firmware->size,
-			CSV_TP_SHORT_THRESHOLD, data_buf, 1, 7);
+			short_threshold, data_buf, 1, 7);
 		if (ret < 0) {
 			ts_err("Failed get short circuit limits");
 			goto exit_free;
@@ -4592,7 +4603,8 @@ static const struct file_operations cmd_list_ops = {
 #endif
 
 /* [GOOG] */
-int driver_test_selftest(struct goodix_ts_core *cd, char *buf, bool *result)
+int driver_test_selftest(struct goodix_ts_core *cd, char *buf, bool *result,
+	bool is_ical)
 {
 	int ret = 0;
 
@@ -4613,18 +4625,33 @@ int driver_test_selftest(struct goodix_ts_core *cd, char *buf, bool *result)
 		ts_err("malloc test resource failed");
 		goto exit;
 	}
-	ts_test->item[GTP_CAP_TEST] = true;
-	ts_test->item[GTP_NOISE_TEST] = true;
-	ts_test->item[GTP_DELTA_TEST] = true;
-	ts_test->item[GTP_SELFCAP_TEST] = true;
-	ts_test->item[GTP_SHORT_TEST] = true;
-	goodix_auto_test(cd, true);
 
-	*result = ts_test->result[GTP_CAP_TEST] &&
-		ts_test->result[GTP_DELTA_TEST] &&
-		ts_test->result[GTP_SHORT_TEST] &&
-		ts_test->result[GTP_NOISE_TEST] &&
-		ts_test->result[GTP_SELFCAP_TEST];
+	ts_test->is_ical = is_ical;
+	if (is_ical) {
+		ts_test->item[GTP_CAP_TEST] = true;
+		ts_test->item[GTP_NOISE_TEST] = false;
+		ts_test->item[GTP_DELTA_TEST] = false;
+		ts_test->item[GTP_SELFCAP_TEST] = false;
+		ts_test->item[GTP_SHORT_TEST] = true;
+		goodix_auto_test(cd, true);
+
+		*result = ts_test->result[GTP_CAP_TEST] &&
+			ts_test->result[GTP_SHORT_TEST];
+	} else {
+		ts_test->item[GTP_CAP_TEST] = true;
+		ts_test->item[GTP_NOISE_TEST] = true;
+		ts_test->item[GTP_DELTA_TEST] = true;
+		ts_test->item[GTP_SELFCAP_TEST] = true;
+		ts_test->item[GTP_SHORT_TEST] = true;
+
+		goodix_auto_test(cd, true);
+
+		*result = ts_test->result[GTP_CAP_TEST] &&
+			ts_test->result[GTP_DELTA_TEST] &&
+			ts_test->result[GTP_SHORT_TEST] &&
+			ts_test->result[GTP_NOISE_TEST] &&
+			ts_test->result[GTP_SELFCAP_TEST];
+	}
 
 	strlcpy(buf, rbuf, PAGE_SIZE);
 
