@@ -5412,11 +5412,13 @@ void
 dhd_cancel_logtrace_process_sync(dhd_info_t *dhd)
 {
 #ifdef DHD_USE_KTHREAD_FOR_LOGTRACE
-	if (dhd->thr_logtrace_ctl.thr_pid >= 0) {
-		PROC_STOP_USING_BINARY_SEMA(&dhd->thr_logtrace_ctl);
+	tsk_ctl_t *tsk = &dhd->thr_logtrace_ctl;
+
+	if (tsk->parent && tsk->thr_pid >= 0) {
+		PROC_STOP_USING_BINARY_SEMA(tsk);
 	} else {
-		DHD_ERROR(("%s: thr_logtrace_ctl(%ld) not inited\n", __FUNCTION__,
-			dhd->thr_logtrace_ctl.thr_pid));
+		DHD_ERROR(("%s: thr_logtrace_ctl(%ld) not inited\n",
+			__FUNCTION__, tsk->thr_pid));
 	}
 #else
 	cancel_delayed_work_sync(&dhd->event_log_dispatcher_work);
@@ -5430,7 +5432,7 @@ dhd_flush_logtrace_process(dhd_info_t *dhd)
 	tsk_ctl_t *tsk = &dhd->thr_logtrace_ctl;
 
 	if (tsk->parent && tsk->thr_pid >= 0) {
-		PROC_FLUSH_USING_BINARY_SEMA(&dhd->thr_logtrace_ctl);
+		PROC_FLUSH_USING_BINARY_SEMA(tsk);
 	} else {
 		DHD_ERROR(("%s: thr_logtrace_ctl(%ld) not inited\n",
 			__FUNCTION__, tsk->thr_pid));
@@ -20321,6 +20323,8 @@ dhd_dev_apf_get_version(struct net_device *ndev, uint32 *version)
 	dhd_pub_t *dhdp = &dhd->pub;
 	int ifidx, ret;
 
+	BCM_REFERENCE(ifidx);
+
 	if (!FW_SUPPORTED(dhdp, apf)) {
 		DHD_ERROR(("%s: firmware doesn't support APF\n", __FUNCTION__));
 		/* Notify Android framework that APF is not supported by setting version as zero. */
@@ -20328,6 +20332,8 @@ dhd_dev_apf_get_version(struct net_device *ndev, uint32 *version)
 		return BCME_OK;
 	}
 
+#define FORCE_APF_VERSION 3u
+#ifndef FORCE_APF_VERSION
 	ifidx = dhd_net2idx(dhd, ndev);
 	if (ifidx == DHD_BAD_IF) {
 		DHD_ERROR(("%s: bad ifidx\n", __FUNCTION__));
@@ -20339,6 +20345,12 @@ dhd_dev_apf_get_version(struct net_device *ndev, uint32 *version)
 		DHD_ERROR(("%s: failed to get APF version, ret=%d\n", __FUNCTION__, ret));
 		return ret;
 	}
+#else
+	DHD_ERROR(("%s: force set APFv%d\n", __FUNCTION__, FORCE_APF_VERSION));
+	*version = FORCE_APF_VERSION;
+	ret = BCME_OK;
+#endif /* FORCE_APF_VERSION */
+
 
 	return ret;
 }
