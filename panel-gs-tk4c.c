@@ -577,7 +577,7 @@ static void tk4c_set_ssc_en(struct gs_panel *ctx, bool enabled)
 	ctx->ssc_en = enabled;
 	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_enable);
 	GS_DCS_BUF_ADD_CMDLIST(dev, test_key_fc_enable);
-	GS_DCS_BUF_ADD_CMD(dev, 0x00, 0x6E, 0xC5); /* global para */
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x6E, 0xC5); /* global para */
 	if (enabled)
 		GS_DCS_BUF_ADD_CMD(dev, 0xC5, 0x07, 0x7F, 0x00, 0x00);
 	else
@@ -595,7 +595,7 @@ static const struct gs_display_underrun_param underrun_param = {
 static const u16 WIDTH_MM = 65, HEIGHT_MM = 146;
 static const u16 HDISPLAY = 1080, VDISPLAY = 2424;
 static const u16 HFP = 32, HSA = 12, HBP = 16;
-static const u16 VFP = 8, VSA = 4, VBP = 16;
+static const u16 VFP = 8, VSA = 2, VBP = 16;
 
 #define TK4C_DSC {\
 	.enabled = true,\

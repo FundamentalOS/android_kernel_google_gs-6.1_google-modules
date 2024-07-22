@@ -49,6 +49,14 @@ struct cm4_panel {
 	 * @is_mrr_v1: indicates panel is running in mrr v1 mode
 	 */
 	bool is_mrr_v1;
+	/**
+	 * @frame_rate: real time frame rate
+	 */
+	u16 frame_rate;
+	/**
+	 * @dbi_frame_count: frame counter to alternatively set dbi ref if frame rate > 60
+	 */
+	u64 dbi_frame_count;
 };
 
 #define to_spanel(ctx) container_of(ctx, struct cm4_panel, base)
@@ -195,16 +203,22 @@ static const struct drm_dsc_config fhd_pps_config = {
 
 #define CM4_TE_USEC_120HZ_HS 273
 #define CM4_TE_USEC_60HZ_HS 8500
-#define CM4_TE_USEC_60HZ_NS 546
+#define CM4_TE_USEC_60HZ_NS 1633
 
 #define CM4_TE_USEC_VRR_HS 273
-#define CM4_TE_USEC_VRR_NS 546
+#define CM4_TE_USEC_VRR_NS 1633
+
+#define CM4_DBI_REF_DEFAULT 60
 
 #define WIDTH_MM 66
 #define HEIGHT_MM 147
 
 #define MIPI_DSI_FREQ_MBPS_DEFAULT 1368
 #define MIPI_DSI_FREQ_MBPS_ALTERNATIVE 1288
+
+#define COMP_TEMP_MIN 10
+#define COMP_TEMP_MAX 49
+#define COMP_TEMP_OFFSET -10
 
 #define PROJECT "CM4"
 
@@ -241,9 +255,105 @@ static const struct gs_binned_lp cm4_binned_lp[] = {
 			      CM4_TE2_FALLING_EDGE_OFFSET),
 };
 
-static inline bool is_in_comp_range(int temp)
+static unsigned int cm4_get_te_usec(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
 {
-	return temp >= 10 && temp <= 49;
+	struct cm4_panel *spanel = to_spanel(ctx);
+	const int vrefresh = drm_mode_vrefresh(&pmode->mode);
+
+	if (vrefresh != 60 || gs_is_vrr_mode(pmode)) {
+		return pmode->gs_mode.te_usec;
+	} else {
+		if (spanel->is_mrr_v1) {
+			return(test_bit(FEAT_OP_NS, ctx->sw_status.feat) ? CM4_TE_USEC_60HZ_NS :
+									    CM4_TE_USEC_60HZ_HS);
+		} else {
+			return(test_bit(FEAT_OP_NS, ctx->sw_status.feat) ? CM4_TE_USEC_VRR_NS :
+									    CM4_TE_USEC_VRR_HS);
+		}
+	}
+}
+
+/* In HS 60Hz mode, TE period is 16.6ms but DDIC vsync period is 8.3ms. */
+#define CM4_HS_VSYNC_PERIOD_US 8333
+/**
+ * cm4_check_command_timing_for_te2 - control timing between a command and DDIC vsync
+ * @ctx: gs_panel struct
+ *
+ * Control the timing of sending the command in the 2nd DDIC vsync period within two contiguous
+ * TE to avoid a 120Hz frame in HS 60Hz mode. This function should be called if the command could
+ * cause a 120Hz frame and mess up the timing, e.g. TE2. The below diagram illustrates the desired
+ * timing of sending the command, where vsync ~= TE rising (vblank) + TE width (te_usec).
+ *
+ *                       send the command
+ *                      /
+ *   TE             .  v          TE
+ *   |              .             |
+ * ----------------------------------
+ *    <------    16.6ms   ---- -->
+ *
+ * vsync          vsync         vsync
+ *   |              |             |
+ * ----------------------------------
+ *    <-- 8.3ms  --> <-- 8.3ms -->
+ *         1st            2nd
+ */
+static void cm4_check_command_timing_for_te2(struct gs_panel *ctx)
+{
+	struct device *dev = ctx->dev;
+	struct drm_crtc *crtc = NULL;
+	const struct gs_panel_mode *pmode = ctx->current_mode;
+	ktime_t last_te, last_vsync, now;
+	s64 since_last_vsync_us, temp_us, delay_us;
+
+	if (!pmode) {
+		dev_dbg(dev, "%s: unable to get current mode\n", __func__);
+		return;
+	}
+
+	/* only HS 60Hz mode and changeable TE2 need the timing control */
+	if (drm_mode_vrefresh(&pmode->mode) == ctx->op_hz || ctx->te2.option == TEX_OPT_FIXED)
+		return;
+
+	if (ctx->gs_connector->base.state)
+		crtc = ctx->gs_connector->base.state->crtc;
+	if (!crtc) {
+		dev_dbg(dev, "%s: unable to get crtc\n", __func__);
+		return;
+	}
+
+	drm_crtc_vblank_count_and_time(crtc, &last_te);
+	if (!last_te) {
+		dev_dbg(dev, "%s: unable to get last vblank\n", __func__);
+		return;
+	}
+
+	last_vsync = last_te + cm4_get_te_usec(ctx, pmode);
+	now = ktime_get();
+	since_last_vsync_us = ktime_us_delta(now, last_vsync);
+	temp_us = since_last_vsync_us;
+
+	/**
+	 * While DPU enters/exits hibernation, we may not get the nearest vblank successfully.
+	 * Divided by TE period (vsync period * 2) then we can get the remaining time (remainder).
+	 */
+	temp_us %= (CM4_HS_VSYNC_PERIOD_US * 2);
+
+	/**
+	 * Do nothing if it's greater than a vsync time, i.e. sent in the 2nd vsync period.
+	 * The additional 1ms is for the tolerance.
+	 */
+	if (temp_us > (CM4_HS_VSYNC_PERIOD_US + 1000))
+		return;
+
+	/* Adding 1ms tolerance to make sure the command will be sent in the 2nd vsync period. */
+	delay_us = CM4_HS_VSYNC_PERIOD_US - temp_us + 1000;
+
+	dev_dbg(dev, "%s: te %lld, vsync %lld, now %lld, since_vsync %lld, delay %lld\n", __func__,
+		last_te, last_vsync, now, since_last_vsync_us, delay_us);
+
+	PANEL_ATRACE_BEGIN(__func__);
+	usleep_range(delay_us, delay_us + 100);
+	PANEL_ATRACE_END(__func__);
 }
 
 /* Read temperature and apply appropriate gain into DDIC for burn-in compensation if needed */
@@ -251,6 +361,7 @@ static void cm4_update_disp_therm(struct gs_panel *ctx)
 {
 	/* temperature*1000 in celsius */
 	int temp, ret;
+	const int offset = (ctx->panel_rev > PANEL_REV_PROTO1_1) ? COMP_TEMP_OFFSET : 0;
 	struct device *dev = ctx->dev;
 
 	if (!ctx->thermal || IS_ERR_OR_NULL(ctx->thermal->tz))
@@ -269,10 +380,11 @@ static void cm4_update_disp_therm(struct gs_panel *ctx)
 
 	temp = DIV_ROUND_CLOSEST(temp, 1000);
 	dev_dbg(dev, "%s: temp=%d\n", __func__, temp);
-	if (temp == ctx->thermal->hw_temp || !is_in_comp_range(temp))
+	temp = clamp(temp + offset, COMP_TEMP_MIN, COMP_TEMP_MAX);
+	if (temp == ctx->thermal->hw_temp)
 		return;
 
-	dev_dbg(dev, "%s: apply gain into ddic at %ddeg c\n", __func__, temp);
+	dev_dbg(dev, "%s: apply gain into ddic at %ddeg c (offset=%d)\n", __func__, temp, offset);
 
 	PANEL_ATRACE_BEGIN(__func__);
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
@@ -387,6 +499,8 @@ static bool cm4_set_te2_rate(struct gs_panel *ctx, u32 rate_hz)
 		return false;
 	}
 
+	PANEL_ATRACE_INT("te2_rate", ctx->te2.rate_hz);
+
 	return true;
 }
 
@@ -483,7 +597,7 @@ static u32 cm4_get_min_idle_vrefresh(struct gs_panel *ctx, const struct gs_panel
 	return min_idle_vrefresh;
 }
 
-static void cm4_set_panel_feat_auto_fi(struct gs_panel *ctx, bool enabled)
+static void cm4_set_panel_feat_manual_mode_fi(struct gs_panel *ctx, bool enabled)
 {
 	struct device *dev = ctx->dev;
 	u8 val;
@@ -510,6 +624,7 @@ static void cm4_set_panel_feat_te(struct gs_panel *ctx, unsigned long *feat,
 	struct device *dev = ctx->dev;
 	bool is_vrr = gs_is_vrr_mode(pmode);
 	u32 te_freq = gs_drm_mode_te_freq(&pmode->mode);
+	u32 vrefresh = drm_mode_vrefresh(&pmode->mode);
 
 	if (test_bit(FEAT_EARLY_EXIT, feat) && !spanel->force_changeable_te) {
 		if (is_vrr && te_freq == 240) {
@@ -528,7 +643,10 @@ static void cm4_set_panel_feat_te(struct gs_panel *ctx, unsigned long *feat,
 			GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x51);
 			/* TE width */
 			GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x08, 0xB9);
-			if (ctx->panel_rev >= PANEL_REV_EVT1)
+			if (test_bit(FEAT_OP_NS, feat))
+				GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x0A, 0x60, 0x00, 0x1F, 0x0A,
+							   0x60, 0x00, 0x1F);
+			else if (ctx->panel_rev >= PANEL_REV_EVT1)
 				GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x0B, 0x1E, 0x00, 0x1F, 0x0B, 0x1E,
 							0x00, 0x1F);
 			else
@@ -537,23 +655,25 @@ static void cm4_set_panel_feat_te(struct gs_panel *ctx, unsigned long *feat,
 #ifndef PANEL_FACTORY_BUILD
 			/* TE Freq */
 			GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x02, 0xB9);
-			if (!test_bit(FEAT_OP_NS, feat) && drm_mode_vrefresh(&pmode->mode) == 60)
+			if (!test_bit(FEAT_OP_NS, feat) && vrefresh == 60)
 				GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x01);
 			else
 				GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x00);
 #endif
 		}
-		ctx->te_opt = TEX_OPT_FIXED;
+		ctx->hw_status.te.option = TEX_OPT_FIXED;
 	} else {
 		/* Changeable TE */
 		GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x04);
 		/* TE width */
 		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x04, 0xB9);
-		if (ctx->panel_rev >= PANEL_REV_EVT1)
+		if (test_bit(FEAT_OP_NS, feat))
+			GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x0A, 0x60, 0x00, 0x1F);
+		else if (ctx->panel_rev >= PANEL_REV_EVT1)
 			GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x0B, 0x1E, 0x00, 0x1F);
 		else
 			GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x0B, 0x0E, 0x00, 0x1F);
-		ctx->te_opt = TEX_OPT_CHANGEABLE;
+		ctx->hw_status.te.option = TEX_OPT_CHANGEABLE;
 	}
 }
 
@@ -568,24 +688,41 @@ static void cm4_set_panel_feat_hbm_irc(struct gs_panel *ctx)
 	 * environment.
 	 */
 
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x01, 0x9B, 0x92);
-	if (unlikely(sw_status->irc_mode == IRC_OFF))
-		GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x07);
-	else /* IRC_FLAT_DEFAULT or IRC_FLAT_Z */
-		GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x27);
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x02, 0x00, 0x92);
-	if (sw_status->irc_mode == IRC_FLAT_Z)
-		GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x70, 0x26, 0xFF, 0xDC);
-	else /* IRC_FLAT_DEFAULT or IRC_OFF */
-		GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x00, 0x00, 0xFF, 0xD0);
+	if (ctx->panel_rev <= PANEL_REV_DVT1) {
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x01, 0x9B, 0x92);
+		if (unlikely(sw_status->irc_mode == IRC_OFF))
+			GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x07);
+		else /* IRC_FLAT_DEFAULT or IRC_FLAT_Z */
+			GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x27);
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x02, 0x00, 0x92);
+		if (sw_status->irc_mode == IRC_FLAT_Z)
+			GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x70, 0x26, 0xFF, 0xDC);
+		else /* IRC_FLAT_DEFAULT or IRC_OFF */
+			GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x00, 0x00, 0xFF, 0xD0);
+	} else {
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x02, 0x00, 0x92);
+		if (sw_status->irc_mode == IRC_FLAT_Z)
+			GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x70, 0x26, 0xFF, 0xDC);
+		else /* IRC_FLAT_DEFAULT or IRC_OFF */
+			GS_DCS_BUF_ADD_CMD(dev, 0x92, 0x00, 0x00, 0xFF, 0xD0);
+	}
+
 	/* SP settings (burn-in compensation) */
 	if (ctx->panel_rev >= PANEL_REV_DVT1) {
 		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x02, 0xF3, 0x68);
-		if (sw_status->irc_mode == IRC_FLAT_Z)
-			GS_DCS_BUF_ADD_CMD(dev, 0x68, 0x77, 0x77, 0x86, 0xE1, 0xE1, 0xF0);
-		else
-			GS_DCS_BUF_ADD_CMD(dev, 0x68, 0x11, 0x1A, 0x13, 0x18, 0x21, 0x18);
+		if (ctx->panel_rev < PANEL_REV_PVT) {
+			if (sw_status->irc_mode == IRC_FLAT_Z)
+				GS_DCS_BUF_ADD_CMD(dev, 0x68, 0x77, 0x77, 0x86, 0xE1, 0xE1, 0xF0);
+			else
+				GS_DCS_BUF_ADD_CMD(dev, 0x68, 0x11, 0x1A, 0x13, 0x18, 0x21, 0x18);
+		} else {
+			if (sw_status->irc_mode == IRC_FLAT_Z)
+				GS_DCS_BUF_ADD_CMD(dev, 0x68, 0x79, 0x78, 0x8A, 0xE2, 0xE1, 0xF4);
+			else
+				GS_DCS_BUF_ADD_CMD(dev, 0x68, 0x10, 0x18, 0x13, 0x18, 0x20, 0x18);
+		}
 	}
+
 	ctx->hw_status.irc_mode = sw_status->irc_mode;
 	dev_info(dev, "%s: irc_mode=%d\n", __func__, ctx->hw_status.irc_mode);
 }
@@ -621,12 +758,11 @@ static void cm4_set_panel_feat_tsp_sync(struct gs_panel *ctx) {
 }
 
 static void cm4_set_panel_feat_frequency(struct gs_panel *ctx, unsigned long *feat, u32 vrefresh,
-					 u32 idle_vrefresh, bool is_vrr)
+					 u32 idle_vrefresh, u32 te_freq, bool is_vrr)
 {
 	struct device *dev = ctx->dev;
 	u8 val;
 	const bool is_ns_mode = test_bit(FEAT_OP_NS, feat);
-	const bool is_hbm = test_bit(FEAT_HBM, feat);
 
 	/*
 	 * Description: this sequence possibly overrides some configs early-exit
@@ -641,7 +777,7 @@ static void cm4_set_panel_feat_frequency(struct gs_panel *ctx, unsigned long *fe
 			/* initial frequency */
 			GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x92, 0xBD);
 			if (vrefresh == 60) {
-				val = is_hbm ? 0x01 : 0x02;
+				val = 0x02;
 			} else {
 				if (vrefresh != 120)
 					dev_warn(dev, "%s: unsupported init freq %d (hs)\n",
@@ -655,44 +791,37 @@ static void cm4_set_panel_feat_frequency(struct gs_panel *ctx, unsigned long *fe
 		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x12, 0xBD);
 		if (is_ns_mode) {
 			if (idle_vrefresh == 30) {
-				val = is_hbm ? 0x02 : 0x04;
+				val = 0x04;
 			} else if (idle_vrefresh == 10) {
-				val = is_hbm ? 0x0A : 0x14;
+				val = 0x14;
 			} else {
 				if (idle_vrefresh != 1)
 					dev_warn(dev, "%s: unsupported target freq %d (ns)\n",
 						 __func__, idle_vrefresh);
 				/* 1Hz */
-				val = is_hbm ? 0x76 : 0xEC;
+				val = 0xEC;
 			}
 			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x00, val);
 		} else {
 			if (idle_vrefresh == 30) {
-				val = is_hbm ? 0x03 : 0x06;
+				val = 0x06;
 			} else if (idle_vrefresh == 10) {
-				val = is_hbm ? 0x0B : 0x16;
+				val = 0x16;
 			} else {
 				if (idle_vrefresh != 1)
 					dev_warn(dev, "%s: unsupported target freq %d (hs)\n",
 						 __func__, idle_vrefresh);
 				/* 1Hz */
-				val = is_hbm ? 0x77 : 0xEE;
+				val = 0xEE;
 			}
 			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x00, val);
 		}
 		/* step setting */
 		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x9E, 0xBD);
-		if (is_ns_mode) {
-			if (is_hbm)
-				GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x02, 0x00, 0x0A, 0x00, 0x00);
-			else
-				GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x04, 0x00, 0x14, 0x00, 0x00);
-		} else {
-			if (is_hbm)
-				GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x01, 0x00, 0x03, 0x00, 0x0B);
-			else
-				GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x02, 0x00, 0x06, 0x00, 0x16);
-		}
+		if (is_ns_mode)
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x04, 0x00, 0x14, 0x00, 0x00);
+		else
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x02, 0x00, 0x06, 0x00, 0x16);
 		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xAE, 0xBD);
 		if (is_ns_mode) {
 			if (idle_vrefresh == 30) {
@@ -747,7 +876,8 @@ static void cm4_set_panel_feat_frequency(struct gs_panel *ctx, unsigned long *fe
 		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0xA3);
 	} else { /* manual */
 		if (is_vrr) {
-			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, 0x41);
+			/* set gating TE 240hz or 120hz */
+			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21, (te_freq == 240) ? 0x41 : 0x01);
 		} else {
 			GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21);
 		}
@@ -788,6 +918,47 @@ static void cm4_set_panel_feat_frequency(struct gs_panel *ctx, unsigned long *fe
 	}
 
 	GS_DCS_BUF_ADD_CMDLIST(dev, freq_update);
+}
+
+static u8 cm4_calc_dbi_ref(struct gs_panel *ctx)
+{
+	struct cm4_panel *spanel = to_spanel(ctx);
+	u16 frame_rate = spanel->frame_rate;
+	u8 value = 60 / frame_rate;
+
+	if (frame_rate <= 60)
+		return value;
+
+	if (spanel->dbi_frame_count++ % (frame_rate == 120 ? 2 : 4))
+		return 1;
+	else
+		return 0;
+}
+
+static void cm4_set_dbi_ref(struct gs_panel *ctx, u8 value)
+{
+	struct device *dev = ctx->dev;
+
+	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x67, 0x69);
+	GS_DCS_BUF_ADD_CMD(dev, 0x69, value);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
+	dev_dbg(dev, "%s: DBI: setting 0x%02X\n", __func__, value);
+}
+
+static void cm4_set_frame_rate(struct gs_panel *ctx, u16 frame_rate)
+{
+	struct device *dev = ctx->dev;
+	struct cm4_panel *spanel = to_spanel(ctx);
+
+	if (frame_rate == spanel->frame_rate ||
+		test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat) ||
+		ctx->sw_status.idle_vrefresh == drm_mode_vrefresh(&ctx->current_mode->mode))
+		return;
+
+	dev_dbg(dev, "%s: DBI: updating for %u fps\n", __func__, frame_rate);
+	spanel->frame_rate = frame_rate;
+	cm4_set_dbi_ref(ctx, cm4_calc_dbi_ref(ctx));
 }
 
 /**
@@ -839,7 +1010,7 @@ static void cm4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 		irc_mode_changed = (sw_status->irc_mode != hw_status->irc_mode);
 		if (bitmap_empty(changed_feat, FEAT_MAX) && vrefresh == hw_status->vrefresh &&
 		    idle_vrefresh == hw_status->idle_vrefresh &&
-		    te_freq == hw_status->te_freq &&
+		    te_freq == hw_status->te.rate_hz &&
 		    !irc_mode_changed) {
 			dev_dbg(dev, "%s: no changes, skip update\n", __func__);
 			return;
@@ -848,16 +1019,19 @@ static void cm4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 
 	dev_dbg(dev, "hbm=%u irc=%u ns=%u vrr=%u fi=%u@a,%u@m ee=%u rr=%u-%u:%u\n",
 		test_bit(FEAT_HBM, feat), sw_status->irc_mode, test_bit(FEAT_OP_NS, feat),
-		is_vrr, test_bit(FEAT_FRAME_AUTO, feat), test_bit(FEAT_FI_AUTO, feat),
+		is_vrr, test_bit(FEAT_FRAME_AUTO, feat), test_bit(FEAT_FRAME_MANUAL_FI, feat),
 		test_bit(FEAT_EARLY_EXIT, feat), idle_vrefresh ? idle_vrefresh : vrefresh,
 		drm_mode_vrefresh(&pmode->mode), te_freq);
+
+	PANEL_ATRACE_BEGIN(__func__);
 
 	/* Unlock */
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 
 	/* TE setting */
+	sw_status->te.rate_hz = te_freq;
 	if (test_bit(FEAT_EARLY_EXIT, changed_feat) || test_bit(FEAT_OP_NS, changed_feat) ||
-	    hw_status->te_freq != te_freq)
+	    hw_status->te.rate_hz != te_freq)
 		cm4_set_panel_feat_te(ctx, feat, pmode);
 
 	/*
@@ -885,27 +1059,32 @@ static void cm4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 	cm4_set_panel_feat_early_exit(ctx, feat, vrefresh);
 
 	/*
-	 * Auto FI: enable or disable
+	 * Manual FI: enable or disable manual mode FI
 	 */
-	if (test_bit(FEAT_FI_AUTO, changed_feat))
-		cm4_set_panel_feat_auto_fi(ctx, test_bit(FEAT_FI_AUTO, feat));
+	if (test_bit(FEAT_FRAME_MANUAL_FI, changed_feat))
+		cm4_set_panel_feat_manual_mode_fi(ctx, test_bit(FEAT_FRAME_MANUAL_FI, feat));
 
 	/* TSP Sync setting */
 	if (enforce)
 		cm4_set_panel_feat_tsp_sync(ctx);
 
+	/* Reset DBI Reference frequency for auto and fixed peak manual mode */
+	if (test_bit(FEAT_FRAME_AUTO, feat) || idle_vrefresh == vrefresh)
+		cm4_set_dbi_ref(ctx, CM4_DBI_REF_DEFAULT);
+
 	/*
 	 * Frequency setting: FI, frequency, idle frequency
 	 */
-	cm4_set_panel_feat_frequency(ctx, feat, vrefresh, idle_vrefresh, is_vrr);
+	cm4_set_panel_feat_frequency(ctx, feat, vrefresh, idle_vrefresh, te_freq, is_vrr);
 
 	/* Lock */
 	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
 
+	PANEL_ATRACE_END(__func__);
+
 	hw_status->vrefresh = vrefresh;
 	hw_status->idle_vrefresh = idle_vrefresh;
-	hw_status->te_freq = te_freq;
-	ctx->te_freq = te_freq;
+	hw_status->te.rate_hz = te_freq;
 	bitmap_copy(hw_status->feat, feat, FEAT_MAX);
 }
 
@@ -980,7 +1159,7 @@ static void cm4_change_frequency(struct gs_panel *ctx, const struct gs_panel_mod
 	u32 idle_vrefresh = 0;
 
 	if (vrefresh > ctx->op_hz) {
-		/* resolution may has been changed but refresh rate */
+		/* resolution may have been changed without refresh rate change */
 		if (ctx->mode_in_progress == MODE_RES_AND_RR_IN_PROGRESS)
 			notify_panel_mode_changed(ctx);
 		dev_err(ctx->dev, "invalid freq setting: op_hz=%u, vrefresh=%u\n", ctx->op_hz,
@@ -991,10 +1170,16 @@ static void cm4_change_frequency(struct gs_panel *ctx, const struct gs_panel_mod
 	if (cm4_get_idle_mode(ctx, pmode) == GIDLE_MODE_ON_INACTIVITY)
 		idle_vrefresh = cm4_get_min_idle_vrefresh(ctx, pmode);
 
-	if (!spanel->is_mrr_v1 && test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat))
+	/**
+	 * While TE2 is changeable, the idle_vrefresh should be set. We should use the
+	 * idle_vrefresh instead of 0 for the proximity sensor.
+	 */
+	if ((!spanel->is_mrr_v1 && test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat)) ||
+	    (ctx->te2.option == TEX_OPT_CHANGEABLE && !idle_vrefresh))
 		idle_vrefresh = ctx->sw_status.idle_vrefresh;
 
 	cm4_update_refresh_mode(ctx, pmode, idle_vrefresh);
+	ctx->sw_status.te.rate_hz = gs_drm_mode_te_freq(&pmode->mode);
 
 	dev_dbg(ctx->dev, "change to %u hz\n", vrefresh);
 }
@@ -1047,8 +1232,19 @@ static bool cm4_set_self_refresh(struct gs_panel *ctx, bool enable)
 	if (ctx->thermal && ctx->thermal->pending_temp_update && enable)
 		cm4_update_disp_therm(ctx);
 
-	if (!spanel->is_mrr_v1)
+	PANEL_ATRACE_INT(__func__, enable);
+
+	if (!spanel->is_mrr_v1) {
+		u32 vrefresh = drm_mode_vrefresh(&pmode->mode);
+
+		idle_vrefresh = ctx->sw_status.idle_vrefresh;
+		/* notify the changes of TE2 rate in case DPU enters/exits hibernation */
+		if (ctx->te2.option == TEX_OPT_CHANGEABLE && vrefresh != idle_vrefresh &&
+		    test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat) &&
+		    cm4_set_te2_rate(ctx, enable ? idle_vrefresh : vrefresh))
+			notify_panel_te2_rate_changed(ctx, 0);
 		return false;
+	}
 
 	dev_dbg(ctx->dev, "%s: %d\n", __func__, enable);
 
@@ -1108,53 +1304,124 @@ static bool cm4_set_self_refresh(struct gs_panel *ctx, bool enable)
 	return true;
 }
 
+static void cm4_set_panel_lp_feat(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
+{
+	struct device *dev = ctx->dev;
+	struct cm4_panel *spanel = to_spanel(ctx);
+	unsigned long *feat = ctx->sw_status.feat;
+	struct gs_panel_status *sw_status = &ctx->sw_status;
+	u32 idle_vrefresh = sw_status->idle_vrefresh;
+	bool is_auto = (test_bit(FEAT_FRAME_AUTO, feat) || spanel->is_mrr_v1) ? true : false;
+
+	if (!pmode->gs_mode.is_lp_mode)
+		return;
+
+	dev_dbg(dev, "%s: auto=%u rr=%u-%u\n",
+		__func__, is_auto, idle_vrefresh, drm_mode_vrefresh(&pmode->mode));
+
+	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
+	if (is_auto) {
+		/* Default is 1 Hz */
+		u8 val = 0x74;
+
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x18, 0xBD);
+		if (idle_vrefresh == 10)
+			val = 0x08;
+		else if (idle_vrefresh != 1)
+			dev_warn(dev, "%s: unsupported idle vrefresh %u\n",
+				__func__, idle_vrefresh);
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x04, 0x00, val);
+		/* Step settings */
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xB8, 0xBD);
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x08);
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xC8, 0xBD);
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x03);
+		/* Auto mode */
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0xA7);
+	} else {
+		/* Manual mode */
+		GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x21);
+		/* 30 Hz */
+		GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x01, 0x60);
+		GS_DCS_BUF_ADD_CMD(dev, 0x60, 0x00);
+	}
+	GS_DCS_BUF_ADD_CMDLIST(dev, freq_update);
+	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
+}
+
 #ifndef PANEL_FACTORY_BUILD
-static void cm4_update_refresh_ctrl_feat(struct gs_panel *ctx)
+static void cm4_update_refresh_ctrl_feat(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
 {
 	const u32 ctrl = ctx->refresh_ctrl;
 	struct cm4_panel *spanel = to_spanel(ctx);
+	unsigned long *feat = ctx->sw_status.feat;
+	u32 min_vrefresh = ctx->sw_status.idle_vrefresh;
 	bool mrr_changed = false;
-	bool feat_changed = false;
+	bool idle_vrefresh_changed = false;
+	bool feat_frame_auto_changed = false;
+	bool prev_feat_frame_auto_enabled = test_bit(FEAT_FRAME_AUTO, feat);
+	u32 vrefresh;
+	bool lp_mode;
 
-	if (ctrl & GS_PANEL_REFRESH_CTRL_FI_AUTO) {
-		if (!test_bit(FEAT_FI_AUTO, ctx->sw_status.feat)) {
-			set_bit(FEAT_FI_AUTO, ctx->sw_status.feat);
-			feat_changed = true;
-		}
-	} else {
-		if (test_bit(FEAT_FI_AUTO, ctx->sw_status.feat)) {
-			clear_bit(FEAT_FI_AUTO, ctx->sw_status.feat);
-			feat_changed = true;
-		}
-	}
+	if (!pmode)
+		return;
+
+	dev_dbg(ctx->dev, "%s: ctrl=0x%X\n", __func__, ctrl);
+
+	vrefresh = drm_mode_vrefresh(&pmode->mode);
+	lp_mode =  pmode->gs_mode.is_lp_mode;
 
 	if (ctrl & GS_PANEL_REFRESH_CTRL_MIN_REFRESH_RATE_MASK) {
-		u32 min_vrefresh = (ctrl & GS_PANEL_REFRESH_CTRL_MIN_REFRESH_RATE_MASK) >>
-					GS_PANEL_REFRESH_CTRL_MIN_REFRESH_RATE_OFFSET;
-		if (ctx->sw_status.idle_vrefresh != min_vrefresh) {
-			ctx->sw_status.idle_vrefresh = min_vrefresh;
-			if (min_vrefresh == drm_mode_vrefresh(&ctx->current_mode->mode)) {
-				clear_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat);
-			}
-			feat_changed = true;
+		min_vrefresh = (ctrl & GS_PANEL_REFRESH_CTRL_MIN_REFRESH_RATE_MASK) >>
+				GS_PANEL_REFRESH_CTRL_MIN_REFRESH_RATE_OFFSET;
+
+		if (min_vrefresh > vrefresh) {
+			dev_warn(ctx->dev, "%s: min RR %uHz requested, but valid range is 1-%uHz\n",
+				 __func__, min_vrefresh, vrefresh);
+			min_vrefresh = vrefresh;
 		}
+		ctx->sw_status.idle_vrefresh = min_vrefresh;
+		idle_vrefresh_changed = true;
 	}
 
-	if (ctrl & GS_PANEL_REFRESH_CTRL_IDLE_ENABLED) {
-		if (!test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat) &&
-		    ctx->sw_status.idle_vrefresh < drm_mode_vrefresh(&ctx->current_mode->mode)) {
-				set_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat);
-				feat_changed = true;
+	if (ctrl & GS_PANEL_REFRESH_CTRL_FI_AUTO) {
+		if (min_vrefresh == vrefresh) {
+			clear_bit(FEAT_FRAME_AUTO, feat);
+			clear_bit(FEAT_FRAME_MANUAL_FI, feat);
+		} else if ((min_vrefresh > 1) || lp_mode) {
+			set_bit(FEAT_FRAME_AUTO, feat);
+			clear_bit(FEAT_FRAME_MANUAL_FI, feat);
+		} else {
+			set_bit(FEAT_FRAME_MANUAL_FI, feat);
+			clear_bit(FEAT_FRAME_AUTO, feat);
 		}
 	} else {
-		if (test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat)) {
-			clear_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat);
-			feat_changed = true;
-		}
+		clear_bit(FEAT_FRAME_AUTO, feat);
+		clear_bit(FEAT_FRAME_MANUAL_FI, feat);
 	}
 
-	if ((ctrl & GS_PANEL_REFRESH_CTRL_IDLE_ENABLED) &&
-	    (ctrl & GS_PANEL_REFRESH_CTRL_TE_TYPE_CHANGEABLE)) {
+	if (lp_mode) {
+		cm4_set_panel_lp_feat(ctx, pmode);
+		return;
+	}
+
+	/**
+	 * TODO(b/344478264): avoid setting idle 60Hz in the composer.
+	 *
+	 * 60Hz idle_vrefresh is not supported in non-60Hz mode. Default to 1Hz to save power.
+	 * Otherwise, set to 30Hz to respect proximity sensor's working frequency.
+	 */
+	if (test_bit(FEAT_FRAME_AUTO, feat) && ctx->sw_status.idle_vrefresh == 60 &&
+	    vrefresh != 60) {
+		dev_warn(ctx->dev, "%s: idle_vrefresh 60Hz is not supported in %uHz mode\n",
+			 __func__, vrefresh);
+		ctx->sw_status.idle_vrefresh = (ctx->te2.option == TEX_OPT_CHANGEABLE) ? 30 : 1;
+	}
+
+	if (prev_feat_frame_auto_enabled != test_bit(FEAT_FRAME_AUTO, feat))
+		feat_frame_auto_changed = true;
+
+	if (ctrl & GS_PANEL_REFRESH_CTRL_MRR_V1_OVER_V2) {
 		if (gs_is_vrr_mode(ctx->current_mode)) {
 			dev_err(ctx->dev, "%s: using vrr display mode for mrr\n", __func__);
 		} else if (!spanel->is_mrr_v1) {
@@ -1168,10 +1435,33 @@ static void cm4_update_refresh_ctrl_feat(struct gs_panel *ctx)
 		ctx->gs_connector->ignore_op_rate = false;
 	}
 
+	PANEL_ATRACE_INT("idle_vrefresh", ctx->sw_status.idle_vrefresh);
+	PANEL_ATRACE_INT("FEAT_FRAME_AUTO", test_bit(FEAT_FRAME_AUTO, feat));
+
+	/**
+	 * While DPU is not in hibernation, it may keep transferring frames and TE2 will remain
+	 * at peak refresh rate, e.g. 60Hz or 120Hz. Set and notify peak refresh rate even though
+	 * idle_vrefresh is at a lower rate (e.g. 30Hz) to avoid misalignment between the display
+	 * and ALSP.
+	 */
+	if (ctx->te2.option == TEX_OPT_CHANGEABLE && vrefresh != ctx->sw_status.idle_vrefresh &&
+	    test_bit(FEAT_FRAME_AUTO, feat) && !ctx->idle_data.self_refresh_active &&
+	    cm4_set_te2_rate(ctx, vrefresh))
+		notify_panel_te2_rate_changed(ctx, 0);
+
+	/**
+	 * The changes of idle vrefresh and frame auto could trigger a 120Hz frame.
+	 * Check whether we need to adjust the timing of sending the commands in these
+	 * conditions.
+	 */
+	if (idle_vrefresh_changed && feat_frame_auto_changed &&
+	    !test_bit(FEAT_FRAME_MANUAL_FI, feat))
+		cm4_check_command_timing_for_te2(ctx);
+
 	if (mrr_changed)
-		cm4_change_frequency(ctx, ctx->current_mode);
-	else if (feat_changed)
-		cm4_update_panel_feat(ctx, false);
+		cm4_change_frequency(ctx, pmode);
+	else
+		cm4_set_panel_feat(ctx, pmode, false);
 }
 
 static void cm4_refresh_ctrl(struct gs_panel *ctx)
@@ -1181,15 +1471,17 @@ static void cm4_refresh_ctrl(struct gs_panel *ctx)
 
 	PANEL_ATRACE_BEGIN(__func__);
 
-	cm4_update_refresh_ctrl_feat(ctx);
+	cm4_update_refresh_ctrl_feat(ctx, ctx->current_mode);
 
 	if (ctrl & GS_PANEL_REFRESH_CTRL_FI_FRAME_COUNT_MASK){
 		/* TODO(b/323251635): parse frame count for inserting multiple frames */
 
 		dev_dbg(dev, "%s: manually inserting frame\n", __func__);
+		PANEL_ATRACE_BEGIN("insert_frame");
 		GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 		GS_DCS_BUF_ADD_CMD(dev, 0xF7, 0x02);
 		GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
+		PANEL_ATRACE_END("insert_frame");
 	}
 
 	PANEL_ATRACE_END(__func__);
@@ -1242,6 +1534,7 @@ static void cm4_write_display_mode(struct gs_panel *ctx, const struct drm_displa
 	struct device *dev = ctx->dev;
 	u8 val = CM4_WRCTRLD_BCTRL_BIT;
 
+	PANEL_ATRACE_BEGIN(__func__);
 	if (GS_IS_HBM_ON(ctx->hbm_mode))
 		val |= CM4_WRCTRLD_HBM_BIT;
 
@@ -1252,6 +1545,7 @@ static void cm4_write_display_mode(struct gs_panel *ctx, const struct drm_displa
 		GS_IS_HBM_ON(ctx->hbm_mode) ? "on" : "off", ctx->dimming_on ? "on" : "off");
 
 	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, MIPI_DCS_WRITE_CONTROL_DISPLAY, val);
+	PANEL_ATRACE_END(__func__);
 }
 
 #define CM4_OPR_VAL_LEN 2
@@ -1407,6 +1701,7 @@ static int cm4_set_brightness(struct gs_panel *ctx, u16 br)
 	}
 
 	brightness = (br & 0xff) << 8 | br >> 8;
+	cm4_check_command_timing_for_te2(ctx);
 	ret = gs_dcs_set_brightness(ctx, brightness);
 	if (!ret) {
 		ctx->hw_status.dbv = br;
@@ -1414,24 +1709,6 @@ static int cm4_set_brightness(struct gs_panel *ctx, u16 br)
 	}
 
 	return ret;
-}
-
-static unsigned int cm4_get_te_usec(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
-{
-	struct cm4_panel *spanel = to_spanel(ctx);
-	const int vrefresh = drm_mode_vrefresh(&pmode->mode);
-
-	if (vrefresh != 60 || gs_is_vrr_mode(pmode)) {
-		return pmode->gs_mode.te_usec;
-	} else {
-		if (spanel->is_mrr_v1) {
-			return(test_bit(FEAT_OP_NS, ctx->sw_status.feat) ? CM4_TE_USEC_60HZ_NS :
-									    CM4_TE_USEC_60HZ_HS);
-		} else {
-			return(test_bit(FEAT_OP_NS, ctx->sw_status.feat) ? CM4_TE_USEC_VRR_NS :
-									    CM4_TE_USEC_VRR_HS);
-		}
-	}
 }
 
 static void cm4_wait_for_vsync_done(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
@@ -1478,19 +1755,13 @@ static void cm4_set_lp_mode(struct gs_panel *ctx, const struct gs_panel_mode *pm
 	/* enforce manual and peak to have a smooth transition */
 	cm4_enforce_manual_and_peak(ctx);
 
-	cm4_wait_for_vsync_done(ctx, pmode);
+	/* TODO(b/336580972): Support minRR and FI setting during AOD */
+
+	cm4_wait_for_vsync_done(ctx, ctx->current_mode);
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 	GS_DCS_BUF_ADD_CMDLIST(dev, aod_on);
 	/* Fixed TE: sync on */
 	GS_DCS_BUF_ADD_CMD(dev, 0xB9, 0x51);
-	/* Auto frame insertion: 1Hz */
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x18, 0xBD);
-	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x04, 0x00, 0x74);
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xB8, 0xBD);
-	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00, 0x08);
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xC8, 0xBD);
-	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x03);
-	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0xA7);
 	/* Enable early exit */
 	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0xE8, 0xBD);
 	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x00);
@@ -1500,13 +1771,18 @@ static void cm4_set_lp_mode(struct gs_panel *ctx, const struct gs_panel_mode *pm
 	GS_DCS_BUF_ADD_CMD(dev, 0xBD, 0x22, 0x22, 0x22, 0x22);
 	GS_DCS_BUF_ADD_CMDLIST(dev, freq_update);
 	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
-
+#ifndef PANEL_FACTORY_BUILD
+	cm4_update_refresh_ctrl_feat(ctx, pmode);
+#else
+	cm4_set_panel_lp_feat(ctx, pmode);
+#endif
+	cm4_set_dbi_ref(ctx, CM4_DBI_REF_DEFAULT);
 	gs_panel_set_binned_lp_helper(ctx, brightness);
 
 	ctx->hw_status.vrefresh = 30;
-	ctx->hw_status.te_freq = 30;
-	ctx->te_freq = 30;
-	ctx->te_opt = TEX_OPT_FIXED;
+	ctx->hw_status.te.rate_hz = 30;
+	ctx->sw_status.te.rate_hz = 30;
+	ctx->sw_status.te.option = TEX_OPT_FIXED;
 
 	PANEL_ATRACE_END(__func__);
 
@@ -1521,16 +1797,23 @@ static void cm4_set_nolp_mode(struct gs_panel *ctx, const struct gs_panel_mode *
 
 	PANEL_ATRACE_BEGIN(__func__);
 
-	cm4_wait_for_vsync_done(ctx, pmode);
+	cm4_wait_for_vsync_done(ctx, ctx->current_mode);
 	/* manual mode 30Hz */
 	cm4_enforce_manual_and_peak(ctx);
 
-	cm4_wait_for_vsync_done(ctx, pmode);
+	/* b/346215549
+	 * ensure AOD off command is sent a bit later than vsync done
+	 */
+	cm4_wait_for_vsync_done(ctx, ctx->current_mode);
+	usleep_range(5000, 5000 + 100);
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
 	GS_DCS_BUF_ADD_CMDLIST(dev, aod_off);
 	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
 
-	cm4_wait_for_vsync_done(ctx, pmode);
+	cm4_wait_for_vsync_done(ctx, ctx->current_mode);
+#ifndef PANEL_FACTORY_BUILD
+	cm4_update_refresh_ctrl_feat(ctx, pmode);
+#endif
 	cm4_set_panel_feat(ctx, pmode, true);
 	/* backlight control and dimming */
 	cm4_write_display_mode(ctx, &pmode->mode);
@@ -1610,6 +1893,11 @@ static int cm4_enable(struct drm_panel *panel)
 		cm4_te2_setting(ctx);
 		spanel->is_pixel_off = false;
 		ctx->dsi_hs_clk_mbps = MIPI_DSI_FREQ_MBPS_DEFAULT;
+		if (test_bit(FEAT_OP_NS, ctx->sw_status.feat))
+			spanel->frame_rate = 60;
+		else
+			spanel->frame_rate = 120;
+		spanel->dbi_frame_count = 0;
 	}
 
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
@@ -1625,7 +1913,7 @@ static int cm4_enable(struct drm_panel *panel)
 	} else {
 
 #ifndef PANEL_FACTORY_BUILD
-		cm4_update_refresh_ctrl_feat(ctx);
+		cm4_update_refresh_ctrl_feat(ctx, pmode);
 #endif
 		cm4_update_panel_feat(ctx, true);
 		cm4_write_display_mode(ctx, mode); /* dimming and HBM */
@@ -1664,7 +1952,8 @@ static int cm4_disable(struct drm_panel *panel)
 	/* panel register state gets reset after disabling hardware */
 	bitmap_clear(ctx->hw_status.feat, 0, FEAT_MAX);
 	ctx->hw_status.vrefresh = 60;
-	ctx->hw_status.te_freq = 60;
+	ctx->sw_status.te.rate_hz = 60;
+	ctx->hw_status.te.rate_hz = 60;
 	ctx->hw_status.idle_vrefresh = 0;
 	ctx->hw_status.acl_mode = 0;
 	ctx->hw_status.dbv = 0;
@@ -1736,8 +2025,16 @@ static void cm4_update_idle_state(struct gs_panel *ctx)
 
 static void cm4_commit_done(struct gs_panel *ctx)
 {
+	struct cm4_panel *spanel = to_spanel(ctx);
+
 	if (ctx->current_mode->gs_mode.is_lp_mode)
 		return;
+
+	if (!test_bit(FEAT_FRAME_AUTO, ctx->sw_status.feat) &&
+		spanel->frame_rate > 60 &&
+		ctx->sw_status.idle_vrefresh < drm_mode_vrefresh(&ctx->current_mode->mode)) {
+		cm4_set_dbi_ref(ctx, cm4_calc_dbi_ref(ctx));
+	}
 
 	/* skip idle update if going through RRS */
 	if (ctx->mode_in_progress == MODE_RES_IN_PROGRESS ||
@@ -1801,6 +2098,21 @@ static void cm4_set_dimming(struct gs_panel *ctx, bool dimming_on)
 static void cm4_mode_set(struct gs_panel *ctx, const struct gs_panel_mode *pmode)
 {
 	cm4_change_frequency(ctx, pmode);
+
+	/**
+	 * TODO(b/344478250): update the refresh rate change in the composer
+	 *
+	 * Notify the changes of TE2 rate while switching the modes with different vrefresh in
+	 * case we miss the refresh rate change report from the composer.
+	 */
+	if (ctx->current_mode && ctx->te2.option == TEX_OPT_CHANGEABLE) {
+		u32 current_vrefresh = drm_mode_vrefresh(&ctx->current_mode->mode);
+		u32 target_vrefresh = drm_mode_vrefresh(&pmode->mode);
+
+		if (current_vrefresh != target_vrefresh && !ctx->idle_data.self_refresh_active &&
+		    cm4_set_te2_rate(ctx, target_vrefresh))
+			notify_panel_te2_rate_changed(ctx, 0);
+	}
 }
 
 static bool cm4_is_mode_seamless(const struct gs_panel *ctx, const struct gs_panel_mode *pmode)
@@ -1954,7 +2266,7 @@ static const struct gs_panel_mode_array cm4_modes = {
 #ifdef PANEL_FACTORY_BUILD
 	.num_modes = 6,
 #else
-	.num_modes = 10,
+	.num_modes = 8,
 #endif
 	.modes = {
 		/* MRR modes */
@@ -2228,52 +2540,6 @@ static const struct gs_panel_mode_array cm4_modes = {
 			},
 			.idle_mode = GIDLE_MODE_UNSUPPORTED,
 		},
-		{
-			.mode = {
-				.name = "1280x2856@60:240",
-				DRM_MODE_TIMING(60, 1280, 80, 24, 46, 2856, 12, 4, 28),
-				.flags = DRM_MODE_FLAG_TE_FREQ_X4 | DRM_MODE_FLAG_NS,
-				.type = DRM_MODE_TYPE_VRR,
-				.width_mm = WIDTH_MM,
-				.height_mm = HEIGHT_MM,
-			},
-			.gs_mode = {
-				.mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS,
-				.vblank_usec = 120,
-				.te_usec = CM4_TE_USEC_VRR_NS,
-				.bpc = 8,
-				.dsc = CM4_WQHD_DSC,
-				.underrun_param = &underrun_param,
-			},
-			.te2_timing = {
-				.rising_edge = CM4_TE2_RISING_EDGE_OFFSET,
-				.falling_edge = CM4_TE2_FALLING_EDGE_OFFSET,
-			},
-			.idle_mode = GIDLE_MODE_UNSUPPORTED,
-		},
-		{
-			.mode = {
-				.name = "960x2142@60:240",
-				DRM_MODE_TIMING(60, 960, 80, 24, 46, 2142, 12, 4, 32),
-				.flags = DRM_MODE_FLAG_TE_FREQ_X4 | DRM_MODE_FLAG_NS,
-				.type = DRM_MODE_TYPE_VRR,
-				.width_mm = WIDTH_MM,
-				.height_mm = HEIGHT_MM,
-			},
-			.gs_mode = {
-				.mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS,
-				.vblank_usec = 120,
-				.te_usec = CM4_TE_USEC_VRR_NS,
-				.bpc = 8,
-				.dsc = CM4_FHD_DSC,
-				.underrun_param = &underrun_param,
-			},
-			.te2_timing = {
-				.rising_edge = CM4_TE2_RISING_EDGE_OFFSET,
-				.falling_edge = CM4_TE2_FALLING_EDGE_OFFSET,
-			},
-			.idle_mode = GIDLE_MODE_UNSUPPORTED,
-		},
 #endif /* !PANEL_FACTORY_BUILD */
 	},/* .modes */
 }; /* cm4_modes */
@@ -2297,7 +2563,7 @@ static const struct gs_panel_mode_array cm4_lp_modes = {
 			.gs_mode = {
 				.mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS,
 				.vblank_usec = 120,
-				.te_usec = 693,
+				.te_usec = 1096,
 				.bpc = 8,
 				.dsc = CM4_WQHD_DSC,
 				.underrun_param = &underrun_param,
@@ -2315,7 +2581,7 @@ static const struct gs_panel_mode_array cm4_lp_modes = {
 			.gs_mode = {
 				.mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS,
 				.vblank_usec = 120,
-				.te_usec = 693,
+				.te_usec = 1096,
 				.bpc = 8,
 				.dsc = CM4_FHD_DSC,
 				.underrun_param = &underrun_param,
@@ -2373,11 +2639,13 @@ static void cm4_panel_init(struct gs_panel *ctx)
 #ifdef PANEL_FACTORY_BUILD
 	spanel->is_mrr_v1 = true;
 	ctx->idle_data.panel_idle_enabled = false;
-	set_bit(FEAT_FI_AUTO, ctx->sw_status.feat);
+	set_bit(FEAT_FRAME_MANUAL_FI, ctx->sw_status.feat);
 #else
 	spanel->is_mrr_v1 = false;
-	cm4_update_refresh_ctrl_feat(ctx);
+	cm4_update_refresh_ctrl_feat(ctx, pmode);
 #endif
+	spanel->frame_rate = 120;
+	spanel->dbi_frame_count = 0;
 	ctx->hw_status.irc_mode = IRC_FLAT_DEFAULT;
 	/* default fixed TE2 120Hz */
 	ctx->te2.option = TEX_OPT_FIXED;
@@ -2418,7 +2686,7 @@ static int cm4_panel_probe(struct mipi_dsi_device *dsi)
 
 	ctx->op_hz = 120;
 	ctx->hw_status.vrefresh = 60;
-	ctx->hw_status.te_freq = 60;
+	ctx->hw_status.te.rate_hz = 60;
 	ctx->hw_status.acl_mode = ACL_OFF;
 	ctx->hw_status.dbv = 0;
 	ctx->thermal = &cm4_thermal_data;
@@ -2460,6 +2728,7 @@ static const struct gs_panel_funcs cm4_gs_funcs = {
 #ifndef PANEL_FACTORY_BUILD
 	.refresh_ctrl = cm4_refresh_ctrl,
 #endif
+	.set_frame_rate = cm4_set_frame_rate,
 	.set_op_hz = cm4_set_op_hz,
 	.read_id = cm4_read_id,
 	.get_te_usec = cm4_get_te_usec,

@@ -16,6 +16,10 @@
 
 #define TK4B_DDIC_ID_LEN 8
 #define TK4B_DIMMING_FRAME 32
+#define TK4B_GRAY_REFRESH_LEN 2
+#define TK4B_GRAY_GAMMA_LEN 3
+#define TK4B_GRAY_RGB_DATA_LEN 2
+#define TK4B_GRAY_RGB_LEN 3
 
 #define MIPI_DSI_FREQ_MBPS_DEFAULT 756
 #define MIPI_DSI_FREQ_MBPS_ALTERNATIVE 776
@@ -23,8 +27,14 @@
 #define WIDTH_MM 64
 #define HEIGHT_MM 145
 
+#define TK4B_BEH_LEN 10
+#define TK4B_READ_BEH_RETRY_COUNT 3
+
 #define PROJECT "TK4B"
 
+static const u8 gray_refresh_cmd[] = { 0x00, 0x10 };
+static const u8 gray_lvl_cmd[] = { 0x00, 0x02, 0x04 };
+static const u8 gray_rgb_cmd[] = { 0xB0, 0xB3, 0xB6 };
 /**
  * struct tk4b_panel - panel specific runtime info
  *
@@ -34,6 +44,12 @@
 struct tk4b_panel {
 	/** @base: base panel struct */
 	struct gs_panel base;
+	/** @is_hbm2_enabled: indicates panel is running in HBM mode 2 */
+	bool is_hbm2_enabled;
+	/** @is_gamma_data_read: indicates panel has read the gray 3 RGB data */
+	bool is_gamma_data_read;
+	/** @g3_2nits_rgb_values: store the RGB data [rr][rgb][data]*/
+	u8 g3_2nits_rgb_values[TK4B_GRAY_REFRESH_LEN][TK4B_GRAY_RGB_LEN][TK4B_GRAY_RGB_DATA_LEN];
 };
 
 #define to_spanel(ctx) container_of(ctx, struct tk4b_panel, base)
@@ -174,6 +190,12 @@ static const struct gs_dsi_cmd tk4b_init_cmds[] = {
 	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0xBB, 0x01, 0x00),
 	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x6F, 0x1C),
 	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0xBB, 0x01, 0x00),
+	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x6F, 0x0A),
+	/* VGSP adjust */
+	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0xE3, 0x00, 0x00, 0x00, 0x00),
+	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x6F, 0x18),
+	/* Vin source adjust */
+	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0xD8, 0x38),
 
 	/* CMD2, Page1 */
 	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x01),
@@ -190,22 +212,22 @@ static const struct gs_dsi_cmd tk4b_init_cmds[] = {
 				 0x05, 0xD9, 0x10, 0x04, 0x63, 0x0C, 0x05, 0xD9,
 				 0x10),
 
-	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x6F, 0x0A),
-	/* VGSP adjust */
-	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0xE3, 0x00, 0x00, 0x00, 0x00),
-	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x6F, 0x18),
-	/* Vin source adjust */
-	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0xD8, 0x38),
+	/* CMD2, Page3 */
+	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x03),
+	/* Extend AOD TE width from 1.1ms to 1.9ms */
+	GS_DSI_CMD(0x6F, 0x22),
+	GS_DSI_CMD(0xB3, 0x70, 0x7F),
+
+	/* CMD2, Page4 */
+	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x04),
+	/* Extend DBI flash data update cycle time */
+	GS_DSI_CMD(0xBB, 0xB3, 0x01, 0xBC),
 
 	/* CMD2, Page7 */
 	GS_DSI_CMD(0xF0, 0x55, 0xAA, 0x52, 0x08, 0x07),
 	/* Round algorithm OFF */
 	GS_DSI_CMD(0xC0, 0x00),
 
-	/* CMD2, Page4 */
-	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_PVT), 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x04),
-	/* Deburn in setting */
-	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_PVT), 0xBB, 0xF3),
 	/* CMD2, Page8 */
 	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_PVT), 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x08),
 	/* Deburn in setting */
@@ -298,7 +320,7 @@ static const struct gs_dsi_cmd tk4b_init_cmds[] = {
 	/* 60Hz */
 	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x2F, 0x30),
 	GS_DSI_REV_CMD(PANEL_REV_LT(PANEL_REV_EVT1), 0x6D, 0x00, 0x00),
-	GS_DSI_DELAY_CMD(60, MIPI_DCS_EXIT_SLEEP_MODE)
+	GS_DSI_DELAY_CMD(70, MIPI_DCS_EXIT_SLEEP_MODE)
 };
 static DEFINE_GS_CMDSET(tk4b_init);
 
@@ -339,29 +361,43 @@ static void tk4b_update_irc(struct gs_panel *ctx,
 				const int vrefresh)
 {
 	struct device *dev = ctx->dev;
+	struct tk4b_panel *spanel = to_spanel(ctx);
 	const u16 level = gs_panel_get_brightness(ctx);
 
-	if (!GS_IS_HBM_ON(hbm_mode)) {
-		dev_info(ctx->dev, "hbm is off, skip update irc\n");
-		return;
-	}
-
 	if (GS_IS_HBM_ON_IRC_OFF(hbm_mode)) {
-		/* sync from bigSurf : to achieve the max brightness with IRC off which need to set dbv to 0xFFF */
-		if (level == ctx->desc->brightness_desc->brt_capability->hbm.level.max)
+		if (level == ctx->desc->brightness_desc->brt_capability->hbm.level.max) {
+			/* set brightness to hbm2 */
 			GS_DCS_BUF_ADD_CMD(dev, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x0F, 0xFF);
+			spanel->is_hbm2_enabled = true;
+			/* set ACD Level 3 */
+			GS_DCS_BUF_ADD_CMD(dev, 0x55, 0x04);
+			GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
+			GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x0C);
+			GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x0E, 0x2C, 0x32);
+		} else {
+			if (spanel->is_hbm2_enabled) {
+				/* set ACD off */
+				GS_DCS_BUF_ADD_CMD(dev, 0x55, 0x00);
+			}
+			spanel->is_hbm2_enabled = false;
+		}
+
+		dev_info(ctx->dev, "%s: is HBM2 enabled : %d\n",
+					__func__, spanel->is_hbm2_enabled);
 
 		/* IRC Off */
 		GS_DCS_BUF_ADD_CMD(dev, 0x5F, 0x01);
 		if (vrefresh == 120) {
 			GS_DCS_BUF_ADD_CMD(dev, 0x2F, 0x00);
 			GS_DCS_BUF_ADD_CMD(dev, MIPI_DCS_SET_GAMMA_CURVE, 0x02);
-			GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
-			GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x03);
-			if (ctx->panel_rev < PANEL_REV_EVT1)
-				GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x32);
-			else
-				GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x40);
+			if (ctx->panel_rev < PANEL_REV_PVT) {
+				GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
+				GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x03);
+				if (ctx->panel_rev < PANEL_REV_EVT1)
+					GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x32);
+				else
+					GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x40);
+			}
 		} else {
 			if (ctx->panel_rev < PANEL_REV_EVT1) {
 				GS_DCS_BUF_ADD_CMD(dev, 0x2F, 0x30);
@@ -386,12 +422,14 @@ static void tk4b_update_irc(struct gs_panel *ctx,
 		if (vrefresh == 120) {
 			GS_DCS_BUF_ADD_CMD(dev, 0x2F, 0x00);
 			GS_DCS_BUF_ADD_CMD(dev, MIPI_DCS_SET_GAMMA_CURVE, 0x00);
-			GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
-			GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x03);
-			if (ctx->panel_rev < PANEL_REV_EVT1)
-				GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x30);
-			else
-				GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x10);
+			if (ctx->panel_rev < PANEL_REV_PVT) {
+				GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
+				GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x03);
+				if (ctx->panel_rev < PANEL_REV_EVT1)
+					GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x30);
+				else
+					GS_DCS_BUF_ADD_CMD(dev, 0xC0, 0x10);
+			}
 		} else {
 			if (ctx->panel_rev < PANEL_REV_EVT1) {
 				GS_DCS_BUF_ADD_CMD(dev, 0x2F, 0x30);
@@ -504,10 +542,135 @@ static void tk4b_dimming_frame_setting(struct gs_panel *ctx, u8 dimming_frame)
 	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xB2, dimming_frame, dimming_frame);
 }
 
+static void tk4b_read_gray3_rgb_value(struct gs_panel *ctx)
+{
+	struct device *dev = ctx->dev;
+	struct tk4b_panel *spanel = to_spanel(ctx);
+	struct mipi_dsi_device *dsi = to_mipi_dsi_device(ctx->dev);
+	u8 buf[TK4B_GRAY_RGB_DATA_LEN] = {0};
+	int32_t ret;
+
+	if (spanel->is_gamma_data_read)
+		return;
+
+	/* turn on hclk */
+	GS_DCS_BUF_ADD_CMD(dev, 0xFF, 0xAA, 0x55, 0xA5, 0x81);
+	GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x0E);
+	GS_DCS_BUF_ADD_CMD(dev, 0xF5, 0x20);
+
+	/* read the 2nits G3 RGB value @120Hz and 60Hz */
+	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x02);
+	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xCC, 0x10);
+
+	for (int rr = 0; rr < TK4B_GRAY_REFRESH_LEN; rr++) {
+		GS_DCS_WRITE_CMD(dev, 0xBF, gray_refresh_cmd[rr]);
+
+		for (int color = 0; color < TK4B_GRAY_RGB_LEN; color++) {
+			GS_DCS_WRITE_CMD(dev, 0x6F, gray_lvl_cmd[TK4B_GRAY_GAMMA_LEN - 1]);
+			ret = mipi_dsi_dcs_read(dsi, gray_rgb_cmd[color],
+						buf, TK4B_GRAY_RGB_DATA_LEN);
+
+			if (ret != TK4B_GRAY_RGB_DATA_LEN) {
+				dev_warn(ctx->dev, "Unable to read Gray3 RGB values (%d)\n", ret);
+				goto done;
+			}
+
+			for (int k = 0; k < TK4B_GRAY_RGB_DATA_LEN; k++)
+				spanel->g3_2nits_rgb_values[rr][color][k] = buf[k];
+		}
+	}
+
+	for (int i = 0; i < TK4B_GRAY_REFRESH_LEN; i++) {
+		for (int j = 0; j < TK4B_GRAY_RGB_LEN; j++) {
+			for (int k = 0; k < TK4B_GRAY_RGB_DATA_LEN; k++) {
+				dev_dbg(ctx->dev, "g3_2nits_rgb_values %x\n",
+					spanel->g3_2nits_rgb_values[i][j][k]);
+			}
+		}
+	}
+
+	spanel->is_gamma_data_read = true;
+
+done:
+	/* turn off hclk */
+	GS_DCS_BUF_ADD_CMD(dev, 0xFF, 0xAA, 0x55, 0xA5, 0x81);
+	GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x0E);
+	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xF5, 0x2B);
+	dev_dbg(ctx->dev, "%s done.\n", __func__);
+}
+
+static void tk4b_write_gray3_rgb_value(struct gs_panel *ctx)
+{
+	struct device *dev = ctx->dev;
+	struct tk4b_panel *spanel = to_spanel(ctx);
+
+	/* turn on hclk*/
+	GS_DCS_BUF_ADD_CMD(dev, 0xFF, 0xAA, 0x55, 0xA5, 0x81);
+	GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x0E);
+	GS_DCS_BUF_ADD_CMD(dev, 0xF5, 0x20);
+
+	/* over write 2nits G3 RGB value to G0 and G1 */
+	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x02);
+	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xCC, 0x10);
+
+	for (int rr = 0; rr < TK4B_GRAY_REFRESH_LEN; rr++) {
+		GS_DCS_WRITE_CMD(dev, 0xBF, gray_refresh_cmd[rr]);
+
+		for (int lvl = 0; lvl < (TK4B_GRAY_GAMMA_LEN - 1); lvl++) {
+			for (int color = 0; color < TK4B_GRAY_RGB_LEN; color++) {
+				GS_DCS_WRITE_CMD(dev, 0x6F, gray_lvl_cmd[lvl]);
+				GS_DCS_WRITE_CMD(dev, gray_rgb_cmd[color],
+					spanel->g3_2nits_rgb_values[rr][color][0],
+					spanel->g3_2nits_rgb_values[rr][color][1]);
+			}
+		}
+	}
+
+	/* turn off hclk */
+	GS_DCS_BUF_ADD_CMD(dev, 0xFF, 0xAA, 0x55, 0xA5, 0x81);
+	GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x0E);
+	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xF5, 0x2B);
+
+	dev_dbg(ctx->dev, "%s done.\n", __func__);
+}
+
+static int tk4b_read_beh(struct gs_panel *ctx)
+{
+	struct device *dev = ctx->dev;
+	struct mipi_dsi_device *dsi = to_mipi_dsi_device(dev);
+	u8 buf[TK4B_BEH_LEN] = {0};
+	int ret;
+
+	GS_DCS_WRITE_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x04);
+
+	ret = mipi_dsi_dcs_read(dsi, 0xBE, buf, TK4B_BEH_LEN);
+	if (ret != TK4B_BEH_LEN) {
+		dev_warn(dev, "Unable to read BEh values (ret = %d)\n", ret);
+		return -EIO;
+	}
+
+	if (buf[0] != 0 || buf[1] != 2 || buf[2] != 0 || buf[5] != 0 || buf[7] != 0
+		|| buf[8] != 6 || buf[9] != 3)
+		return -EAGAIN;
+
+	return 0;
+}
+
+static void tk4b_change_spi_speed(struct gs_panel *ctx, int speed)
+{
+	struct device *dev = ctx->dev;
+
+	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x04);
+	GS_DCS_BUF_ADD_CMD(dev, 0xC2, (speed == 23)? 0x14 : 0x12);
+	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x08);
+	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xC2, (speed == 23)? 0x00 : 0x33);
+}
+
 static int tk4b_enable(struct drm_panel *panel)
 {
 	struct gs_panel *ctx = container_of(panel, struct gs_panel, base);
 	struct device *dev = ctx->dev;
+	struct tk4b_panel *spanel = to_spanel(ctx);
 	const struct gs_panel_mode *pmode = ctx->current_mode;
 
 	if (!pmode) {
@@ -526,6 +689,30 @@ static int tk4b_enable(struct drm_panel *panel)
 	/* frequency */
 	tk4b_change_frequency(ctx, pmode);
 
+	tk4b_read_gray3_rgb_value(ctx);
+
+	if (tk4b_read_beh(ctx)) {
+		int retry;
+		int ret = 1;
+
+		dev_warn(dev, "Reading BEh failed at first try\n");
+
+		tk4b_change_spi_speed(ctx, 23);
+
+		for (retry = 0; retry < TK4B_READ_BEH_RETRY_COUNT && ret; retry++) {
+			GS_DCS_WRITE_DELAY_CMD(dev, 120, MIPI_DCS_ENTER_SLEEP_MODE);
+			GS_DCS_WRITE_DELAY_CMD(dev, 120, MIPI_DCS_EXIT_SLEEP_MODE);
+			ret = tk4b_read_beh(ctx);
+		}
+
+		if (retry == TK4B_READ_BEH_RETRY_COUNT)
+			dev_warn(dev, "Failed to read BEh %d times\n", retry);
+		else
+			dev_info(dev, "Success to read BEh after retry %d time(s)\n", retry);
+
+		tk4b_change_spi_speed(ctx, 34);
+	}
+
 	/* dimming frame */
 	tk4b_dimming_frame_setting(ctx, TK4B_DIMMING_FRAME);
 	ctx->timestamps.idle_exit_dimming_delay_ts = 0;
@@ -535,7 +722,25 @@ static int tk4b_enable(struct drm_panel *panel)
 
 	GS_DCS_WRITE_CMD(dev, MIPI_DCS_SET_DISPLAY_ON);
 
+	if (spanel->is_gamma_data_read)
+		tk4b_write_gray3_rgb_value(ctx);
+
 	ctx->dsi_hs_clk_mbps = MIPI_DSI_FREQ_MBPS_DEFAULT;
+
+	return 0;
+}
+
+static int tk4b_disable(struct drm_panel *panel)
+{
+	struct gs_panel *ctx = container_of(panel, struct gs_panel, base);
+	struct tk4b_panel *spanel = to_spanel(ctx);
+	int ret;
+
+	spanel->is_hbm2_enabled = false;
+
+	ret = gs_panel_disable(panel);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -546,6 +751,8 @@ static int tk4b_atomic_check(struct gs_panel *ctx, struct drm_atomic_state *stat
 	struct drm_connector_state *new_conn_state =
 					drm_atomic_get_new_connector_state(state, conn);
 	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+	const struct gs_panel_mode *pmode;
+	bool was_lp_mode, is_lp_mode;
 
 	if (!ctx->current_mode || drm_mode_vrefresh(&ctx->current_mode->mode) == 120 ||
 	    !new_conn_state || !new_conn_state->crtc)
@@ -556,9 +763,19 @@ static int tk4b_atomic_check(struct gs_panel *ctx, struct drm_atomic_state *stat
 	if (!old_crtc_state || !new_crtc_state || !new_crtc_state->active)
 		return 0;
 
+	was_lp_mode = ctx->current_mode->gs_mode.is_lp_mode;
+	/* don't skip update when switching between AoD and normal mode */
+	pmode = gs_panel_get_mode(ctx, &new_crtc_state->mode);
+	if (pmode) {
+		is_lp_mode = pmode->gs_mode.is_lp_mode;
+		if (was_lp_mode != is_lp_mode)
+			new_crtc_state->color_mgmt_changed = true;
+	} else {
+		dev_err(ctx->dev, "%s: no new mode\n", __func__);
+	}
+
 	if (!drm_atomic_crtc_effectively_active(old_crtc_state) ||
-	    (ctx->current_mode->gs_mode.is_lp_mode
-					&& drm_mode_vrefresh(&new_crtc_state->mode) == 60)) {
+	    (was_lp_mode && drm_mode_vrefresh(&new_crtc_state->mode) == 60)) {
 		struct drm_display_mode *mode = &new_crtc_state->adjusted_mode;
 
 		mode->clock = mode->htotal * mode->vtotal * 120 / 1000;
@@ -643,7 +860,7 @@ static void tk4b_update_ffc(struct gs_panel *ctx, unsigned int hs_clk_mbps)
 static int tk4b_set_brightness(struct gs_panel *ctx, u16 br)
 {
 	struct device *dev = ctx->dev;
-	u16 brightness;
+	struct tk4b_panel *spanel = to_spanel(ctx);
 
 	if (ctx->current_mode->gs_mode.is_lp_mode) {
 		const struct gs_panel_funcs *funcs;
@@ -654,17 +871,6 @@ static int tk4b_set_brightness(struct gs_panel *ctx, u16 br)
 		return 0;
 	}
 
-	if (!br) {
-		// turn off panel and set brightness directly.
-		return gs_dcs_set_brightness(ctx, 0);
-	}
-
-	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode)
-				 && br == ctx->desc->brightness_desc->brt_capability->hbm.level.max)
-		br = 0xfff;
-
-	brightness = swab16(br);
-
 	if (ctx->timestamps.idle_exit_dimming_delay_ts &&
 		(ktime_sub(ctx->timestamps.idle_exit_dimming_delay_ts, ktime_get()) <= 0)) {
 		GS_DCS_WRITE_CMD(dev, MIPI_DCS_WRITE_CONTROL_DISPLAY,
@@ -672,7 +878,32 @@ static int tk4b_set_brightness(struct gs_panel *ctx, u16 br)
 		ctx->timestamps.idle_exit_dimming_delay_ts = 0;
 	}
 
-	return gs_dcs_set_brightness(ctx, brightness);
+	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode)
+			&& br == ctx->desc->brightness_desc->brt_capability->hbm.level.max) {
+
+		/* set brightness to hbm2 */
+		GS_DCS_BUF_ADD_CMD(dev, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x0F, 0xFF);
+		spanel->is_hbm2_enabled = true;
+
+		/* set ACD Level 3 */
+		GS_DCS_BUF_ADD_CMD(dev, 0x55, 0x04);
+		GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x00);
+		GS_DCS_BUF_ADD_CMD(dev, 0x6F, 0x0C);
+		GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xB0, 0x0E, 0x2C, 0x32);
+		dev_info(ctx->dev, "%s: is HBM2 enabled : %d\n",
+				__func__, spanel->is_hbm2_enabled);
+	} else {
+
+		if (spanel->is_hbm2_enabled) {
+			/* set ACD off */
+			GS_DCS_BUF_ADD_CMD(dev, 0x55, 0x00);
+			dev_info(ctx->dev, "%s: is HBM2 enabled : off\n", __func__);
+		}
+		spanel->is_hbm2_enabled = false;
+		GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+						br >> 8, br & 0xff);
+	}
+	return 0;
 }
 
 static void tk4b_set_hbm_mode(struct gs_panel *ctx,
@@ -738,7 +969,7 @@ done:
 }
 
 static const struct gs_display_underrun_param underrun_param = {
-	.te_idle_us = 200,
+	.te_idle_us = 350,
 	.te_var = 1,
 };
 
@@ -746,17 +977,42 @@ static const struct gs_display_underrun_param underrun_param = {
 #define TO_6BIT_SIGNED(v) ((v) & 0x3F)
 
 static const struct drm_dsc_config tk4b_dsc_cfg = {
+	.line_buf_depth = 9,
+	.bits_per_component = 8,
+	.convert_rgb = true,
+	.slice_count = 2,
+	.slice_width = 540,
+	.slice_height = 24,
+	.simple_422 = false,
+	.pic_width = 1080,
+	.pic_height = 2424,
+	.rc_tgt_offset_high = 3,
+	.rc_tgt_offset_low = 3,
+	.bits_per_pixel = 128,
+	.rc_edge_factor = 6,
+	.rc_quant_incr_limit1 = 11,
+	.rc_quant_incr_limit0 = 11,
+	.initial_xmit_delay = 512,
+	.initial_dec_delay = 549,
+	.block_pred_enable = true,
 	.first_line_bpg_offset = 13,
+	.initial_offset = 6144,
+	.rc_buf_thresh = {
+		14, 28, 42, 56,
+		70, 84, 98, 105,
+		112, 119, 121, 123,
+		125, 126
+	},
 	.rc_range_params = {
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
-		{0, 0, 0},
+		{0, 4, TO_6BIT_SIGNED(2)},
+		{0, 4, TO_6BIT_SIGNED(0)},
+		{1, 5, TO_6BIT_SIGNED(0)},
+		{1, 6, TO_6BIT_SIGNED(-2)},
+		{3, 7, TO_6BIT_SIGNED(-4)},
+		{3, 7, TO_6BIT_SIGNED(-6)},
+		{3, 7, TO_6BIT_SIGNED(-8)},
+		{3, 8, TO_6BIT_SIGNED(-8)},
+		{3, 9, TO_6BIT_SIGNED(-8)},
 		{4, 10, TO_6BIT_SIGNED(-10)},
 		{5, 10, TO_6BIT_SIGNED(-10)},
 		{5, 11, TO_6BIT_SIGNED(-10)},
@@ -764,11 +1020,25 @@ static const struct drm_dsc_config tk4b_dsc_cfg = {
 		{8, 12, TO_6BIT_SIGNED(-12)},
 		{12, 13, TO_6BIT_SIGNED(-12)},
 	},
+	.rc_model_size = 8192,
+	.flatness_min_qp = 3,
+	.flatness_max_qp = 12,
+	.initial_scale_value = 32,
+	.scale_decrement_interval = 7,
+	.scale_increment_interval = 565,
+	.nfl_bpg_offset = 1158,
+	.slice_bpg_offset = 1085,
+	.final_offset = 4336,
+	.vbr_enable = false,
+	.slice_chunk_size = 540,
 	/* Used DSC v1.2 */
 	.dsc_version_major = 1,
 	.dsc_version_minor = 2,
-	.slice_count = 2,
-	.slice_height = 24,
+	.native_422 = false,
+	.native_420 = false,
+	.second_line_bpg_offset = 0,
+	.nsl_bpg_offset = 0,
+	.second_line_offset_adj = 0,
 };
 
 #define TK4B_DSC {\
@@ -883,11 +1153,13 @@ static int tk4b_panel_probe(struct mipi_dsi_device *dsi)
 	if (!spanel)
 		return -ENOMEM;
 
+	spanel->is_hbm2_enabled = false;
+	spanel->is_gamma_data_read = false;
 	return gs_dsi_panel_common_init(dsi, &spanel->base);
 }
 
 static const struct drm_panel_funcs tk4b_drm_funcs = {
-	.disable = gs_panel_disable,
+	.disable = tk4b_disable,
 	.unprepare = gs_panel_unprepare,
 	.prepare = gs_panel_prepare,
 	.enable = tk4b_enable,
