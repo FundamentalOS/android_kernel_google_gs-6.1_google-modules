@@ -17,7 +17,7 @@ edgetpu-objs	:= edgetpu-mailbox.o edgetpu-telemetry.o edgetpu-mapping.o edgetpu-
 mobile-objs	:= edgetpu-kci.o
 
 
-janeiro-y	:= janeiro-device.o janeiro-device-group.o janeiro-fs.o janeiro-core.o janeiro-platform.o janeiro-firmware.o janeiro-thermal.o janeiro-pm.o janeiro-debug-dump.o janeiro-usage-stats.o janeiro-iommu.o janeiro-wakelock.o janeiro-external.o $(mobile-objs) $(edgetpu-objs)
+janeiro-y	:= janeiro-device.o janeiro-device-group.o janeiro-fs.o janeiro-core.o janeiro-platform.o janeiro-firmware.o janeiro-thermal.o janeiro-pm.o janeiro-usage-stats.o janeiro-iommu.o janeiro-wakelock.o janeiro-external.o $(mobile-objs) $(edgetpu-objs)
 
 CFLAGS_janeiro-fs.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-core.o := -DCONFIG_JANEIRO=1
@@ -28,7 +28,6 @@ CFLAGS_janeiro-iommu.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-platform.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-pm.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-thermal.o := -DCONFIG_JANEIRO=1
-CFLAGS_janeiro-debug-dump.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-usage-stats.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-wakelock.o := -DCONFIG_JANEIRO=1
 CFLAGS_janeiro-external.o := -DCONFIG_JANEIRO=1
