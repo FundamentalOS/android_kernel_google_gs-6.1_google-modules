@@ -78,10 +78,14 @@ void gxp_soc_pm_init(struct gxp_dev *gxp)
 {
 	exynos_pm_qos_add_request(&gxp->soc_data->int_min, PM_QOS_DEVICE_THROUGHPUT, 0);
 	exynos_pm_qos_add_request(&gxp->soc_data->mif_min, PM_QOS_BUS_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&gxp->soc_data->bci_min, PM_QOS_BCI_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&gxp->soc_data->dsu_min, PM_QOS_DSU_THROUGHPUT, 0);
 }
 
 void gxp_soc_pm_exit(struct gxp_dev *gxp)
 {
+	exynos_pm_qos_remove_request(&gxp->soc_data->dsu_min);
+	exynos_pm_qos_remove_request(&gxp->soc_data->bci_min);
 	exynos_pm_qos_remove_request(&gxp->soc_data->mif_min);
 	exynos_pm_qos_remove_request(&gxp->soc_data->int_min);
 }
@@ -111,6 +115,8 @@ void gxp_soc_pm_reset(struct gxp_dev *gxp)
 {
 	exynos_pm_qos_update_request(&gxp->soc_data->int_min, 0);
 	exynos_pm_qos_update_request(&gxp->soc_data->mif_min, 0);
+	exynos_pm_qos_update_request(&gxp->soc_data->bci_min, 0);
+	exynos_pm_qos_update_request(&gxp->soc_data->dsu_min, 0);
 }
 
 int gxp_soc_init(struct gxp_dev *gxp)

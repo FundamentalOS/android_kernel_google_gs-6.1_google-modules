@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * GCIP-integrated IIF driver fence table.
+ * Interface to utilize IIF fence tables, the wait table and the signal table. Both tables will have
+ * one entry per fence ID.
  *
- * Copyright (C) 2023 Google LLC
+ * - Wait table: Describes which IPs are waiting on each fence. This table will be written by the
+ *               kernel driver only.
+ *
+ * - Signal table: Describes how many signals are remaining to unblock each fence. This table will
+ *                 be initialized by the kernel driver and each signaler IP will update it.
+ *
+ * Copyright (C) 2023-2024 Google LLC
  */
 
 #define pr_fmt(fmt) "iif: " fmt
