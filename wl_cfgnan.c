@@ -7028,12 +7028,21 @@ wl_cfgnan_init(struct bcm_cfg80211 *cfg)
 	uint8 resp_buf[NAN_IOCTL_BUF_SIZE];
 	uint8 buf[NAN_IOCTL_BUF_SIZE];
 	bcm_iov_batch_buf_t *nan_buf = (bcm_iov_batch_buf_t*)buf;
+	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 
 	NAN_DBG_ENTER();
+
 	if (cfg->nancfg->nan_init_state) {
 		WL_ERR(("nan initialized/nmi exists\n"));
 		return BCME_OK;
 	}
+
+	if (FW_SUPPORTED(dhd, sdb_modesw)) {
+		/* cancel scan to sync the mode for dynamic mode chips */
+		WL_DBG_MEM(("sdb_modesw: Aborting Scan for Initializing NAN\n"));
+		wl_cfgscan_cancel_scan(cfg);
+	}
+
 	nan_buf->version = htol16(WL_NAN_IOV_BATCH_VERSION);
 	nan_buf->count = 0;
 	nan_buf_size -= OFFSETOF(bcm_iov_batch_buf_t, cmds[0]);
@@ -10521,6 +10530,7 @@ static s32
 wl_cfgnan_unregister_nmi_ndev(struct bcm_cfg80211 *cfg)
 {
 	struct wireless_dev *wdev;
+	int refcnt;
 
 	if (!cfg) {
 		WL_ERR(("NMI IF unreg, invalid cfg \n"));
@@ -10531,7 +10541,14 @@ wl_cfgnan_unregister_nmi_ndev(struct bcm_cfg80211 *cfg)
 		goto free_wdev;
 	}
 
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_ERR(("refcnt before unregistering NAN NMI ndev: %d \n", refcnt));
+
 	dhd_unregister_net(cfg->nmi_ndev, true);
+
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_ERR(("refcnt after unregistering NAN NMI ndev: %d \n", refcnt));
+
 	free_netdev(cfg->nmi_ndev);
 	cfg->nmi_ndev = NULL;
 
@@ -10551,6 +10568,7 @@ int
 wl_cfgnan_attach(struct bcm_cfg80211 *cfg)
 {
 	int err = BCME_OK;
+	int refcnt = 0;
 	wl_nancfg_t *nancfg = NULL;
 
 	if (cfg) {
@@ -10578,6 +10596,9 @@ wl_cfgnan_attach(struct bcm_cfg80211 *cfg)
 	INIT_DELAYED_WORK(&nancfg->nan_nmi_rand, wl_cfgnan_periodic_nmi_rand_addr);
 	nancfg->nan_dp_state = NAN_DP_STATE_DISABLED;
 	init_waitqueue_head(&nancfg->ndp_if_change_event);
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_ERR(("refcnt after NAN NMI ndev reg: %d, cfg->nmi_ndev.name %s\n",
+			refcnt, cfg->nmi_ndev->name));
 
 done:
 	return err;

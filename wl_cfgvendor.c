@@ -31,6 +31,7 @@
 #include <osl.h>
 #include <linux/kernel.h>
 #include <linux/vmalloc.h>
+#include <bcmstdlib_s.h>
 
 #include <bcmutils.h>
 #include <bcmwifi_channels.h>
@@ -412,11 +413,11 @@ wl_cfgvendor_get_feature_set(struct wiphy *wiphy,
 {
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	int reply;
+	uint64 reply;
 
 	reply = dhd_dev_get_feature_set(bcmcfg_to_prmry_ndev(cfg));
 
-	err =  wl_cfgvendor_send_cmd_reply(wiphy, &reply, sizeof(int));
+	err =  wl_cfgvendor_send_cmd_reply(wiphy, &reply, sizeof(uint64));
 	if (unlikely(err))
 		WL_ERR(("Vendor Command reply failed ret:%d \n", err));
 
@@ -430,7 +431,7 @@ wl_cfgvendor_get_feature_set_matrix(struct wiphy *wiphy,
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	struct sk_buff *skb;
-	int reply;
+	uint32 reply;
 	int mem_needed, i;
 
 	mem_needed = VENDOR_REPLY_OVERHEAD +
@@ -2313,6 +2314,34 @@ wl_cfgvendor_rtt_sort_targets(rtt_config_params_t *rtt_param)
 	}
 }
 
+static void
+wl_cfgvendor_filter_out_6g_targets(rtt_config_params_t *rtt_param)
+{
+	rtt_target_info_t* rtt_target = NULL;
+	int i;
+	int valid_idx = 0;
+	int ori_cnt = rtt_param->rtt_target_cnt;
+
+	/* filter out 6G targets
+	 * valid_idx means the pos in memory to be filled with valid target
+	 * the pos is where the 6g target were previously located
+	 */
+	rtt_target = rtt_param->target_info;
+	for (i = 0; i < rtt_param->rtt_target_cnt; i++) {
+		if (CHSPEC_BAND(rtt_target[i].chanspec) == WL_CHANSPEC_BAND_6G) {
+			continue;
+		} else {
+			memmove_s(&rtt_target[valid_idx], sizeof(rtt_target_info_t),
+				&rtt_target[i], sizeof(rtt_target_info_t));
+			valid_idx++;
+		}
+	}
+	/* should be updated by the number reduced */
+	rtt_param->rtt_target_cnt = valid_idx;
+	WL_DBG_MEM(("count before:%d after filtering out 6g rtt target:%d\n",
+		ori_cnt, rtt_param->rtt_target_cnt));
+}
+
 static int
 wl_cfgvendor_rtt_set_config(struct wiphy *wiphy, struct wireless_dev *wdev,
 	const void *data, int len) {
@@ -2514,6 +2543,15 @@ wl_cfgvendor_rtt_set_config(struct wiphy *wiphy, struct wireless_dev *wdev,
 	WL_DBG(("leave :target_cnt : %d\n", rtt_param.rtt_target_cnt));
 	/* sort targets to minimize channel switches */
 	wl_cfgvendor_rtt_sort_targets(&rtt_param);
+
+	/* filter out 6G targets */
+	wl_cfgvendor_filter_out_6g_targets(&rtt_param);
+	if (rtt_param.rtt_target_cnt <= 0) {
+		WL_ERR(("No valid targets target_cnt:%d\n", rtt_param.rtt_target_cnt));
+		err = -EINVAL;
+		goto exit;
+	}
+
 	if (dhd_dev_rtt_set_cfg(bcmcfg_to_prmry_ndev(cfg), &rtt_param) < 0) {
 		WL_ERR(("Could not set RTT configuration\n"));
 		err = -EINVAL;
@@ -3210,7 +3248,8 @@ exit:
 #ifdef ROAMEXP_SUPPORT
 typedef enum {
 	FW_ROAMING_DISABLE,
-	FW_ROAMING_ENABLE
+	FW_ROAMING_ENABLE,
+	ROAMING_AGGRESSIVE
 } fw_roaming_state_t;
 
 static int
@@ -3220,7 +3259,7 @@ wl_cfgvendor_set_fw_roaming_state(struct wiphy *wiphy,
 	fw_roaming_state_t requested_roaming_state;
 	int type;
 	int err = 0;
-	wl_roam_conf_t roam_req;
+	wl_roam_conf_t roam_req = ROAM_CONF_INVALID;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(wdev_to_ndev(wdev));
 
 	if (!data) {
@@ -3245,8 +3284,16 @@ wl_cfgvendor_set_fw_roaming_state(struct wiphy *wiphy,
 
 	if (requested_roaming_state == FW_ROAMING_ENABLE) {
 		roam_req = ROAM_CONF_ROAM_ENAB_REQ;
+#ifdef WL_AGGRESSIVE_ROAM
+		wl_cfgvif_enable_aggressive_roam(cfg, wdev->netdev, FALSE);
+#endif /* WL_AGGRESSIVE_ROAM */
 	} else if (requested_roaming_state == FW_ROAMING_DISABLE) {
 		roam_req = ROAM_CONF_ROAM_DISAB_REQ;
+#ifdef WL_AGGRESSIVE_ROAM
+	} else if (requested_roaming_state == ROAMING_AGGRESSIVE) {
+		roam_req = ROAM_CONF_ROAM_ENAB_REQ;
+		wl_cfgvif_enable_aggressive_roam(cfg, wdev->netdev, TRUE);
+#endif /* WL_AGGRESSIVE_ROAM */
 	} else {
 		WL_ERR(("unexpected roam_state_request:%d\n", requested_roaming_state));
 		return -EINVAL;
@@ -6880,7 +6927,6 @@ wl_cfgvendor_nan_start_handler(struct wiphy *wiphy,
 	nan_hal_resp_t nan_req_resp;
 	uint32 nan_attr_mask = 0;
 	wl_nancfg_t *nancfg = cfg->nancfg;
-	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 
 	wdev = bcmcfg_to_prmry_wdev(cfg);
 	cmd_data = (nan_config_cmd_data_t *)MALLOCZ(cfg->osh, sizeof(*cmd_data));
@@ -6895,12 +6941,6 @@ wl_cfgvendor_nan_start_handler(struct wiphy *wiphy,
 	if (ret != BCME_OK) {
 		WL_ERR(("failed to disable nan, error[%d]\n", ret));
 		goto exit;
-	}
-
-	if (FW_SUPPORTED(dhd, sdb_modesw)) {
-		/* cancel scan to sync the mode for 4383 */
-		WL_DBG_MEM(("sdb_modesw: Aborting Scan for starting NAN\n"));
-		wl_cfgscan_cancel_scan(cfg);
 	}
 
 	bzero(&nan_req_resp, sizeof(nan_req_resp));
@@ -15299,6 +15339,9 @@ int wl_cfgvendor_attach(struct wiphy *wiphy, dhd_pub_t *dhd)
 	wiphy->vendor_events	= wl_vendor_events;
 	wiphy->n_vendor_events	= ARRAY_SIZE(wl_vendor_events);
 
+#ifdef DHD_ECNTRS_EXPOSED_DBGRING
+	dhd_os_dbg_register_callback(ECNTRS_RING_ID, wl_cfgvendor_dbg_ring_send_evt);
+#endif /* DHD_ECNTRS_EXPOSED_DBGRING */
 #ifdef DEBUGABILITY
 	dhd_os_dbg_register_callback(FW_VERBOSE_RING_ID, wl_cfgvendor_dbg_ring_send_evt);
 #ifdef DHD_DEBUGABILITY_EVENT_RING
