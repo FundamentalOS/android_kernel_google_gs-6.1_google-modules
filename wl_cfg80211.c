@@ -26159,9 +26159,14 @@ wl_notify_start_auth(struct bcm_cfg80211 *cfg,
 	 * the event since MLD is unknown to host yet.
 	 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || defined(WL_EXT_AUTH_BKPORT)
-	(void)memcpy_s(&ext_auth_param.mld_addr, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
-	(void)memcpy_s(&ext_auth_param.bssid,
-			ETHER_ADDR_LEN, evt_data->bssid.octet, ETHER_ADDR_LEN);
+	if (cfg->mlo.supported) {
+		(void)memcpy_s(&ext_auth_param.mld_addr, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
+		(void)memcpy_s(&ext_auth_param.bssid,
+				ETHER_ADDR_LEN, evt_data->bssid.octet, ETHER_ADDR_LEN);
+	} else {
+		/* for 4383 with kernel version >= 6.3 */
+		(void)memcpy_s(&ext_auth_param.bssid, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
+	}
 #else
 	/* In non-ml aware kernels, use MLD address for auth ind for SAE PMK calc. */
 	(void)memcpy_s(&ext_auth_param.bssid, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);

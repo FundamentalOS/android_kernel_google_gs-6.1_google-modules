@@ -39,8 +39,13 @@
 #include <dhd_dbg.h>
 #include <dhd.h>
 
-#if defined(CONFIG_SOC_GOOGLE)
+#if IS_ENABLED(CONFIG_SOC_GOOGLE)
+#if IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
 #include <linux/exynos-pci-ctrl.h>
+#include <linux/exynos-pci-noti.h>
+#else
+#include <linux/pcie_google_if.h>
+#endif  /* CONFIG_PCI_EXYNOS_GS */
 #endif /* CONFIG_SOC_GOOGLE */
 
 #ifdef DHD_COREDUMP
@@ -51,11 +56,22 @@
 #include <linux/cpufreq.h>
 #endif /* DHD_HOST_CPUFREQ_BOOST */
 
-#define EXYNOS_PCIE_VENDOR_ID 0x144d
-#if defined(CONFIG_SOC_GOOGLE)
-#define EXYNOS_PCIE_DEVICE_ID 0xecec
-#define EXYNOS_PCIE_CH_NUM 0
+#if IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+#define GOOGLE_PCIE_VENDOR_ID 0x144d
+#define GOOGLE_PCIE_DEVICE_ID 0xecec
+#define GOOGLE_PCIE_CH_NUM 0
 #else
+#define GOOGLE_PCIE_VENDOR_ID 0x1ae0
+#define GOOGLE_PCIE_DEVICE_ID 0xc001
+#define GOOGLE_PCIE_CH_NUM 0
+#endif /* CONFIG_PCI_EXYNOS_GS */
+
+#if !IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+uint32 support_l1ss;
+module_param(support_l1ss, uint, 0660);
+#endif /* !IS_ENABLED(CONFIG_PCI_EXYNOS_GS) */
+
+#ifndef CONFIG_SOC_GOOGLE
 #error "Not supported platform"
 #endif /* CONFIG_SOC_GOOGLE */
 
@@ -85,14 +101,14 @@ static uint hw_stage_val = 0;
 /* force to switch to small core at beginning */
 static bool is_irq_on_big_core = TRUE;
 static bool is_plat_pcie_resume = FALSE;
-
-static int pcie_ch_num = EXYNOS_PCIE_CH_NUM;
-#if defined(CONFIG_SOC_GOOGLE)
+#if IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+extern int exynos_pcie_register_event(struct exynos_pcie_register_event *reg);
+extern int exynos_pcie_deregister_event(struct exynos_pcie_register_event *reg);
 #define EXYNOS_PCIE_RC_ONOFF
 extern int exynos_pcie_pm_resume(int);
 extern void exynos_pcie_pm_suspend(int);
 extern int exynos_pcie_l1_exit(int ch_num);
-#endif /* CONFIG_SOC_GOOGLE */
+extern int exynos_pcie_rc_l1ss_ctrl(int enable, int id, int ch_num);
 
 #ifdef EXYNOS_PCIE_DEBUG
 extern void exynos_pcie_register_dump(int ch_num);
@@ -104,6 +120,7 @@ extern void exynos_pin_dbg_show(unsigned int pin, const char* str);
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 extern void exynos_pcie_set_skip_config(int ch_num, bool val);
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
+#endif /* CONFIG_PCI_EXYNOS_GS */
 
 #ifdef DHD_COREDUMP
 #define DEVICE_NAME "wlan"
@@ -119,6 +136,113 @@ static struct platform_device sscd_dev = {
 		.release       = sscd_release,
 		},
 };
+
+
+/* Google PCIe interface */
+static int pcie_ch_num = GOOGLE_PCIE_CH_NUM;
+static dhd_pcie_event_cb_t g_pfn = NULL;
+
+typedef struct dhd_plat_info {
+#if IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+	struct exynos_pcie_register_event pcie_event;
+	struct exynos_pcie_notify pcie_notify;
+#endif	/* CONFIG_PCI_EXYNOS_GS */
+	struct pci_dev *pdev;
+} dhd_plat_info_t;
+
+#define PCIE_DUMMY() \
+	do { \
+		DHD_TRACE(("%s(): not implemented\n", __func__)); \
+	} while (0);
+
+int pcie_dummy_return(const char *s)
+{
+	DHD_TRACE(("%s(): not implemented\n", s));
+
+	return 0;
+}
+
+#if IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+#define _pcie_pm_resume(ch) exynos_pcie_pm_resume(ch)
+#define _pcie_pm_suspend(ch) exynos_pcie_pm_suspend(ch)
+#define _pcie_l1_exit(ch) exynos_pcie_l1_exit(ch)
+#define _pcie_rc_l1ss_ctrl(enable, id, ch) exynos_pcie_rc_l1ss_ctrl(enable, id, 1)
+#ifdef EXYNOS_PCIE_DEBUG
+#define _pcie_register_dump(ch) exynos_pcie_register_dump(ch)
+#endif /* EXYNOS_PCIE_DEBUG */
+#ifdef PRINT_WAKEUP_GPIO_STATUS
+#define _pcie_pin_dbg_show(pin, str) exynos_pin_dbg_show(pin, str)
+#endif /* PRINT_WAKEUP_GPIO_STATUS */
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+#define _pcie_set_skip_config(ch, val)	exynos_pcie_set_skip_config(ch, val)
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
+
+static void
+_pcie_notify_cb(struct exynos_pcie_notify *pcie_notify)
+{
+	struct pci_dev *pdev;
+
+	if (pcie_notify == NULL) {
+		DHD_TRACE(("%s(): Invalid argument to Platform layer call back \r\n", __func__));
+		return;
+	}
+
+	if (g_pfn) {
+		pdev = (struct pci_dev *)pcie_notify->user;
+		DHD_TRACE(("%s(): Invoking DHD call back with pdev %p \r\n",
+			__func__, pdev));
+		(*(g_pfn))(pdev);
+	} else {
+		DHD_TRACE(("%s(): Driver Call back pointer is NULL \r\n", __func__));
+	}
+}
+
+static int
+_pcie_register_event(struct dhd_plat_info *p, struct pci_dev *pdev, dhd_pcie_event_cb_t pfn)
+{
+#ifdef PCIE_CPL_TIMEOUT_RECOVERY
+	p->pcie_event.events = EXYNOS_PCIE_EVENT_LINKDOWN | EXYNOS_PCIE_EVENT_CPL_TIMEOUT;
+#else
+	p->pcie_event.events = EXYNOS_PCIE_EVENT_LINKDOWN;
+#endif /* PCIE_CPL_TIMEOUT_RECOVERY */
+	p->pcie_event.user = pdev;
+	p->pcie_event.mode = EXYNOS_PCIE_TRIGGER_CALLBACK;
+	p->pcie_event.callback = _pcie_notify_cb;
+	exynos_pcie_register_event(&p->pcie_event);
+	DHD_TRACE(("%s(): Registered Event PCIe event pdev %p \r\n", __func__, pdev));
+	return 0;
+}
+
+static void
+_pcie_deregister_event(struct dhd_plat_info *p)
+{
+	if (p) {
+		exynos_pcie_deregister_event(&p->pcie_event);
+	}
+}
+#else
+#define PCI_EXP_LINKCAP2_SPEED_MASK (PCI_EXP_LNKCAP2_SLS_2_5GB | PCI_EXP_LNKCAP2_SLS_5_0GB  | \
+				     PCI_EXP_LNKCAP2_SLS_8_0GB | PCI_EXP_LNKCAP2_SLS_16_0GB | \
+				     PCI_EXP_LNKCAP2_SLS_32_0GB | PCI_EXP_LNKCAP2_SLS_64_0GB)
+static int dhd_pcie_poweron(int ch_num);
+#define _pcie_pm_resume(ch) dhd_pcie_poweron(ch)
+#define _pcie_pm_suspend(ch) google_pcie_rc_poweroff(ch)
+static int dhd_pcie_l1_exit(int ch_num);
+static int dhd_pcie_l1ss_ctrl(int enable, int ch_num);
+#define _pcie_l1_exit(ch) dhd_pcie_l1_exit(ch)
+#define _pcie_rc_l1ss_ctrl(enable, id, ch) dhd_pcie_l1ss_ctrl(enable, ch)
+#ifdef EXYNOS_PCIE_DEBUG
+#define _pcie_register_dump(ch) PCIE_DUMMY()
+#endif /* EXYNOS_PCIE_DEBUG */
+#ifdef PRINT_WAKEUP_GPIO_STATUS
+#define _pcie_pin_dbg_show(pin, str) PCIE_DUMMY()
+#endif /* PRINT_WAKEUP_GPIO_STATUS */
+#ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
+#define _pcie_set_skip_config(ch, val) PCIE_DUMMY()
+#endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
+#define _pcie_register_event(plat_info, pdev, pfn) pcie_dummy_return(__func__)
+#define _pcie_deregister_event(plat_info) PCIE_DUMMY()
+#endif	/* CONFIG_PCI_EXYNOS_GS */
 
 static void sscd_release(struct device *dev)
 {
@@ -669,7 +793,6 @@ dhd_wlan_reset(int onoff)
 static int
 dhd_wlan_set_carddetect(int val)
 {
-#ifdef EXYNOS_PCIE_RC_ONOFF
 	struct device_node *root_node = NULL;
 	char *wlan_node = DHD_DT_COMPAT_ENTRY;
 
@@ -685,86 +808,38 @@ dhd_wlan_set_carddetect(int val)
 	}
 	/* ========== WLAN_PCIE_NUM ============ */
 	DHD_INFO(("%s: pcie_ch_num : %d\n", __FUNCTION__, pcie_ch_num));
-#endif /* EXYNOS_PCIE_RC_ONOFF */
 
 	if (val) {
-		exynos_pcie_pm_resume(pcie_ch_num);
+		_pcie_pm_resume(pcie_ch_num);
 	} else {
 		printk(KERN_INFO "%s Ignore carddetect: %d\n", __FUNCTION__, val);
 	}
 	return 0;
 }
 
-#include <linux/exynos-pci-noti.h>
-extern int exynos_pcie_register_event(struct exynos_pcie_register_event *reg);
-extern int exynos_pcie_deregister_event(struct exynos_pcie_register_event *reg);
-
-#include <dhd_plat.h>
-
-typedef struct dhd_plat_info {
-	struct exynos_pcie_register_event pcie_event;
-	struct exynos_pcie_notify pcie_notify;
-	struct pci_dev *pdev;
-} dhd_plat_info_t;
-
-static dhd_pcie_event_cb_t g_pfn = NULL;
-
 uint32 dhd_plat_get_info_size(void)
 {
 	return sizeof(dhd_plat_info_t);
 }
 
-void plat_pcie_notify_cb(struct exynos_pcie_notify *pcie_notify)
-{
-	struct pci_dev *pdev;
-
-	if (pcie_notify == NULL) {
-		pr_err("%s(): Invalid argument to Platform layer call back \r\n", __func__);
-		return;
-	}
-
-	if (g_pfn) {
-		pdev = (struct pci_dev *)pcie_notify->user;
-		pr_err("%s(): Invoking DHD call back with pdev %p \r\n",
-				__func__, pdev);
-		(*(g_pfn))(pdev);
-	} else {
-		pr_err("%s(): Driver Call back pointer is NULL \r\n", __func__);
-	}
-	return;
-}
-
 int dhd_plat_pcie_register_event(void *plat_info, struct pci_dev *pdev, dhd_pcie_event_cb_t pfn)
 {
-		dhd_plat_info_t *p = plat_info;
+	dhd_plat_info_t *p = plat_info;
 
-		if ((p == NULL) || (pdev == NULL) || (pfn == NULL)) {
-			pr_err("%s(): Invalid argument p %p, pdev %p, pfn %p\r\n",
-				__func__, p, pdev, pfn);
-			return -1;
-		}
-		g_pfn = pfn;
-		p->pdev = pdev;
-#ifdef PCIE_CPL_TIMEOUT_RECOVERY
-		p->pcie_event.events = EXYNOS_PCIE_EVENT_LINKDOWN | EXYNOS_PCIE_EVENT_CPL_TIMEOUT;
-#else
-		p->pcie_event.events = EXYNOS_PCIE_EVENT_LINKDOWN;
-#endif /* PCIE_CPL_TIMEOUT_RECOVERY */
-		p->pcie_event.user = pdev;
-		p->pcie_event.mode = EXYNOS_PCIE_TRIGGER_CALLBACK;
-		p->pcie_event.callback = plat_pcie_notify_cb;
-		exynos_pcie_register_event(&p->pcie_event);
-		pr_err("%s(): Registered Event PCIe event pdev %p \r\n", __func__, pdev);
-		return 0;
+	if ((p == NULL) || (pdev == NULL) || (pfn == NULL)) {
+		pr_err("%s(): Invalid argument p %p, pdev %p, pfn %p\r\n",
+			__func__, p, pdev, pfn);
+		return -1;
+	}
+	g_pfn = pfn;
+	p->pdev = pdev;
+
+	return _pcie_register_event(p, pdev, pfn);
 }
 
 void dhd_plat_pcie_deregister_event(void *plat_info)
 {
-	dhd_plat_info_t *p = plat_info;
-	if (p) {
-		exynos_pcie_deregister_event(&p->pcie_event);
-	}
-	return;
+	_pcie_deregister_event(plat_info);
 }
 
 static int
@@ -1076,6 +1151,14 @@ dhd_wlan_init(void)
 	dhd_wlan_init_hardware_info();
 #endif /* SUPPORT_MULTIPLE_NVRAM || SUPPORT_MULTIPLE_CLMBLOB */
 
+#if !IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+#ifdef DHD_SUPPORT_L1SS
+	support_l1ss = TRUE;
+#else
+	support_l1ss = FALSE;
+#endif /* DHD_SUPPORT_L1SS */
+#endif /* !IS_ENABLED(CONFIG_PCI_EXYNOS_GS) */
+
 fail:
 	DHD_PRINT(("%s: FINISH.......\n", __FUNCTION__));
 	return ret;
@@ -1102,7 +1185,7 @@ void dhd_plat_l1ss_ctrl(bool ctrl)
 {
 #if defined(CONFIG_SOC_GOOGLE)
 	DHD_CONS_ONLY(("%s: Control L1ss RC side %d \n", __FUNCTION__, ctrl));
-	exynos_pcie_rc_l1ss_ctrl(ctrl, PCIE_L1SS_CTRL_WIFI, 1);
+	_pcie_rc_l1ss_ctrl(ctrl, PCIE_L1SS_CTRL_WIFI, pcie_ch_num);
 #endif /* CONFIG_SOC_GOOGLE */
 	return;
 }
@@ -1110,27 +1193,27 @@ void dhd_plat_l1ss_ctrl(bool ctrl)
 void dhd_plat_l1_exit_io(void)
 {
 #if defined(DHD_PCIE_L1_EXIT_DURING_IO)
-	exynos_pcie_l1_exit(pcie_ch_num);
+	_pcie_l1_exit(pcie_ch_num);
 #endif /* DHD_PCIE_L1_EXIT_DURING_IO */
 	return;
 }
 
 void dhd_plat_l1_exit(void)
 {
-	exynos_pcie_l1_exit(pcie_ch_num);
+	_pcie_l1_exit(pcie_ch_num);
 	return;
 }
 
 int dhd_plat_pcie_suspend(void *plat_info)
 {
-	exynos_pcie_pm_suspend(pcie_ch_num);
+	_pcie_pm_suspend(pcie_ch_num);
 	return 0;
 }
 
 int dhd_plat_pcie_resume(void *plat_info)
 {
 	int ret = 0;
-	ret = exynos_pcie_pm_resume(pcie_ch_num);
+	ret = _pcie_pm_resume(pcie_ch_num);
 	is_plat_pcie_resume = TRUE;
 	return ret;
 }
@@ -1138,25 +1221,25 @@ int dhd_plat_pcie_resume(void *plat_info)
 void dhd_plat_pin_dbg_show(void *plat_info)
 {
 #ifdef PRINT_WAKEUP_GPIO_STATUS
-	exynos_pin_dbg_show(dhd_get_wlan_oob_gpio_number(), "gpa0");
+	_pcie_pin_dbg_show(dhd_get_wlan_oob_gpio_number(), "gpa0");
 #endif /* PRINT_WAKEUP_GPIO_STATUS */
 }
 
 void dhd_plat_pcie_register_dump(void *plat_info)
 {
 #ifdef EXYNOS_PCIE_DEBUG
-	exynos_pcie_register_dump(1);
+	_pcie_register_dump(pcie_ch_num);
 #endif /* EXYNOS_PCIE_DEBUG */
 }
 
 uint32 dhd_plat_get_rc_vendor_id(void)
 {
-	return EXYNOS_PCIE_VENDOR_ID;
+	return GOOGLE_PCIE_VENDOR_ID;
 }
 
 uint32 dhd_plat_get_rc_device_id(void)
 {
-	return EXYNOS_PCIE_DEVICE_ID;
+	return GOOGLE_PCIE_DEVICE_ID;
 }
 
 #define RXBUF_ALLOC_PAGE_SIZE
@@ -1182,7 +1265,7 @@ void dhd_plat_pcie_skip_config_set(bool val)
 {
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 	DHD_PRINT(("%s: set skip config\n", __FUNCTION__));
-	exynos_pcie_set_skip_config(pcie_ch_num, val);
+	_pcie_set_skip_config(pcie_ch_num, val);
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
 }
 
@@ -1195,3 +1278,90 @@ bool dhd_plat_pcie_enable_big_core(void)
 /* Required only for Built-in DHD */
 device_initcall(dhd_wlan_init);
 #endif /* BCMDHD_MODULAR */
+
+#if !IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
+static struct pci_dev *
+dhd_get_pcidev(int ch_num)
+{
+	struct pci_bus *pci_bus;
+	struct pci_dev *pci_dev = NULL;
+
+	pci_bus = pci_find_bus(ch_num, 1);
+	if (pci_bus) {
+		pci_dev = pci_get_slot(pci_bus, PCI_DEVFN(0, 0));
+		if (!pci_dev)
+			pr_err("Endpoint device for channel %d not found\n", ch_num);
+	} else
+		pr_err("Child bus-1 for channel %d not found\n", ch_num);
+
+	return pci_dev;
+}
+
+static int
+dhd_pcie_l1ss_ctrl(int enable, int ch_num)
+{
+	int ret;
+	int aspm_state = 0;
+	struct pci_dev *pci_dev = dhd_get_pcidev(ch_num);
+
+	if (!pci_dev) {
+		pr_err("Endpoint device for channel %d not found\n", ch_num);
+		return -ENODEV;
+	}
+
+	/* TODO: enable PCIE_LINK_STATE_CLKPM */
+	if (support_l1ss & enable) {
+		aspm_state = PCIE_LINK_STATE_L1 |
+				PCIE_LINK_STATE_L1_1;
+	}
+
+	DHD_PRINT(("%s: Set aspm link state %x (support_l1ss = %d)\n",
+		__FUNCTION__, aspm_state, support_l1ss));
+	ret = pci_enable_link_state(pci_dev, aspm_state);
+	pci_dev_put(pci_dev);
+	return ret;
+}
+
+static int
+dhd_pcie_poweron(int ch_num)
+{
+	int ret;
+	u16 val;
+	static u8 speed;
+	struct pci_dev *pci_dev;
+
+	/*
+	 * First poweron will happen at the controller's max-link-speed as
+	 * configured in device tree.  Once link is up, EP will be queried
+	 * for max link speed which is used for subsequent poweron events
+	 */
+	if (!speed) {
+		ret = google_pcie_rc_poweron(ch_num);
+		if (ret)
+			return ret;
+
+		pci_dev = dhd_get_pcidev(ch_num);
+		if (pci_dev == NULL)
+			return 0;
+
+		if (pcie_capability_read_word(pci_dev, PCI_EXP_LNKCAP2, &val) != 0)
+			return 0;
+
+		val &= PCI_EXP_LINKCAP2_SPEED_MASK;
+		if (fls(val) >= 2) {
+			speed = fls(val) - 1;
+			DHD_INFO(("%s: Using GEN%d link speed\n", __FUNCTION__, speed));
+		}
+
+		return 0;
+	}
+
+	return google_pcie_poweron_withspeed(ch_num, speed);
+}
+
+static int
+dhd_pcie_l1_exit(int ch_num)
+{
+	return dhd_pcie_l1ss_ctrl(0, ch_num);
+}
+#endif /* !IS_ENABLED(CONFIG_PCI_EXYNOS_GS) */

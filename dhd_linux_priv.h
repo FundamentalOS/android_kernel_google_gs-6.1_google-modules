@@ -31,6 +31,9 @@
 #include <event_log.h>
 #endif /* SHOW_LOGTRACE */
 #include <linux/skbuff.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/clock.h>
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0) */
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
 #ifdef CONFIG_COMPAT

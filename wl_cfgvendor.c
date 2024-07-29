@@ -8156,6 +8156,7 @@ wl_cfgvendor_if_infra_enh_ifstats_counters(struct net_device *dev, u8 link_id,
 		offsetof(wl_stats_report_t, data) - BCM_XTLV_HDR_SIZE,
 		BCM_XTLV_OPTION_ALIGN32);
 	if (ret) {
+		WL_ERR(("bcm put buf init if counters header failed, ret=%d\n", ret));
 		goto fail;
 	}
 
@@ -8169,12 +8170,14 @@ wl_cfgvendor_if_infra_enh_ifstats_counters(struct net_device *dev, u8 link_id,
 		offsetof(wl_stats_report_t, data),
 		BCM_XTLV_OPTION_ALIGN32);
 	if (ret) {
+		WL_ERR(("bcm put buf init if counters failed, ret=%d\n", ret));
 		goto fail;
 	}
 
 	ret = bcm_xtlv_put_data(&local_xtlvbuf,
 		WL_IFSTATS_XTLV_INFRA_SPECIFIC, NULL, 0);
 	if (ret) {
+		WL_ERR(("bcm put infra specific data failed, ret=%d\n", ret));
 		goto fail;
 	}
 
@@ -8185,6 +8188,7 @@ wl_cfgvendor_if_infra_enh_ifstats_counters(struct net_device *dev, u8 link_id,
 		WL_IFSTATS_XTLV_IF,
 		NULL, bcm_xtlv_buf_len(&local_xtlvbuf));
 	if (ret) {
+		WL_ERR(("bcm put data if stats xtlv failed, ret=%d\n", ret));
 		goto fail;
 	}
 
@@ -8203,6 +8207,7 @@ wl_cfgvendor_if_infra_enh_ifstats_counters(struct net_device *dev, u8 link_id,
 	/* version check */
 	if (response->version != WL_STATS_REPORT_REQUEST_VERSION_V2) {
 		ret = BCME_VERSION;
+		WL_ERR(("if_counters version mismatch ret=%d\n", ret));
 		goto fail;
 	}
 
@@ -8286,6 +8291,7 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	err = wldev_ioctl_get(bcmcfg_to_prmry_ndev(cfg), WLC_GET_REVINFO, &revinfo,
 			sizeof(revinfo));
 	if (err != BCME_OK) {
+		WL_ERR(("failed to get device rev info, err=%d\n", err));
 		goto exit;
 	}
 
@@ -8405,6 +8411,13 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 			WIFI_VSDB_TIMESLICE_DUTY_CYCLE);
 	}
 
+	if (!wl_get_drv_status(cfg, CONNECTED, inet_ndev)) {
+		WL_ERR(("Sta is not connected to an AP!\n"));
+		COMPAT_MEMCOPY_IFACE(*output, *total_len, wifi_link_stat, iface, wifi_rate_stat_v1);
+		err = BCME_OK;
+		goto exit;
+	}
+
 	COMPAT_ASSIGN_VALUE(iface, num_peers, NUM_PEER);
 
 	err = wldev_link_iovar_getbuf(inet_ndev, link_idx, "bss_peer_info",
@@ -8430,13 +8443,12 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 			WL_ERR(("Error (%d) in getting nrate\n", err));
 			goto exit;
 		}
-
 		if (WL_CFG_RSPEC_ISEHT(rspec)) {
 			num_rate = NUM_RATE;
 		} else {
 			num_rate = NUM_RATE_NONBE;
 		}
-		WL_DBG_MEM(("num_rate %d\n", num_rate));
+		WL_INFORM_MEM(("num_rate %d\n", num_rate));
 		COMPAT_ASSIGN_VALUE(iface, peer_info->num_rate, num_rate);
 	}
 
@@ -8452,6 +8464,8 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 		err = BCME_OK;
 	} else if (err == BCME_NOTASSOCIATED) {
 		WL_ERR(("bssload_report IOVAR failed. STA is not associated.\n"));
+		err = BCME_OK;
+		goto exit;
 	} else {
 		WL_ERR(("error (%d) - size = %zu\n", err, sizeof(wl_bssload_t)));
 		goto exit;
@@ -10930,7 +10944,7 @@ wl_cfgvendor_tx_power_scenario(struct wiphy *wiphy,
 				break;
 			default:
 				WL_ERR(("SAR: invalid wifi tx power scenario = %d\n",
-					sar_tx_power_val));
+					wifi_tx_power_mode));
 				err = -EINVAL;
 				goto exit;
 		}
@@ -12692,7 +12706,7 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 	u32 mask = 0;
 	uint32 channel;
 	uint32 freq, width;
-	uint32 chspec, chaninfo;
+	uint32 chspec, chaninfo, cfg_chaninfo;
 	u16 list_count;
 	int found_idx = BCME_NOTFOUND;
 	bool ch_160mhz_5g;
@@ -12903,6 +12917,14 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 					/* handle 2G and 5G channels */
 					if (!(chaninfo & WL_CHAN_P2P_PROHIBITED)) {
 						mask |= (1 << WIFI_INTERFACE_P2P_GO);
+					}
+
+					if (CHSPEC_IS2G(chspec) ||
+						(CHSPEC_IS5G(chspec) &&
+						((wl_cfgscan_get_chan_info(cfg,
+						&cfg_chaninfo, chspec) == BCME_OK) &&
+						!((cfg_chaninfo & WL_CHAN_RADAR) ||
+						(cfg_chaninfo & WL_CHAN_PASSIVE))))) {
 						mask |= (1 << WIFI_INTERFACE_SOFTAP);
 					}
 #ifdef WL_NAN_INSTANT_MODE
