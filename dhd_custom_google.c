@@ -93,14 +93,24 @@ static int wlan_host_wake_irq = 0;
 #endif /* CONFIG_BCMDHD_OOB_HOST_WAKE */
 #define WIFI_WLAN_HOST_WAKE_PROPNAME    "wl_host_wake"
 
+#if defined(DHD_CUSTOM_PKT_COUNT_ENABLE)
+static uint64 tx_pkt_cnt = 0;
+static uint64 rx_pkt_cnt = 0;
+static uint64 tx_pkt_timestamp = 0;
+static uint64 rx_pkt_timestamp = 0;
+static uint64 tx_pkt_delta = 0;
+static uint64 rx_pkt_delta = 0;
+#else
 static int resched_streak = 0;
 static int resched_streak_max = 0;
+#endif
+
 static uint64 last_resched_cnt_check_time_ns = 0;
 static uint64 last_affinity_update_time_ns = 0;
 static uint hw_stage_val = 0;
+static bool is_irq_on_big_core = FALSE;
 /* force to switch to small core at beginning */
-static bool is_irq_on_big_core = TRUE;
-static bool is_plat_pcie_resume = FALSE;
+static bool is_plat_pcie_resume = TRUE;
 #if IS_ENABLED(CONFIG_PCI_EXYNOS_GS)
 extern int exynos_pcie_register_event(struct exynos_pcie_register_event *reg);
 extern int exynos_pcie_deregister_event(struct exynos_pcie_register_event *reg);
@@ -862,21 +872,31 @@ module_param(dhd_cpufreq_boost, uint, 0660);
 
 #define DHD_CPUFREQ_LITTLE      0u
 #define DHD_CPUFREQ_BIG         4u
-#define DHD_CPUFREQ_BIGGER      8u
+#define DHD_LITTLE_CORE_PERF_FREQ   1849000u
+#define DHD_MID_CORE_PERF_FREQ      2450000u
+#define DHD_BIG_CORE_PERF_FREQ      3015000u
+
+enum core_idx {
+	LITTLE = 0,
+	MID = 1,
+	BIG = 2,
+	CORE_IDX_MAX
+};
 
 typedef struct _dhd_host_cpufreq {
 	uint32 cpuid;
 	uint32 orig_min_freq;
+	uint32 target_freq;
 } dhd_host_cpufreq;
 
 static dhd_host_cpufreq dhd_host_cpufreq_tbl [] =
 {
 	/* Little Core, 0-3 */
-	{DHD_CPUFREQ_LITTLE, 0},
+	{DHD_CPUFREQ_LITTLE, 0, DHD_LITTLE_CORE_PERF_FREQ},
 	/* Big Core, 4-7 */
-	{DHD_CPUFREQ_BIG, 0},
+	{DHD_CPUFREQ_BIG, 0, DHD_MID_CORE_PERF_FREQ},
 	/* Bigger Core, 8-11 */
-	{DHD_CPUFREQ_BIGGER, 0}
+	{DHD_CPUFREQ_BIGGER, 0, DHD_BIG_CORE_PERF_FREQ}
 };
 
 /*
@@ -975,38 +995,312 @@ void dhd_set_max_cpufreq(void)
 }
 #endif /* DHD_HOST_CPUFREQ_BOOST */
 
+#if defined(DHD_CUSTOM_PKT_COUNT_ENABLE)
+#if defined(DHD_HOST_CPUFREQ_BOOST)
+static void dhd_set_all_cpufreq(void)
+{
+	struct cpufreq_policy *policy;
+	int i, arr_len;
+	int num_cpus = num_possible_cpus();
+	uint32 cpuid, orig_min_freq;
+
+	arr_len = sizeof(dhd_host_cpufreq_tbl) / sizeof(dhd_host_cpufreq_tbl[0]);
+
+	for (i = 0; i < arr_len; i++) {
+		cpuid = dhd_host_cpufreq_tbl[i].cpuid;
+		orig_min_freq = dhd_host_cpufreq_tbl[i].orig_min_freq;
+
+		/* cpuid check logic */
+		if (cpuid >= num_cpus) {
+			DHD_ERROR(("%s: cpuid not available cpuid:%d num_cpus:%d\n",
+				__FUNCTION__, cpuid, num_cpus));
+			continue;
+		}
+
+		policy = cpufreq_cpu_get(cpuid);
+		if (policy) {
+			/* backup min freq */
+			if (!orig_min_freq)
+				dhd_host_cpufreq_tbl[i].orig_min_freq = policy->min;
+
+			if (policy->max < dhd_host_cpufreq_tbl[i].target_freq) {
+				policy->min = policy->max;
+			} else {
+				policy->min = dhd_host_cpufreq_tbl[i].target_freq;
+			}
+			if (!orig_min_freq) {
+				DHD_PRINT(("%s: min to max. policy%d cur:%u"
+					" orig_min:%u min:%u max:%u\n",
+					__FUNCTION__, cpuid, policy->cur,
+					dhd_host_cpufreq_tbl[i].orig_min_freq,
+					policy->min, policy->max));
+			} else {
+				DHD_INFO(("%s: min to max. policy%d cur:%u"
+					" orig_min:%u min:%u max:%u\n",
+					__FUNCTION__, cpuid, policy->cur,
+					dhd_host_cpufreq_tbl[i].orig_min_freq,
+					policy->min, policy->max));
+
+			}
+			cpufreq_cpu_put(policy);
+		}
+	}
+}
+
+static void dhd_set_cpufreq(enum core_idx idx)
+{
+	struct cpufreq_policy *policy;
+	int arr_len;
+	int num_cpus = num_possible_cpus();
+	uint32 cpuid, orig_min_freq;
+
+	arr_len = sizeof(dhd_host_cpufreq_tbl) / sizeof(dhd_host_cpufreq_tbl[0]);
+
+	if (idx >= arr_len) {
+		DHD_ERROR(("%s: Invalid core index(%d)\n", __FUNCTION__, idx));
+	}
+
+	cpuid = dhd_host_cpufreq_tbl[idx].cpuid;
+	orig_min_freq = dhd_host_cpufreq_tbl[idx].orig_min_freq;
+
+	/* cpuid check logic */
+	if (cpuid >= num_cpus) {
+		DHD_ERROR(("%s: cpuid not available cpuid:%d num_cpus:%d\n",
+		__FUNCTION__, cpuid, num_cpus));
+		return;
+	}
+
+	/* already in boost mode */
+
+	if (orig_min_freq) {
+		return;
+	}
+
+	policy = cpufreq_cpu_get(cpuid);
+	if (policy) {
+		/* backup min freq */
+		dhd_host_cpufreq_tbl[idx].orig_min_freq = policy->min;
+		if (policy->max < dhd_host_cpufreq_tbl[idx].target_freq) {
+			policy->min = policy->max;
+		} else {
+			policy->min = dhd_host_cpufreq_tbl[idx].target_freq;
+		}
+		DHD_PRINT(("%s: min to max. policy%d cur:%u orig_min:%u min:%u max:%u\n",
+			__FUNCTION__, cpuid, policy->cur,
+			dhd_host_cpufreq_tbl[idx].orig_min_freq,
+			policy->min, policy->max));
+		cpufreq_cpu_put(policy);
+	}
+}
+
+static void dhd_plat_reset_trx_pktcount(void)
+{
+	tx_pkt_cnt = 0;
+	rx_pkt_cnt = 0;
+	tx_pkt_timestamp = 0;
+	rx_pkt_timestamp = 0;
+	tx_pkt_delta = 0;
+	rx_pkt_delta = 0;
+}
+#endif /* DHD_HOST_CPUFREQ_BOOST */
+
+void dhd_plat_tx_pktcount(void *plat_info, uint cnt)
+{
+	uint64 time_delta_s = 0;
+
+	if (!tx_pkt_cnt || cnt < tx_pkt_cnt) {
+		tx_pkt_cnt = cnt;
+		tx_pkt_timestamp = OSL_SYSUPTIME_US();
+		return;
+	}
+
+	/* covert time unit from usec to sec, and use bit shift to
+	 * approximate the operation of divide 10^6
+	 * BIT20 = 1048576
+	 * This way we can reduce computations in isr
+	 */
+	time_delta_s = (OSL_SYSUPTIME_US() - tx_pkt_timestamp) >> 20;
+	if (time_delta_s > 1) {
+
+	/*
+	 * When Tput goes up, pkt will be fired more frequently, then
+	 * we only update intr_freq every 2 sec
+	 * So we divide pkt_delta by 2 and shift 1 bit right
+	 * When Tput is low, then time_delta_s might be longer than 2 sec
+	 * Which means pkt_delta won't reach reach PKT_COUNT_HIGH anyway
+	 * In this case, we don't need the actual pkt_delta,
+	 * so if we keep pkt_delta divided by 2 for simplicity
+	 *
+	 */
+		tx_pkt_delta = (cnt - tx_pkt_cnt) >> 1;
+		tx_pkt_cnt = cnt;
+		tx_pkt_timestamp = OSL_SYSUPTIME_US();
+	}
+}
+
+void dhd_plat_rx_pktcount(void *plat_info, uint cnt)
+{
+	uint64 time_delta_s = 0;
+
+	if (!rx_pkt_cnt || cnt < rx_pkt_cnt) {
+		rx_pkt_cnt = cnt;
+		rx_pkt_timestamp = OSL_SYSUPTIME_US();
+		return;
+	}
+
+	/* covert time unit from usec to sec, and use bit shift to
+	 * approximate the operation of divide 10^6
+	 * BIT20 = 1048576
+	 * This way we can reduce computations in isr
+	 */
+	time_delta_s = (OSL_SYSUPTIME_US() - rx_pkt_timestamp) >> 20;
+	if (time_delta_s > 1) {
+
+	/*
+	 * When Tput goes up, pkt will be fired more frequently, then
+	 * we only update intr_freq every 2 sec
+	 * So we divide pkt_delta by 2 and shift 1 bit right
+	 * When Tput is low, then time_delta_s might be longer than 2 sec
+	 * Which means pkt_delta won't reach reach PKT_COUNT_HIGH anyway
+	 * In this case, we don't need the actual pkt_delta,
+	 * so if we keep pkt_delta divided by 2 for simplicity
+	 *
+	 */
+		rx_pkt_delta = (cnt - rx_pkt_cnt) >> 1;
+		rx_pkt_cnt = cnt;
+		rx_pkt_timestamp = OSL_SYSUPTIME_US();
+	}
+}
+
+static bool is_high_traffic(void)
+{
+	return ((tx_pkt_delta > PKT_COUNT_HIGH)||(rx_pkt_delta > PKT_COUNT_HIGH));
+}
+
+static bool is_mid_traffic(void)
+{
+	return  (((tx_pkt_delta < PKT_COUNT_HIGH) && (tx_pkt_delta > PKT_COUNT_MID)) ||
+	     ((rx_pkt_delta < PKT_COUNT_HIGH) && (rx_pkt_delta > PKT_COUNT_MID)));
+}
+
+static bool is_low_traffic(void)
+{
+	return ((tx_pkt_delta < PKT_COUNT_LOW)&&(rx_pkt_delta < PKT_COUNT_LOW));
+}
+
+#else /* DHD_CUSTOM_PKT_COUNT_ENABLE */
+#if defined(DHD_HOST_CPUFREQ_BOOST)
+static void dhd_set_all_cpufreq(void)
+{
+	dhd_set_max_cpufreq();
+}
+
+static void dhd_set_cpufreq(enum core_idx idx)
+{
+	return;
+}
+
+static void dhd_plat_reset_trx_pktcount(void)
+{
+	return;
+}
+#endif /* DHD_HOST_CPUFREQ_BOOST */
+
+void dhd_plat_tx_pktcount(void *plat_info, uint cnt)
+{
+	return;
+}
+
+void dhd_plat_rx_pktcount(void *plat_info, uint cnt)
+{
+	return;
+}
+
+static bool is_high_traffic(void)
+{
+	return (resched_streak_max >= RESCHED_STREAK_MAX_HIGH);
+}
+
+static bool is_mid_traffic(void)
+{
+	return false;
+}
+
+static bool is_low_traffic(void)
+{
+	return (resched_streak_max <= RESCHED_STREAK_MAX_LOW);
+}
+#endif /* DHD_CUSTOM_PKT_COUNT_ENABLE */
+
 static void
-irq_affinity_hysteresis_control(struct pci_dev *pdev, int resched_streak_max,
+irq_affinity_hysteresis_control(struct pci_dev *pdev,
 	uint64 curr_time_ns)
 {
 	int err = 0;
 	bool has_recent_affinity_update = (curr_time_ns - last_affinity_update_time_ns)
 		< (AFFINITY_UPDATE_MIN_PERIOD_SEC * NSEC_PER_SEC);
+	/*
+	 * To prevent pingpong effect, 16 times of AFFINITY_UPDATE_MIN_PERIOD_SEC
+	 * is used to drop irq affinity to small core.
+	 */
+	bool has_less_recent_affinity_update = (curr_time_ns - last_affinity_update_time_ns)
+		< ((AFFINITY_UPDATE_MIN_PERIOD_SEC << 4 )  * NSEC_PER_SEC);
 	if (!pdev) {
 		DHD_ERROR(("%s : pdev is NULL\n", __FUNCTION__));
 		return;
 	}
 
-	if (!is_irq_on_big_core && (resched_streak_max >= RESCHED_STREAK_MAX_HIGH) &&
-		!has_recent_affinity_update) {
-		err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_BIG_CORE));
-		if (!err) {
-			is_irq_on_big_core = TRUE;
-			last_affinity_update_time_ns = curr_time_ns;
-#ifdef DHD_HOST_CPUFREQ_BOOST
-			if (dhd_cpufreq_boost) {
-				dhd_set_max_cpufreq();
+	if (is_high_traffic() &&
+		(is_irq_on_big_core || !has_recent_affinity_update)) {
+		if (!is_irq_on_big_core) {
+			err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_BIG_CORE));
+			if (!err) {
+				is_irq_on_big_core = TRUE;
+				is_plat_pcie_resume = FALSE;
+				last_affinity_update_time_ns = curr_time_ns;
+				DHD_INFO(("%s switches to big core successfully\n", __FUNCTION__));
+			} else {
+				DHD_ERROR(("%s switches to big core unsuccessfully!\n",
+					 __FUNCTION__));
 			}
+		}
+#ifdef DHD_HOST_CPUFREQ_BOOST
+		if (dhd_cpufreq_boost) {
+			dhd_set_all_cpufreq();
+		}
 #endif /* DHD_HOST_CPUFREQ_BOOST */
-			DHD_INFO(("%s switches to big core successfully\n", __FUNCTION__));
-		} else {
-			DHD_ERROR(("%s switches to big core unsuccessfully!\n", __FUNCTION__));
+	}
+
+#if defined(DHD_HOST_CPUFREQ_BOOST)
+	if (is_mid_traffic()) {
+		if (!is_irq_on_big_core && !dhd_is_cpufreq_boosted()) {
+			if (dhd_cpufreq_boost) {
+				dhd_set_cpufreq(MID);
+			}
+		} else if (is_irq_on_big_core && !has_less_recent_affinity_update) {
+			err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_SMALL_CORE));
+			if (!err) {
+				is_irq_on_big_core = FALSE;
+				is_plat_pcie_resume = FALSE;
+				last_affinity_update_time_ns = curr_time_ns;
+				if (dhd_is_cpufreq_boosted()) {
+					dhd_restore_cpufreq();
+				}
+				if (dhd_cpufreq_boost) {
+					dhd_set_cpufreq(MID);
+				}
+			}
 		}
 	}
+#endif /* DHD_HOST_CPUFREQ_BOOST */
+
 	if (is_plat_pcie_resume ||
-		(is_irq_on_big_core && (resched_streak_max <= RESCHED_STREAK_MAX_LOW) &&
-		!has_recent_affinity_update)) {
-		err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_SMALL_CORE));
+		(is_low_traffic() && dhd_is_cpufreq_boosted() &&
+		!has_less_recent_affinity_update)) {
+		err = 0;
+		if (is_plat_pcie_resume || is_irq_on_big_core) {
+			err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_SMALL_CORE));
+		}
 		if (!err) {
 			is_irq_on_big_core = FALSE;
 			is_plat_pcie_resume = FALSE;
@@ -1035,6 +1329,7 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 	uint64 curr_time_ns;
 	uint64 time_delta_ns;
 
+#if !defined(DHD_CUSTOM_PKT_COUNT_ENABLE)
 	if (resched > 0) {
 		resched_streak++;
 		if (resched_streak <= RESCHED_STREAK_MAX_HIGH) {
@@ -1047,6 +1342,10 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 	}
 	resched_streak = 0;
 
+	DHD_INFO(("%s resched_streak_max=%d\n",
+		__FUNCTION__, resched_streak_max));
+#endif /* DHD_CUSTOM_PKT_COUNT_ENABLE */
+
 	curr_time_ns = OSL_LOCALTIME_NS();
 	time_delta_ns = curr_time_ns - last_resched_cnt_check_time_ns;
 	if (time_delta_ns < (RESCHED_CNT_CHECK_PERIOD_SEC * NSEC_PER_SEC)) {
@@ -1054,12 +1353,10 @@ void dhd_plat_report_bh_sched(void *plat_info, int resched)
 	}
 	last_resched_cnt_check_time_ns = curr_time_ns;
 
-	DHD_INFO(("%s resched_streak_max=%d\n",
-		__FUNCTION__, resched_streak_max));
-
-	irq_affinity_hysteresis_control(p->pdev, resched_streak_max, curr_time_ns);
-
+	irq_affinity_hysteresis_control(p->pdev, curr_time_ns);
+#if !defined(DHD_CUSTOM_PKT_COUNT_ENABLE)
 	resched_streak_max = 0;
+#endif
 	return;
 }
 
@@ -1215,6 +1512,7 @@ int dhd_plat_pcie_resume(void *plat_info)
 	int ret = 0;
 	ret = _pcie_pm_resume(pcie_ch_num);
 	is_plat_pcie_resume = TRUE;
+	dhd_plat_reset_trx_pktcount();
 	return ret;
 }
 
