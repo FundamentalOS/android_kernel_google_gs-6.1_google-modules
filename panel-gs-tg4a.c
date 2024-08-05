@@ -846,7 +846,7 @@ static void tg4a_set_nolp_mode(struct gs_panel *ctx,
 {
 	const struct gs_panel_mode *current_mode = ctx->current_mode;
 	unsigned int vrefresh = current_mode ? drm_mode_vrefresh(&current_mode->mode) : 30;
-	unsigned int te_usec = current_mode ? current_mode->gs_mode.te_usec : 1109;
+	unsigned int te_usec = current_mode ? current_mode->gs_mode.te_usec : 1106;
 	struct device *dev = ctx->dev;
 
 	if (!gs_is_panel_active(ctx))
