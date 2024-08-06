@@ -2593,7 +2593,7 @@ dhd_rtt_timeout(dhd_pub_t *dhd)
 #ifdef DHD_DUMP_ON_RTT_TIMEOUT
 	/* Dump, and Panic depending on memdump.info */
 #ifdef BCMDONGLEHOST
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		goto exit;
 	}
 #ifdef DHD_FW_COREDUMP

@@ -2153,7 +2153,7 @@ wl_cfgscan_handle_scanbusy(struct bcm_cfg80211 *cfg, struct net_device *ndev, s3
 			s32 ret = 0;
 #ifdef BCMDONGLEHOST
 			dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
-			if (dhd_query_bus_erros(dhdp)) {
+			if (dhd_query_bus_errors(dhdp)) {
 				return BCME_NOTREADY;
 			}
 			dhdp->scan_busy_occurred = TRUE;
@@ -3905,7 +3905,7 @@ static void wl_scan_timeout(unsigned long data)
 	}
 
 #ifdef BCMDONGLEHOST
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		return;
 	}
 

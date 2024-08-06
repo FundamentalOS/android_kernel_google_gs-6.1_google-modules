@@ -408,6 +408,7 @@ typedef struct dhd_bus {
 #endif /* PCIE_OOB */
 	bool	irq_registered;
 	bool	d2h_intr_method;
+	bool	d2h_intr_control;
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #if defined(CONFIG_ARCH_MSM) || (defined(CONFIG_ARCH_EXYNOS) && \
 	!defined(SUPPORT_EXYNOS7420))
@@ -464,6 +465,10 @@ typedef struct dhd_bus {
 	bool	oob_presuspend;
 #endif /* PCIE_OOB || BCMPCIE_OOB_HOST_WAKE */
 	dhdpcie_config_save_t saved_config;
+	ulong host_irq_enable_count;
+	ulong host_irq_disable_count;
+	ulong dngl_intmask_disable_count;
+	ulong dngl_intmask_enable_count;
 	ulong resume_intr_enable_count;
 	ulong dpc_intr_enable_count;
 	ulong isr_intr_disable_count;
@@ -607,6 +612,11 @@ extern uint enable_msi;
 enum {
 	PCIE_INTX = 0,
 	PCIE_MSI = 1
+};
+
+enum {
+	PCIE_D2H_INTMASK_CTRL = 0,
+	PCIE_HOST_IRQ_CTRL = 1
 };
 
 static INLINE bool
@@ -759,6 +769,7 @@ extern uint8 dhdpcie_clkreq(osl_t *osh, uint32 mask, uint32 val);
 extern int dhdpcie_disable_irq(dhd_bus_t *bus);
 extern int dhdpcie_disable_irq_nosync(dhd_bus_t *bus);
 extern int dhdpcie_enable_irq(dhd_bus_t *bus);
+extern void dhdpcie_enable_irq_loop(dhd_bus_t *bus);
 
 extern void dhd_bus_dump_dar_registers(struct dhd_bus *bus);
 

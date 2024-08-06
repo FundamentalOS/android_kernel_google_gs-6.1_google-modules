@@ -2780,7 +2780,7 @@ fail:
 		SUPP_LOG(("IF_ADD fail. err:%d\n", err));
 		wl_flush_fw_log_buffer(primary_ndev, FW_LOGSET_MASK_ALL);
 #if defined(BCMDONGLEHOST)
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			goto exit;
 		}
 		dhd->iface_op_failed = TRUE;
@@ -2984,7 +2984,7 @@ exit:
 			/* IF dongle is down due to previous hang or other conditions, sending
 			* one more hang notification is not needed.
 			*/
-			if (dhd_query_bus_erros(dhd) || (ret == BCME_DONGLE_DOWN)) {
+			if (dhd_query_bus_errors(dhd) || (ret == BCME_DONGLE_DOWN)) {
 				goto end;
 			}
 			dhd->iface_op_failed = TRUE;
@@ -7378,7 +7378,7 @@ wl_cfg80211_add_key(struct wiphy *wiphy, struct net_device *dev,
 #endif /* BCMDONGLEHOST */
 
 #if defined (BCMDONGLEHOST)
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		/* If we are hit with bus error, return success so that
 		 * don't repeatedly call del station till we recover.
 		 */
@@ -7602,7 +7602,7 @@ wl_cfg80211_del_key(struct wiphy *wiphy, struct net_device *dev,
 	uint8 iov_buf[WLC_IOCTL_SMLEN] = {0};
 
 #if defined (BCMDONGLEHOST)
-	if (dhd_query_bus_erros(dhdp)) {
+	if (dhd_query_bus_errors(dhdp)) {
 		/* If we are hit with bus error, return success so that
 		 * don't repeatedly call del station till we recover.
 		 */
@@ -23784,7 +23784,7 @@ wl_cfg80211_handle_hang_event(struct net_device *ndev, uint16 hang_reason, uint3
 		 * sending 0ne more hang notification is not needed.
 		 */
 
-		if (dhd_query_bus_erros(dhd)) {
+		if (dhd_query_bus_errors(dhd)) {
 			return BCME_ERROR;
 		}
 		dhd->iface_op_failed = TRUE;

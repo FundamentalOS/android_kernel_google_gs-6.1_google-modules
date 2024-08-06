@@ -1080,6 +1080,17 @@ int dhdpcie_bus_attach(osl_t *osh, dhd_bus_t **bus_ptr,
 		bus->hp2p_txcpl_max_items = DHD_MAX_ITEMS_HPP_TXCPL_RING;
 		bus->hp2p_rxcpl_max_items = DHD_MAX_ITEMS_HPP_RXCPL_RING;
 #endif /* DHD_HP2P */
+#ifdef NDIS
+		/* For NDIS use D2H INTMASK based control */
+		bus->d2h_intr_control = PCIE_D2H_INTMASK_CTRL;
+#else
+		/* For MSI, use host irq based control and for INTX use D2H INTMASK based control */
+		if (bus->d2h_intr_method == PCIE_MSI) {
+			bus->d2h_intr_control = PCIE_HOST_IRQ_CTRL;
+		} else {
+			bus->d2h_intr_control = PCIE_D2H_INTMASK_CTRL;
+		}
+#endif /* NDIS */
 
 		DHD_TRACE(("%s: EXIT SUCCESS\n",
 			__FUNCTION__));
@@ -1551,17 +1562,18 @@ skip_intstatus_read:
 
 		bus->isr_intr_disable_count++;
 
-#ifdef NDIS
-		/* TODO: for NDIS also we need to use disable_irq in future */
-		dhdpcie_bus_intr_disable(bus); /* Disable interrupt using IntMask!! */
-#else /* !NDIS */
-		/* For Linux, Macos etc (otherthan NDIS) instead of disabling
-		* dongle interrupt by clearing the IntMask, disable directly
-		* interrupt from the host side, so that host will not recieve
-		* any interrupts at all, even though dongle raises interrupts
-		*/
-		dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
-#endif /* !NDIS */
+		/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
+		 * using dongle intmask to control INTR enable/disable
+		 */
+		if (bus->d2h_intr_control == PCIE_HOST_IRQ_CTRL) {
+			if (!dhdpcie_irq_disabled(bus)) {
+				bus->host_irq_disable_count++;
+				dhdpcie_disable_irq_nosync(bus); /* Disable interrupt!! */
+			}
+		} else {
+			dhdpcie_bus_intr_disable(bus); /* Disable interrupt using IntMask!! */
+			bus->dngl_intmask_disable_count++;
+		}
 
 		bus->intdis = TRUE;
 #ifdef DHD_FLOW_RING_STATUS_TRACE
@@ -2598,7 +2610,7 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 		 * Hence induce DB7 trap during detach and in FW trap handler all
 		 * power resources are held high.
 		 */
-		if (!dhd_query_bus_erros(dhdp) && dhdp->db7_trap.fw_db7w_trap) {
+		if (!dhd_query_bus_errors(dhdp) && dhdp->db7_trap.fw_db7w_trap) {
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 			dhdpcie_fw_trap(dhdp->bus);
 			OSL_DELAY(100 * 1000); // wait 100 msec
@@ -3224,7 +3236,7 @@ bool dhd_bus_watchdog(dhd_pub_t *dhd)
 	unsigned long flags;
 	dhd_bus_t *bus = dhd->bus;
 
-	if (dhd_query_bus_erros(bus->dhd)) {
+	if (dhd_query_bus_errors(bus->dhd)) {
 		return FALSE;
 	}
 
@@ -9644,7 +9656,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		return BCME_ERROR;
 	}
 
-	if (dhd_query_bus_erros(bus->dhd)) {
+	if (dhd_query_bus_errors(bus->dhd)) {
 		return BCME_ERROR;
 	}
 
@@ -9804,7 +9816,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 				bus->pcie_mailbox_int, 0, 0);
 			int host_irq_disabled = dhdpcie_irq_disabled(bus);
 			if ((intstatus) && (intstatus != (uint32)-1) &&
-				(timeleft == 0) && (!dhd_query_bus_erros(bus->dhd))) {
+				(timeleft == 0) && (!dhd_query_bus_errors(bus->dhd))) {
 				DHD_ERROR(("%s: D3 ACK trying again intstatus=%x"
 					" host_irq_disabled=%d\n",
 					__FUNCTION__, intstatus, host_irq_disabled));
@@ -9883,29 +9895,12 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 					DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 				}
 #endif /* PCIE_INB_DW */
-				/* For Linux, Macos etc (otherthan NDIS) enable back the dongle
-				 * interrupts using intmask and host interrupts
-				 * which were disabled in the dhdpcie_bus_isr()->
-				 * dhd_bus_handle_d3_ack().
-				 */
-				/* Enable back interrupt using Intmask!! */
-				dhdpcie_bus_intr_enable(bus);
-#ifndef NDIS /* !NDIS */
-				/* Defer enabling host irq after RPM suspend failure */
-				if (!DHD_BUS_BUSY_CHECK_RPM_SUSPEND_IN_PROGRESS(bus->dhd)) {
-					/* Enable back interrupt from Host side!! */
-					if (dhdpcie_irq_disabled(bus)) {
-						dhdpcie_enable_irq(bus);
-						bus->resume_intr_enable_count++;
-					}
-				}
-#else
 				/* Enable back the intmask which was cleared in DPC
 				 * after getting D3_ACK.
 				 */
-				bus->resume_intr_enable_count++;
+				dhdpcie_bus_intr_enable(bus);
+				bus->dngl_intmask_enable_count++;
 
-#endif /* !NDIS */
 				if (bus->use_d0_inform) {
 					DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 					dhdpcie_send_mb_data(bus,
@@ -10001,7 +9996,7 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 #endif /* DHD_FW_COREDUMP */
 
 			/* check if the D3 ACK timeout due to scheduling issue */
-			bus->dhd->is_sched_error = !dhd_query_bus_erros(bus->dhd) &&
+			bus->dhd->is_sched_error = !dhd_query_bus_errors(bus->dhd) &&
 				dhd_bus_query_dpc_sched_errors(bus->dhd);
 			bus->dhd->d3ack_timeout_occured = TRUE;
 			/* If the D3 Ack has timeout */
@@ -10191,23 +10186,11 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 		/* resume all interface network queue. */
 		dhd_bus_start_queue(bus);
 
-		/* For Linux, Macos etc (otherthan NDIS) enable back the dongle interrupts
-		 * using intmask and host interrupts
-		 * which were disabled in the dhdpcie_bus_isr()->dhd_bus_handle_d3_ack().
+		/* Enable back the intmask which was cleared in DPC
+		 * after getting D3_ACK.
 		 */
-		dhdpcie_bus_intr_enable(bus); /* Enable back interrupt using Intmask!! */
-#ifndef NDIS /* !NDIS */
-		/* Defer enabling host interrupt until RPM resume done */
-		if (!DHD_BUS_BUSY_CHECK_RPM_RESUME_IN_PROGRESS(bus->dhd)) {
-			if (dhdpcie_irq_disabled(bus)) {
-				dhdpcie_enable_irq(bus);
-				bus->resume_intr_enable_count++;
-			}
-		}
-#else
-		/* TODO: for NDIS also we need to use enable_irq in future */
-		bus->resume_intr_enable_count++;
-#endif /* !NDIS */
+		dhdpcie_bus_intr_enable(bus);
+		bus->dngl_intmask_enable_count++;
 
 		DHD_GENERAL_UNLOCK(bus->dhd, flags);
 
@@ -11643,9 +11626,13 @@ void dhd_dump_intr_counters(dhd_pub_t *dhd, struct bcmstrbuf *strbuf)
 	bcm_bprintf(strbuf, "\n ------- DUMPING INTR enable/disable counters-------\n");
 	bcm_bprintf(strbuf, "resume_intr_enable_count=%lu dpc_intr_enable_count=%lu\n"
 		"isr_intr_disable_count=%lu suspend_intr_disable_count=%lu\n"
+		"host_irq_disable_count=%lu host_irq_enable_count=%lu\n"
+		"dngl_intmask_disable_count=%lu dngl_intmask_enable_count=%lu\n"
 		"dpc_return_busdown_count=%lu non_ours_irq_count=%lu\n",
 		bus->resume_intr_enable_count, bus->dpc_intr_enable_count,
 		bus->isr_intr_disable_count, bus->suspend_intr_disable_count,
+		bus->host_irq_disable_count, bus->host_irq_enable_count,
+		bus->dngl_intmask_disable_count, bus->dngl_intmask_enable_count,
 		bus->dpc_return_busdown_count, bus->non_ours_irq_count);
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	bcm_bprintf(strbuf, "oob_intr_count=%lu oob_intr_enable_count=%lu"
@@ -12014,8 +12001,9 @@ void dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 			dhdp->bus->inband_host_sleep_exit_to_cnt);
 	}
 #endif /* PCIE_INB_DW */
-	bcm_bprintf(strbuf, "d2h_intr_method -> %s\n",
-		dhdp->bus->d2h_intr_method ? "PCIE_MSI" : "PCIE_INTX");
+	bcm_bprintf(strbuf, "d2h_intr_method -> %s d2h_intr_control -> %s\n",
+		dhdp->bus->d2h_intr_method ? "PCIE_MSI" : "PCIE_INTX",
+		dhdp->bus->d2h_intr_control ? "HOST_IRQ" : "D2H_INTMASK");
 
 	bcm_bprintf(strbuf, "\n\nDB7 stats - db7_send_cnt: %d, db7_trap_cnt: %d, "
 		"max duration: %lld (%lld - %lld), db7_timing_error_cnt: %d\n",
@@ -12199,7 +12187,7 @@ dhd_update_txflowrings(dhd_pub_t *dhd)
 	struct dhd_bus *bus = dhd->bus;
 	int count = 0;
 
-	if (dhd_query_bus_erros(dhd)) {
+	if (dhd_query_bus_errors(dhd)) {
 		return;
 	}
 
@@ -12512,14 +12500,14 @@ dhd_bus_dw_deassert(dhd_pub_t *dhd)
 	dhd_bus_t *bus = dhd->bus;
 	unsigned long flags;
 
-	if (dhd_query_bus_erros(bus->dhd)) {
+	if (dhd_query_bus_errors(bus->dhd)) {
 		return;
 	}
 
 	/* If haven't communicated with device for a while, deassert the Device_Wake GPIO */
 	if (dhd_doorbell_timeout != 0 && bus->dhd->busstate == DHD_BUS_DATA &&
 		dhd_timeout_expired(&bus->doorbell_timer) &&
-		!dhd_query_bus_erros(bus->dhd)) {
+		!dhd_query_bus_errors(bus->dhd)) {
 		DHD_GENERAL_LOCK(dhd, flags);
 		if (DHD_BUS_BUSY_CHECK_IDLE(dhd) &&
 			!DHD_CHECK_CFG_IN_PROGRESS(dhd)) {
@@ -12769,8 +12757,22 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 
 	bus->dpc_entry_time = OSL_LOCALTIME_NS();
 
-	if (dhd_query_bus_erros(bus->dhd)) {
+	if (dhd_query_bus_errors(bus->dhd)) {
 		return 0;
+	}
+
+	/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
+	 * using dongle intmask to control INTR enable/disable
+	 */
+	if (bus->d2h_intr_control == PCIE_HOST_IRQ_CTRL) {
+		/*
+		 * Disable IRQ at start of DPC if it is not disabled and
+		 * Enable back at the end of dpc if irq is disabled.
+		 */
+		if (!dhdpcie_irq_disabled(bus)) {
+			bus->host_irq_disable_count++;
+			dhdpcie_disable_irq_nosync(bus); /* Disable host IRQ!! */
+		}
 	}
 
 	DHD_GENERAL_LOCK(bus->dhd, flags);
@@ -12795,19 +12797,19 @@ BCMFASTPATH(dhd_bus_dpc)(struct dhd_bus *bus)
 	resched = dhdpcie_bus_process_mailbox_intr(bus, bus->intstatus);
 	if (!resched) {
 		bus->intstatus = 0;
-#ifdef NDIS
-		/* TODO: for NDIS also we need to use enable_irq in future */
-		dhdpcie_bus_intr_enable(bus); /* Enable back interrupt using Intmask!! */
-		bus->dpc_intr_enable_count++;
-#else /* !NDIS */
-		/* For Linux, Macos etc (otherthan NDIS) enable back the host interrupts
-		 * which has been disabled in the dhdpcie_bus_isr()
-		 */
-		if ((dhdpcie_irq_disabled(bus)) && (!dhd_query_bus_erros(bus->dhd))) {
-			dhdpcie_enable_irq(bus); /* Enable back interrupt!! */
-			bus->dpc_intr_enable_count++;
+		if (!dhd_query_bus_errors(bus->dhd)) {
+			/* Due to irq mismatch WARNING in linux, currently keeping it disabled and
+			 * using dongle intmask to control INTR enable/disable
+			 */
+			if (bus->d2h_intr_control == PCIE_HOST_IRQ_CTRL) {
+				bus->host_irq_enable_count += dhdpcie_irq_disabled(bus);
+				dhdpcie_enable_irq_loop(bus);
+			} else {
+				/* Enable back interrupt using Intmask! */
+				dhdpcie_bus_intr_enable(bus);
+				bus->dngl_intmask_enable_count++;
+			}
 		}
-#endif /* !NDIS */
 		bus->dpc_exit_time = OSL_LOCALTIME_NS();
 	} else {
 		bus->resched_dpc_time = OSL_LOCALTIME_NS();
@@ -12913,19 +12915,15 @@ fail:
 static void
 dhd_bus_handle_d3_ack(dhd_bus_t *bus)
 {
+	bus->dngl_intmask_disable_count++;
 	bus->suspend_intr_disable_count++;
 	/* Disable dongle Interrupts Immediately after D3 */
 
-	/* For Linux, Macos etc (otherthan NDIS) along with disabling
-	 * dongle interrupt by clearing the IntMask, disable directly
-	 * interrupt from the host side as well. Also clear the intstatus
+	/* Disable dongle interrupts by intmask and clear the intstatus
 	 * if it is set to avoid unnecessary intrrupts after D3 ACK.
 	 */
 	dhdpcie_bus_intr_disable(bus); /* Disable interrupt using IntMask!! */
 	dhdpcie_bus_clear_intstatus(bus);
-#ifndef NDIS /* !NDIS */
-	dhdpcie_disable_irq_nosync(bus); /* Disable host interrupt!! */
-#endif /* !NDIS */
 
 	DHD_SET_BUS_LPS_D3_ACKED(bus);
 	DHD_RPM(("%s: D3_ACK Recieved\n", __FUNCTION__));
@@ -13300,7 +13298,7 @@ dhd_bus_handle_intx_ahead_dma_indices(dhd_bus_t *bus)
 		return;
 	}
 
-	if (dhd_query_bus_erros(bus->dhd)) {
+	if (dhd_query_bus_errors(bus->dhd)) {
 		return;
 	}
 
@@ -13426,7 +13424,7 @@ dhdpci_bus_read_frames(dhd_bus_t *bus)
 		return FALSE;
 	}
 
-	if (dhd_query_bus_erros(bus->dhd)) {
+	if (dhd_query_bus_errors(bus->dhd)) {
 		DHD_ERROR(("%s: detected bus errors. Hence donot process msg rings\n",
 			__FUNCTION__));
 		return FALSE;
@@ -14330,6 +14328,8 @@ int dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 
 	bus->hostready_count = 0;
 
+	bus->dngl_intmask_disable_count = 0;
+	bus->dngl_intmask_enable_count = 0;
 exit:
 	if (MULTIBP_ENAB(bus->sih)) {
 		dhd_bus_pcie_pwr_req_clear(bus);
@@ -17241,8 +17241,12 @@ dhd_pcie_intr_count_dump(dhd_pub_t *dhd)
 	DHD_ERROR(("\n ------- DUMPING INTR enable/disable counters  ------- \r\n"));
 	DHD_ERROR(("resume_intr_enable_count=%lu dpc_intr_enable_count=%lu\n",
 		bus->resume_intr_enable_count, bus->dpc_intr_enable_count));
+	DHD_ERROR(("dngl_intmask_enable_count=%lu host_irq_enable_count=%lu\n",
+		bus->dngl_intmask_enable_count, bus->host_irq_enable_count));
 	DHD_ERROR(("isr_intr_disable_count=%lu suspend_intr_disable_count=%lu\n",
 		bus->isr_intr_disable_count, bus->suspend_intr_disable_count));
+	DHD_ERROR(("host_irq_disable_count=%lu dngl_intmask_disable_count=%lu\n",
+		bus->host_irq_disable_count, bus->dngl_intmask_disable_count));
 #ifdef BCMPCIE_OOB_HOST_WAKE
 	DHD_ERROR(("oob_intr_count=%lu oob_intr_enable_count=%lu oob_intr_disable_count=%lu\n",
 		bus->oob_intr_count, bus->oob_intr_enable_count,
