@@ -10596,6 +10596,9 @@ wl_cfgnan_attach(struct bcm_cfg80211 *cfg)
 	WL_ERR(("refcnt after NAN NMI ndev reg: %d, cfg->nmi_ndev.name %s\n",
 			refcnt, cfg->nmi_ndev->name));
 
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_ERR(("refcnt after NAN NMI ndev reg: %d, cfg->nmi_ndev.name %s\n",
+			refcnt, cfg->nmi_ndev->name));
 done:
 	return err;
 
