@@ -10,8 +10,6 @@ M ?= $(shell pwd)
 KBUILD_OPTIONS	+= CONFIG_TOUCHSCREEN_NT36xxx_HOSTDL_SPI=m
 EXTRA_CFLAGS	+= -DDYNAMIC_DEBUG_MODULE
 EXTRA_CFLAGS	+= -DNVT_TS_PANEL_BRIDGE
-EXTRA_CFLAGS	+= -DGOOG_TOUCH_INTERFACE
-#EXTRA_CFLAGS	+= -DCONFIG_TOUCHSCREEN_TBN
 
 EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/touch/common/Module.symvers
 EXTRA_SYMBOLS	+= $(OUT_DIR)/../private/google-modules/touch/common/usi/Module.symvers

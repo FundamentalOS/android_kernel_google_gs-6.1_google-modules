@@ -375,7 +375,7 @@ struct nvt_ts_data {
 	/*
 	 * Stylus context used by touch_offload
 	 */
-#ifdef GOOG_TOUCH_INTERFACE
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	struct TouchOffloadCoord pen_offload_coord;
 #endif
 	ktime_t pen_offload_coord_timestamp;

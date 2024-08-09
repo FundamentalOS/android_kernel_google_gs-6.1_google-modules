@@ -57,9 +57,7 @@
 static void nvt_ts_suspend_work(struct work_struct *work);
 static void nvt_ts_resume_work(struct work_struct *work);
 #endif
-#ifdef GOOG_TOUCH_INTERFACE
 static const struct dev_pm_ops goog_pm_ops;
-#endif
 
 #if NVT_TOUCH_ESD_PROTECT
 static struct delayed_work nvt_esd_check_work;
@@ -498,6 +496,7 @@ void nvt_fw_crc_enable(void)
 	uint16_t clear_cmd_size = 0;
 	uint16_t crc_cmd_size = 0;
 
+#if defined(CONFIG_SOC_GOOGLE)
 	if (nvt_ts_check_tid(ts, tid_nt36523n)) {
 		clear_cmd_size = 7;
 		crc_cmd_size = 3;
@@ -505,6 +504,10 @@ void nvt_fw_crc_enable(void)
 		clear_cmd_size = 2;
 		crc_cmd_size = 2;
 	}
+#else
+	clear_cmd_size = 2;
+	crc_cmd_size = 2;
+#endif
 
 	//---set xdata index to EVENT BUF ADDR---
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
@@ -1665,11 +1668,8 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		return IRQ_HANDLED;
 
 	if (ts->bTouchIsAwake == false && ts->irq_enabled == false) {
-#ifdef GOOG_TOUCH_INTERFACE
 		u32 locks = goog_pm_wake_get_locks(ts->gti);
-#else
-		u32 locks = 0;
-#endif
+
 		NVT_LOG("Skipping stray interrupt, locks %#x wkg_option %#x!\n",
 			locks, ts->wkg_option);
 		return IRQ_HANDLED;
@@ -1872,7 +1872,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 		ts->touch_heatmap_comp_len = 0;
 	}
 
-#ifndef GOOG_TOUCH_INTERFACE
+#if !IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	if (ts->heatmap_data_type && finger_cnt) {
 		uint8_t *spi_buf = NULL;
 		uint32_t spi_buf_size = 0;
@@ -1916,7 +1916,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			}
 		}
 	}
-#endif	/* !GOOG_TOUCH_INTERFACE */
+#endif	/* !IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE) */
 
 	if (ts->pen_support) {
 		/*
@@ -1967,7 +1967,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 				if (!ts->pen_active) {
 					ts->pen_active = 1;
 				}
-#ifdef GOOG_TOUCH_INTERFACE
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 				ts->pen_offload_coord.status = COORD_STATUS_PEN;
 				ts->pen_offload_coord.x = usi_event.x;
 				ts->pen_offload_coord.y = usi_event.y;
@@ -2006,7 +2006,7 @@ static irqreturn_t nvt_ts_work_func(int irq, void *data)
 			/* Snapshot some stylus context information for offload */
 			ts->pen_active = 0;
 			ts->pen_offload_coord_timestamp = ts->timestamp;
-#ifdef GOOG_TOUCH_INTERFACE
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 			memset(&ts->pen_offload_coord, 0,
 			       sizeof(ts->pen_offload_coord));
 #endif
@@ -2573,28 +2573,21 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 		NVT_ERR("goog_touch_interface probe failed. ret=%d!\n", ret);
 		goto err_goog_touch_interface;
 	}
-#ifdef GOOG_TOUCH_INTERFACE
+
 	ret = goog_pm_register_notification(ts->gti, &goog_pm_ops);
 	if (ret) {
 		NVT_ERR("pm register failed. ret=%d!\n", ret);
 		goto err_goog_pm_register;
 	}
-#endif
 
 	//---set int-pin & request irq---
 	client->irq = gpio_to_irq(ts->irq_gpio);
 	if (client->irq) {
 		NVT_LOG("int_trigger_type=%d\n", ts->int_trigger_type);
 		ts->irq_enabled = true;
-#ifdef GOOG_TOUCH_INTERFACE
 		ret = goog_request_threaded_irq(ts->gti, client->irq,
 				nvt_ts_isr, nvt_ts_work_func,
 				ts->int_trigger_type | IRQF_ONESHOT, NVT_SPI_NAME, ts);
-#else
-		ret = request_threaded_irq(client->irq,
-				nvt_ts_isr, nvt_ts_work_func,
-				ts->int_trigger_type | IRQF_ONESHOT, NVT_SPI_NAME, ts);
-#endif
 		if (ret != 0) {
 			NVT_ERR("request irq failed. ret=%d\n", ret);
 			goto err_int_request_failed;
@@ -2777,10 +2770,8 @@ err_create_nvt_fwu_wq_failed:
 #endif
 	free_irq(client->irq, ts);
 err_int_request_failed:
-#ifdef GOOG_TOUCH_INTERFACE
 	goog_pm_unregister_notification(ts->gti);
 err_goog_pm_register:
-#endif
 	goog_touch_interface_remove(ts->gti);
 err_goog_touch_interface:
 	goog_usi_unregister(ts->g_usi_handle);
@@ -2888,9 +2879,7 @@ static void nvt_ts_remove(struct spi_device *client)
 	nvt_irq_enable(false);
 	free_irq(client->irq, ts);
 
-#ifdef GOOG_TOUCH_INTERFACE
 	goog_pm_unregister_notification(ts->gti);
-#endif
 	goog_touch_interface_remove(ts->gti);
 
 	mutex_destroy(&ts->bus_mutex);
@@ -3002,9 +2991,7 @@ return:
 int nvt_ts_suspend(struct device *dev)
 {
 	uint8_t buf[4] = {0};
-#ifndef GOOG_TOUCH_INTERFACE
-	uint32_t i = 0;
-#endif
+	uint32_t __maybe_unused i = 0;
 	struct g_usi_event_leave usi_event_leave;
 
 	if (!ts->bTouchIsAwake) {
@@ -3030,7 +3017,7 @@ int nvt_ts_suspend(struct device *dev)
 	reinit_completion(&ts->bus_resumed);
 	ts->bTouchIsAwake = false;
 
-#ifndef GOOG_TOUCH_INTERFACE
+#if !IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	/* release all touches */
 	goog_input_lock(ts->gti);
 	goog_input_set_timestamp(ts->gti, ts->input_dev, ktime_get());
@@ -3058,7 +3045,7 @@ int nvt_ts_suspend(struct device *dev)
 
 		ts->pen_active = 0;
 		ts->pen_offload_coord_timestamp = ts->timestamp;
-#ifdef GOOG_TOUCH_INTERFACE
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 		memset(&ts->pen_offload_coord, 0,
 				sizeof(ts->pen_offload_coord));
 #endif
@@ -3391,12 +3378,10 @@ static const struct dev_pm_ops nvt_ts_dev_pm_ops = {
 	.resume = nvt_ts_pm_resume,
 };
 #endif
-#ifdef GOOG_TOUCH_INTERFACE
 static const struct dev_pm_ops goog_pm_ops = {
 	.suspend = nvt_ts_suspend,
 	.resume = nvt_ts_resume,
 };
-#endif
 
 static struct spi_driver nvt_spi_driver = {
 	.probe		= nvt_ts_probe,
