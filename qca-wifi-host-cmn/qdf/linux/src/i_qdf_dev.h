@@ -134,7 +134,15 @@ __qdf_dev_set_irq_affinity(uint32_t irnum, struct qdf_cpu_mask *cpmask)
  */
 static inline int __qdf_topology_physical_package_id(unsigned int cpu)
 {
+#if defined(CONFIG_WCN_GOOGLE)
+	if (cpu == 4) {
+		return CPU_CLUSTER_TYPE_PERF;
+	} else {
+		return topology_cluster_id(cpu);
+	}
+#else
 	return topology_cluster_id(cpu);
+#endif
 }
 #else
 /**
