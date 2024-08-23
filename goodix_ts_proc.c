@@ -1,8 +1,9 @@
-#include "goodix_ts_core.h"
 #include <linux/fs.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/version.h>
+
+#include "goodix_ts_core.h"
 
 #define CMD_FW_UPDATE "fw_update"
 #define CMD_AUTO_TEST "auto_test"
@@ -55,23 +56,13 @@
 #define CMD_DISABLE_FILTER "disable_filter"
 #define CMD_GET_IM_DATA "get_im_data"
 #define CMD_SET_HSYNC_SPEED "set_hsync_speed"
+#define CMD_SET_WIRELESS_CHARGE "set_wireless_charge"
+#define CMD_SET_CONTINUE_HEATMAP "set_continue_heatmap"
 
-const static char *cmd_list[] = { CMD_FW_UPDATE, CMD_AUTO_TEST, CMD_OPEN_TEST,
-	CMD_STYLUS_RAW_TEST, CMD_STYLUS_OSC_TEST,
-	CMD_SELF_OPEN_TEST, CMD_NOISE_TEST, CMD_AUTO_NOISE_TEST, CMD_SHORT_TEST,
-	CMD_GET_PACKAGE_ID, CMD_GET_MCU_ID, CMD_GET_VERSION, CMD_GET_RAWDATA,
-	CMD_GET_DIFFDATA, CMD_GET_BASEDATA, CMD_GET_SELF_RAWDATA,
-	CMD_GET_SELF_DIFFDATA, CMD_GET_SELF_BASEDATA, CMD_SET_DOUBLE_TAP,
-	CMD_SET_SINGLE_TAP, CMD_SET_LONG_PRESS, CMD_SET_ST_PARAM,
-	CMD_SET_LP_PARAM, CMD_SET_CHARGE_MODE, CMD_SET_IRQ_ENABLE,
-	CMD_SET_ESD_ENABLE, CMD_SET_DEBUG_LOG, CMD_SET_SCAN_MODE,
-	CMD_GET_SCAN_MODE, CMD_SET_CONTINUE_MODE, CMD_GET_CHANNEL_NUM,
-	CMD_GET_TX_FREQ, CMD_RESET, CMD_SET_SENSE_MODE, CMD_GET_CONFIG,
-	CMD_GET_FW_STATUS, CMD_SET_HIGHSENSE_MODE, CMD_SET_GRIP_DATA,
-	CMD_SET_GRIP_MODE, CMD_SET_PALM_MODE, CMD_SET_NOISE_MODE,
-	CMD_SET_WATER_MODE, CMD_SET_HEATMAP, CMD_GET_SELF_COMPEN,
-	CMD_SET_REPORT_RATE, CMD_GET_DUMP_LOG, CMD_GET_STYLUS_DATA,
-	CMD_SET_FREQ_INDEX, CMD_DISABLE_FILTER, CMD_GET_IM_DATA, NULL };
+struct cmd_handler {
+	const char *name;
+	void (*handler)(struct goodix_ts_core *cd, int *buf, int bufsz);
+};
 
 /* test limits keyword */
 #define CSV_TP_SPECIAL_RAW_MIN "special_raw_min"
@@ -98,7 +89,7 @@ const static char *cmd_list[] = { CMD_FW_UPDATE, CMD_AUTO_TEST, CMD_OPEN_TEST,
 #define WATER_FUNC 2
 #define GRIP_FUNC 3
 
-#define SHORT_SIZE 150
+#define SHORT_SIZE 512
 #define LARGE_SIZE (15 * 1024)
 #define HUGE_SIZE  (100 * 1024)
 static char wbuf[SHORT_SIZE];
@@ -1176,8 +1167,13 @@ static int driver_test_open(struct inode *inode, struct file *file)
 	if (ret)
 		return ret;
 	seq_file = (struct seq_file *)file->private_data;
-	if (seq_file)
+	if (seq_file) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
 		seq_file->private = pde_data(inode);
+#else
+		seq_file->private = PDE_DATA(inode);
+#endif
+	}
 
 	mutex_lock(&goodix_devices.mutex);
 	return 0;
@@ -1519,7 +1515,7 @@ static void goodix_save_data(struct goodix_ts_core *cd)
 		index += sprintf(&rbuf[index], "</selfDataRecord>\n");
 	}
 
-    /* save stylus rawdata */
+	/* save stylus rawdata */
 	if (ts_test->item[GTP_STYLUS_RAW_TEST]) {
 		index += sprintf(&rbuf[index], "<StylusRawDataRecord>\n");
 		for (i = 0; i < raw_data_cnt; i++) {
@@ -1846,13 +1842,13 @@ static int goodix_obtain_testlimits(struct goodix_ts_core *cd)
 			raw_limit_max = CSV_TP_SPECIAL_STYLUSRAW_MAX;
 		}
 		ret = parse_csvfile(temp_buf, firmware->size, raw_limit_min,
-		ts_test->stylus_min_limits, 1, tx + rx);
+			ts_test->stylus_min_limits, 1, tx + rx);
 		if (ret < 0) {
 			ts_err("Failed get %s", raw_limit_min);
 			goto exit_free;
 		}
 		ret = parse_csvfile(temp_buf, firmware->size, raw_limit_max,
-		ts_test->stylus_max_limits, 1, tx + rx);
+			ts_test->stylus_max_limits, 1, tx + rx);
 		if (ret < 0) {
 			ts_err("Failed get %s", raw_limit_max);
 			goto exit_free;
@@ -1908,8 +1904,8 @@ static int goodix_delta_test(struct goodix_ts_core *cd)
 			temp = max_val * 1000 / raw;
 			ts_test->deltadata[i].data[j] = temp;
 			if (temp > ts_test->deviation_limits[j]) {
-				ts_err("delta_data[%d] > limits[%d]", temp,
-					ts_test->deviation_limits[j]);
+				// ts_err("delta_data[%d] > limits[%d]",
+				//         temp, ts_test->deviation_limits[j]);
 				ret = -EINVAL;
 			}
 		}
@@ -1918,10 +1914,155 @@ static int goodix_delta_test(struct goodix_ts_core *cd)
 	return ret;
 }
 
+static void print_open_test_ng_data(
+	struct goodix_ts_core *cd, int index, s16 *data)
+{
+	int tx = cd->ic_info.parm.drv_num;
+	int rx = cd->ic_info.parm.sen_num;
+	char *output_buf;
+	int buf_size = (MAX(tx, rx) + 1) * 6;
+	u32 self_raw_addr;
+	s16 self_raw_data[MAX_DRV_NUM + MAX_SEN_NUM];
+	int i, j;
+	int cnt = 0;
+
+	self_raw_addr = cd->ic_info.misc.frame_data_addr +
+			cd->ic_info.misc.frame_data_head_len +
+			cd->ic_info.misc.fw_attr_len +
+			cd->ic_info.misc.fw_log_len +
+			cd->ic_info.misc.mutual_struct_len + 10;
+
+	output_buf = malloc_proc_buffer(buf_size);
+	if (output_buf == NULL) {
+		ts_err("failed to alloc output buffer");
+		return;
+	}
+
+	ts_info("NG Rawdata[%d]:", index);
+	for (i = 0; i < rx; i++) {
+		cnt = 0;
+		memset(output_buf, 0, buf_size);
+		for (j = 0; j < tx; j++)
+			cnt += scnprintf(
+				&output_buf[cnt], buf_size - cnt, "%5d,", data[i * tx + j]);
+		ts_info("%s", output_buf);
+	}
+
+	cd->hw_ops->read(cd, self_raw_addr, (unsigned char *)self_raw_data,
+		(tx + rx) * 2);
+	ts_info("self Tx Raw:");
+	cnt = 0;
+	memset(output_buf, 0, buf_size);
+	for (i = 0; i < tx; i++)
+		cnt += scnprintf(&output_buf[cnt], buf_size - cnt, "%d,",
+			self_raw_data[i]);
+	ts_info("%s", output_buf);
+	ts_info("self Rx Raw:");
+	cnt = 0;
+	memset(output_buf, 0, buf_size);
+	for (i = tx; i < tx + rx; i++)
+		cnt += scnprintf(&output_buf[cnt], buf_size - cnt, "%d,",
+			self_raw_data[i]);
+	ts_info("%s", output_buf);
+
+	free_proc_buffer(&output_buf);
+}
+
+static void print_self_compensation(struct goodix_ts_core *cd)
+{
+	u8 *cfg;
+	u8 *cfg_buf;
+	int len;
+	int cfg_num;
+	int sub_cfg_index;
+	int sub_cfg_len;
+	int tx = cd->ic_info.parm.drv_num;
+	int rx = cd->ic_info.parm.sen_num;
+	char *output_buf;
+	int buf_size = (MAX(tx, rx) + 1) * 6;
+	int cnt;
+	s16 val;
+	int i, j;
+
+	cfg_buf = kzalloc(GOODIX_CFG_MAX_SIZE, GFP_KERNEL);
+	if (cfg_buf == NULL) {
+		ts_err("failed to alloc cfg buffer");
+		return;
+	}
+
+	output_buf = malloc_proc_buffer(buf_size);
+	if (output_buf == NULL) {
+		ts_err("failed to alloc output buffer");
+		goto exit_free_cfg_buf;
+	}
+
+	if (cd->bus->ic_type == IC_TYPE_BERLIN_B) {
+		cd->hw_ops->read(cd, cd->ic_info.misc.auto_scan_cmd_addr,
+			cfg_buf, (tx + rx) * 2);
+		ts_info("self Tx compensation:");
+		cnt = 0;
+		memset(output_buf, 0, buf_size);
+		for (i = 0; i < tx; i++) {
+			val = le16_to_cpup((__le16 *)&cfg_buf[i * 2]);
+			cnt += scnprintf(&output_buf[cnt], buf_size - cnt, "%d,", val);
+		}
+		ts_info("%s", output_buf);
+		cnt = 0;
+		memset(output_buf, 0, buf_size);
+		ts_info("self Tx compensation:");
+		for (i = 0; i < rx; i++) {
+			val = le16_to_cpup((__le16 *)&cfg_buf[tx * 2 + i * 2]);
+			cnt += scnprintf(&output_buf[cnt], buf_size - cnt, "%d,", val);
+		}
+		ts_info("%s", output_buf);
+		goto exit_free;
+	}
+
+	len = cd->hw_ops->read_config(cd, cfg_buf, GOODIX_CFG_MAX_SIZE);
+	if (len < 0) {
+		ts_err("read config failed");
+		goto exit_free;
+	}
+
+	cfg = cfg_buf;
+	cfg_num = cfg[61];
+	cfg += 64;
+	for (i = 0; i < cfg_num; i++) {
+		sub_cfg_len = cfg[0] - 2;
+		sub_cfg_index = cfg[1];
+		if (sub_cfg_index == 13) { // TX self cancel
+			ts_info("self Tx compensation:");
+			cnt = 0;
+			memset(output_buf, 0, buf_size);
+			for (j = 0; j < tx; j++) {
+				val = le16_to_cpup((__le16 *)&cfg[2 + j * 4]) +
+				      le16_to_cpup((__le16 *)&cfg[4 + j * 4]);
+				cnt += scnprintf(&output_buf[cnt], buf_size - cnt, "%d,", val);
+			}
+			ts_info("%s", output_buf);
+		} else if (sub_cfg_index == 14) { // RX self cancel
+			cnt = 0;
+			memset(output_buf, 0, buf_size);
+			ts_info("self Tx compensation:");
+			for (j = 0; j < rx; j++) {
+				val = le16_to_cpup((__le16 *)&cfg[2 + j * 2]);
+				cnt += scnprintf(&output_buf[cnt], buf_size - cnt, "%d,", val);
+			}
+			ts_info("%s", output_buf);
+		}
+		cfg += (sub_cfg_len + 2);
+	}
+
+exit_free:
+	free_proc_buffer(&output_buf);
+exit_free_cfg_buf:
+	kfree(cfg_buf);
+}
+
 static int goodix_open_test(struct goodix_ts_core *cd)
 {
 	u8 *tmp_buf;
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	int tx = cd->ic_info.parm.drv_num;
 	int rx = cd->ic_info.parm.sen_num;
 	u32 sync_addr = cd->ic_info.misc.frame_data_addr;
@@ -1933,6 +2074,7 @@ static int goodix_open_test(struct goodix_ts_core *cd)
 	u16 tmp_freq;
 	u8 val;
 	int retry;
+	bool is_ng;
 
 	raw_addr = cd->ic_info.misc.frame_data_addr +
 		   cd->ic_info.misc.frame_data_head_len +
@@ -2003,26 +2145,27 @@ static int goodix_open_test(struct goodix_ts_core *cd)
 		cd->hw_ops->read(cd, raw_addr, tmp_buf, tx * rx * 2);
 		goodix_rotate_abcd2cbad(tx, rx, (s16 *)tmp_buf, NULL);
 		memcpy((u8 *)ts_test->rawdata[i].data, tmp_buf, tx * rx * 2);
-	}
 
-	/* analysis results */
-	ts_test->result[GTP_CAP_TEST] = TEST_OK;
-	for (i = 0; i < raw_data_cnt; i++) {
+		is_ng = false;
 		for (j = 0; j < tx * rx; j++) {
 			tmp_val = ts_test->rawdata[i].data[j];
 			if (tmp_val > ts_test->max_limits[j] ||
 				tmp_val < ts_test->min_limits[j]) {
-				ts_err("rawdata[%d] out of range[%d %d]",
-					tmp_val, ts_test->min_limits[j],
-					ts_test->max_limits[j]);
 				err_cnt++;
+				is_ng = true;
 			}
 		}
+		if (is_ng)
+			print_open_test_ng_data(
+				cd, i, ts_test->rawdata[i].data);
 	}
 
-	if (err_cnt > 0) {
+	if (err_cnt == 0) {
+		ts_test->result[GTP_CAP_TEST] = TEST_OK;
+	} else {
 		ret = -EINVAL;
 		ts_test->result[GTP_CAP_TEST] = TEST_NG;
+		print_self_compensation(cd);
 	}
 
 	if (goodix_delta_test(cd) == 0)
@@ -2033,10 +2176,11 @@ exit:
 	return ret;
 }
 
+#define SELF_RAWDATA_NG_RETRY 3
 static int goodix_self_open_test(struct goodix_ts_core *cd)
 {
 	u8 *tmp_buf;
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	int tx = cd->ic_info.parm.drv_num;
 	int rx = cd->ic_info.parm.sen_num;
 	u32 sync_addr = cd->ic_info.misc.frame_data_addr;
@@ -2046,6 +2190,7 @@ static int goodix_self_open_test(struct goodix_ts_core *cd)
 	s16 tmp_val;
 	u8 val;
 	int retry;
+	int ng_rty = SELF_RAWDATA_NG_RETRY;
 
 	raw_addr = cd->ic_info.misc.frame_data_addr +
 		   cd->ic_info.misc.frame_data_head_len +
@@ -2056,6 +2201,7 @@ static int goodix_self_open_test(struct goodix_ts_core *cd)
 	if (tmp_buf == NULL)
 		return -ENOMEM;
 
+restart:
 	/* test prepare */
 	temp_cmd.cmd = 0x90;
 	temp_cmd.data[0] = 0x84;
@@ -2105,12 +2251,20 @@ static int goodix_self_open_test(struct goodix_ts_core *cd)
 		tmp_val = ts_test->selfrawdata.data[j];
 		if (tmp_val > ts_test->self_max_limits[j] ||
 			tmp_val < ts_test->self_min_limits[j]) {
-			ts_err("self_rawdata[%d] out of range[%d %d]", tmp_val,
-				ts_test->self_min_limits[j],
-				ts_test->self_max_limits[j]);
+			// ts_err("self_rawdata[%d] out of range[%d %d]",
+			//         tmp_val, ts_test->self_min_limits[j],
+			//         ts_test->self_max_limits[j]);
 			ts_test->result[GTP_SELFCAP_TEST] = TEST_NG;
 			ret = -EINVAL;
 		}
+	}
+
+	if (ts_test->result[GTP_SELFCAP_TEST] == TEST_NG && ng_rty > 0) {
+		ng_rty--;
+		cd->hw_ops->reset(cd, goodix_get_normal_reset_delay(cd));
+		ts_info("self rawdata out of limit, retry:%d",
+			SELF_RAWDATA_NG_RETRY - ng_rty);
+		goto restart;
 	}
 
 exit:
@@ -2120,13 +2274,13 @@ exit:
 
 static int goodix_noise_test(struct goodix_ts_core *cd)
 {
-	u8 *tmp_buf;
-	struct goodix_ts_cmd temp_cmd;
+	u8 *tmp_buf = NULL;
+	struct goodix_ts_cmd temp_cmd = {0};
 	int tx = cd->ic_info.parm.drv_num;
 	int rx = cd->ic_info.parm.sen_num;
 	u32 sync_addr = cd->ic_info.misc.frame_data_addr;
 	u32 raw_addr;
-	int ret;
+	int ret = 0;
 	int i, j;
 	s16 tmp_val;
 	u8 val;
@@ -2195,8 +2349,9 @@ static int goodix_noise_test(struct goodix_ts_core *cd)
 			tmp_val = ts_test->noisedata[i].data[j];
 			tmp_val = ABS(tmp_val);
 			if (tmp_val > ts_test->noise_threshold) {
-				ts_err("noise data[%d] > noise threshold[%d]",
-					tmp_val, ts_test->noise_threshold);
+				// ts_err("noise data[%d] > noise
+				// threshold[%d]",
+				//         tmp_val, ts_test->noise_threshold);
 				ts_test->result[GTP_NOISE_TEST] = TEST_NG;
 				ret = -EINVAL;
 			}
@@ -2210,7 +2365,7 @@ exit:
 
 static int goodix_stylus_rawdata_test(struct goodix_ts_core *cd)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	int tmp_freq = ts_test->stylus_test_freq / 61;
 	int tx = cd->ic_info.parm.drv_num;
 	int rx = cd->ic_info.parm.sen_num;
@@ -2223,6 +2378,14 @@ static int goodix_stylus_rawdata_test(struct goodix_ts_core *cd)
 	int tmp_val;
 	int err_cnt = 0;
 	u8 val;
+
+	raw_data_cnt = 16;
+	rbuf = malloc_proc_buffer(HUGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		ret = -ENOMEM;
+		goto exit;
+	}
 
 	raw_addr = cd->ic_info.misc.frame_data_addr +
 		cd->ic_info.misc.frame_data_head_len +
@@ -2279,15 +2442,15 @@ static int goodix_stylus_rawdata_test(struct goodix_ts_core *cd)
 		cd->hw_ops->read(cd, raw_addr, (u8 *)ts_test->stylusraw[i].data, (tx + rx) * 2);
 	}
 
-    /* analysis results */
+	/* analysis results */
 	for (i = 0; i < raw_data_cnt; i++) {
 		for (j = 0; j < tx + rx; j++) {
 			tmp_val = ts_test->stylusraw[i].data[j];
 			if (tmp_val > ts_test->stylus_max_limits[j] ||
 				tmp_val < ts_test->stylus_min_limits[j]) {
 				ts_err("stylusraw[%d] out of range[%d %d]",
-				tmp_val, ts_test->stylus_min_limits[j],
-				ts_test->stylus_max_limits[j]);
+					tmp_val, ts_test->stylus_min_limits[j],
+					ts_test->stylus_max_limits[j]);
 				err_cnt++;
 			}
 		}
@@ -2323,99 +2486,9 @@ struct clk_test_parm {
 };
 #pragma pack()
 
-static int goodix_stylus_osc_test(struct goodix_ts_core *cd)
-{
-	u8 prepare_cmd[] = {0x00, 0x00, 0x04, 0x0D, 0x11, 0x00};
-	u8 start_cmd[] = {0x00, 0x00, 0x04, 0x0E, 0x12, 0x00};
-	u32 cmd_addr = cd->ic_info.misc.cmd_addr;
-	u32 frame_buf_addr = cd->ic_info.misc.fw_buffer_addr;
-	struct clk_test_parm clk_parm;
-	u8 rcv_buf[10];
-	u64 cal_freq;
-	u64 main_clk;
-	u64 clk_in_cnt;
-	u64 clk_osc_cnt;
-	u64 pen_osc_clk = 16000000;
-	u64 freq_delta;
-	int retry;
-	int ret;
-
-	cd->hw_ops->write(cd, cmd_addr, prepare_cmd, sizeof(prepare_cmd));
-	retry = 10;
-	while (retry--) {
-		msleep(20);
-		cd->hw_ops->read(cd, cmd_addr, rcv_buf, 2);
-		if (rcv_buf[0] == 0x08 && rcv_buf[1] == 0x80)
-			break;
-	}
-	if (retry < 0) {
-		ts_err("switch osc test mode failed, sta[%x] ack[%x]",
-				rcv_buf[0], rcv_buf[1]);
-		ret = -1;
-		goto exit;
-	}
-
-	clk_parm.gio = 19;
-	clk_parm.div = 1;
-	clk_parm.is_64m = 0;
-	clk_parm.en = 0;
-	clk_parm.pll_prediv = 0;
-	clk_parm.pll_fbdiv = 0;
-	clk_parm.trigger_mode = 0;
-	clk_parm.clk_in_num = 1000;
-	goodix_append_checksum(clk_parm.buf, sizeof(clk_parm) - 2, CHECKSUM_MODE_U8_LE);
-	cd->hw_ops->write(cd, frame_buf_addr, clk_parm.buf, sizeof(clk_parm));
-
-	cd->hw_ops->write(cd, cmd_addr, start_cmd, sizeof(start_cmd));
-	retry = 20;
-	while (retry--) {
-		msleep(50);
-		cd->hw_ops->read(cd, cmd_addr, rcv_buf, 2);
-		if (rcv_buf[0] == 0x0B && rcv_buf[1] == 0x80)
-			break;
-	}
-	if (retry < 0) {
-		ts_err("wait osc test result failed, sta[%x] ack[%x]",
-				rcv_buf[0], rcv_buf[1]);
-		ret = -1;
-		goto exit;
-	}
-
-	cd->hw_ops->read(cd, frame_buf_addr + sizeof(clk_parm), rcv_buf, sizeof(rcv_buf));
-	if (checksum_cmp(rcv_buf, sizeof(rcv_buf), CHECKSUM_MODE_U8_LE)) {
-		ts_err("osc test result checksum error, [%*ph]",
-				(int)sizeof(rcv_buf), rcv_buf);
-		ret = -1;
-		goto exit;
-	}
-
-	main_clk = le16_to_cpup((__le16 *)&rcv_buf[0]);
-	clk_in_cnt = le16_to_cpup((__le16 *)&rcv_buf[2]);
-	clk_osc_cnt = le32_to_cpup((__le32 *)&rcv_buf[4]);
-	cal_freq = clk_in_cnt * main_clk * 1000000 * 8 / clk_osc_cnt;
-	ts_info("main_clk:%lldM clk_in_cnt:%lld clk_osc_cnt:%lld cal_freq:%lld",
-			main_clk, clk_in_cnt, clk_osc_cnt, cal_freq);
-
-	if (pen_osc_clk > cal_freq)
-		freq_delta = pen_osc_clk - cal_freq;
-	else
-		freq_delta = cal_freq - pen_osc_clk;
-	if (freq_delta * 100 / pen_osc_clk > 2) {
-		ts_err("osc clk test failed");
-		ret = -1;
-	} else {
-		ts_info("osc clk test pass");
-		ret = 0;
-	}
-
-exit:
-	cd->hw_ops->reset(cd, goodix_get_normal_reset_delay(cd));
-	return ret;
-}
-
 static int goodix_auto_test(struct goodix_ts_core *cd, bool is_brief)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	int ret;
 	int i;
 
@@ -2444,7 +2517,8 @@ static int goodix_auto_test(struct goodix_ts_core *cd, bool is_brief)
 
 	if (ts_test->item[GTP_NOISE_TEST]) {
 		for (i = 0; i < 3; i++) {
-			cd->hw_ops->send_cmd(cd, &temp_cmd);
+			if (!cd->board_data.noise_test_disable_cmd)
+				cd->hw_ops->send_cmd(cd, &temp_cmd);
 			ret = goodix_noise_test(cd);
 			cd->hw_ops->reset(cd, goodix_get_normal_reset_delay(cd));
 			if (ret != -EAGAIN)
@@ -2482,7 +2556,7 @@ static int goodix_auto_test(struct goodix_ts_core *cd, bool is_brief)
 
 static void goodix_auto_noise_test(struct goodix_ts_core *cd, u16 cnt, int threshold)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	u32 sync_addr = cd->ic_info.misc.frame_data_addr;
 	u32 raw_addr;
 	int tx = cd->ic_info.parm.drv_num;
@@ -2591,7 +2665,7 @@ exit:
 
 static int get_cap_data(struct goodix_ts_core *cd, uint8_t *type)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	int tx = cd->ic_info.parm.drv_num;
 	int rx = cd->ic_info.parm.sen_num;
 	u8 val;
@@ -2745,100 +2819,6 @@ exit:
 	return ret;
 }
 
-static void goodix_set_sense_mode(struct goodix_ts_core *cd, u8 val)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	temp_cmd.len = 4;
-	temp_cmd.cmd = 0xA7;
-
-	if (val == 1) {
-		/* normal mode */
-		index = sprintf(rbuf, "switch to coordinate mode\n");
-		cd->hw_ops->send_cmd(cd, &temp_cmd);
-		goodix_ts_esd_on(cd);
-		cd->hw_ops->irq_enable(cd, true);
-		atomic_set(&cd->suspended, 0);
-	} else if (val == 2) {
-		/* gesture mode */
-		index = sprintf(rbuf, "switch to gesture mode\n");
-		goodix_ts_esd_off(cd);
-		cd->hw_ops->gesture(cd, 0);
-		cd->hw_ops->irq_enable(cd, true);
-		atomic_set(&cd->suspended, 1);
-	} else {
-		/* sleep mode */
-		index = sprintf(rbuf, "switch to sleep mode\n");
-		goodix_ts_esd_off(cd);
-		cd->hw_ops->irq_enable(cd, false);
-		cd->hw_ops->suspend(cd);
-	}
-}
-
-static void goodix_set_scan_mode(struct goodix_ts_core *cd, u8 val)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	temp_cmd.len = 5;
-	temp_cmd.cmd = 0x9F;
-
-	if (val == 0) {
-		temp_cmd.data[0] = 0;
-		ts_info("set scan mode to default");
-		index = sprintf(rbuf, "set scan mode to default\n");
-	} else if (val == 1) {
-		temp_cmd.data[0] = 3;
-		ts_info("set scan mode to idle");
-		index = sprintf(rbuf, "set scan mode to idle\n");
-	} else {
-		temp_cmd.data[0] = 2;
-		ts_info("set scan mode to active");
-		index = sprintf(rbuf, "set scan mode to active\n");
-	}
-
-	cd->hw_ops->send_cmd(cd, &temp_cmd);
-}
-
-static void goodix_get_scan_mode(struct goodix_ts_core *cd)
-{
-	u8 status;
-
-	cd->hw_ops->read(cd, 0x10219, &status, 1);
-	ts_info("ic status:%d", status);
-
-	if (status == 1) {
-		index = sprintf(rbuf, "normal active\n");
-	} else if (status == 2) {
-		index = sprintf(rbuf, "normal idle\n");
-	} else if (status == 3) {
-		index = sprintf(rbuf, "lowpower active\n");
-	} else if (status == 4) {
-		index = sprintf(rbuf, "lowpower idle\n");
-	} else if (status == 5) {
-		index = sprintf(rbuf, "sleep\n");
-	} else {
-		index = sprintf(rbuf, "invalid mode %d\n", status);
-	}
-}
-
-static void goodix_set_continue_mode(struct goodix_ts_core *cd, u8 val)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	if (val == 0) {
-		ts_info("enable continue report");
-		index = sprintf(rbuf, "enable continue report\n");
-	} else {
-		ts_info("disable continue report");
-		index = sprintf(rbuf, "disable continue report\n");
-	}
-
-	temp_cmd.len = 5;
-	temp_cmd.cmd = 0xC6;
-	temp_cmd.data[0] = val;
-	cd->hw_ops->send_cmd(cd, &temp_cmd);
-}
-
 static void goodix_read_config(struct goodix_ts_core *cd)
 {
 	int ret;
@@ -2867,81 +2847,9 @@ exit:
 	kfree(cfg_buf);
 }
 
-static void goodix_get_fw_status(struct goodix_ts_core *cd)
-{
-	struct goodix_status_data status_data;
-	u8 val;
-
-	cd->hw_ops->read(cd, 0x1021A, &val, 1);
-	index += sprintf(
-		&rbuf[index], "coordfilter_status[%d] ", (val >> 7) & 0x01);
-	index += sprintf(
-		&rbuf[index], "set_highsense_mode[%d] ", (val >> 6) & 0x01);
-	index +=
-		sprintf(&rbuf[index], "set_noise_mode[%d] ", (val >> 4) & 0x03);
-	index +=
-		sprintf(&rbuf[index], "set_water_mode[%d] ", (val >> 3) & 0x01);
-	index += sprintf(&rbuf[index], "set_grip_mode[%d] ", (val >> 2) & 0x01);
-	index += sprintf(&rbuf[index], "set_palm_mode[%d] ", (val >> 1) & 0x01);
-	index += sprintf(
-		&rbuf[index], "set_heatmap_mode[%d]\n", (val >> 0) & 0x01);
-
-	cd->hw_ops->read(cd, 0x1021C, (u8 *)&status_data, sizeof(status_data));
-	index += sprintf(&rbuf[index], "water[%d] ", status_data.water_sta);
-	index += sprintf(&rbuf[index], "palm[%d] ", status_data.palm_sta);
-	index += sprintf(&rbuf[index], "noise_lv[%d]\n", status_data.noise_lv);
-}
-
-static void goodix_set_highsense_mode(struct goodix_ts_core *cd, u8 val)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	if (val == 0) {
-		ts_info("exit highsense mode");
-		index = sprintf(rbuf, "exit highsense mode\n");
-	} else {
-		ts_info("enter highsense mode");
-		index = sprintf(rbuf, "enter highsense mode\n");
-	}
-
-	temp_cmd.len = 5;
-	temp_cmd.cmd = 0x72;
-	temp_cmd.data[0] = val;
-	cd->hw_ops->send_cmd(cd, &temp_cmd);
-}
-
-static void goodix_set_grip_data(struct goodix_ts_core *cd, u8 val)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	if (val == 0) {
-		ts_info("portrait mode");
-		index = sprintf(rbuf, "portrait mode\n");
-		temp_cmd.len = 4;
-		temp_cmd.cmd = 0x18;
-	} else if (val == 1) {
-		ts_info("landscape left");
-		index = sprintf(rbuf, "landscape left\n");
-		temp_cmd.len = 5;
-		temp_cmd.cmd = 0x17;
-		temp_cmd.data[0] = 0;
-	} else if (val == 2) {
-		ts_info("landscape right");
-		index = sprintf(rbuf, "landscape right\n");
-		temp_cmd.len = 5;
-		temp_cmd.cmd = 0x17;
-		temp_cmd.data[0] = 1;
-	} else {
-		ts_err("invalid grip data, %d", val);
-		return;
-	}
-
-	cd->hw_ops->send_cmd(cd, &temp_cmd);
-}
-
 static void goodix_set_custom_mode(struct goodix_ts_core *cd, u8 type, u8 val)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 
 	if (type == PALM_FUNC) {
 		index = sprintf(&rbuf[index], "set palm %s\n",
@@ -2974,118 +2882,9 @@ static void goodix_set_custom_mode(struct goodix_ts_core *cd, u8 type, u8 val)
 	cd->hw_ops->send_cmd(cd, &temp_cmd);
 }
 
-static int obtain_param(char **buf)
-{
-	char *token;
-	int val;
-
-	token = strsep(buf, ",");
-	if (!token) {
-		if (kstrtos32(*buf, 10, &val))
-			return -EINVAL;
-	} else {
-		if (kstrtos32(token, 10, &val))
-			return -EINVAL;
-	}
-
-	return val;
-}
-
-static int goodix_parse_gesture_param(struct goodix_ts_core *cd, u8 type, char **buf)
-{
-	if (type == GESTURE_STTW) {
-		gesture_param_st.length = sizeof(gesture_param_st);
-		gesture_param_st.type = type;
-		gesture_param_st.st_min_x = obtain_param(buf);
-		gesture_param_st.st_max_x = obtain_param(buf);
-		gesture_param_st.st_min_y = obtain_param(buf);
-		gesture_param_st.st_max_y = obtain_param(buf);
-		gesture_param_st.st_min_count = obtain_param(buf);
-		gesture_param_st.st_max_count = obtain_param(buf);
-		gesture_param_st.st_motion_tolerance = obtain_param(buf);
-		gesture_param_st.st_max_size = obtain_param(buf);
-		goodix_append_checksum(gesture_param_st.buf,
-			sizeof(gesture_param_st) - 2, CHECKSUM_MODE_U8_LE);
-		ts_info("st_min_x:                  %d",
-			gesture_param_st.st_min_x);
-		ts_info("st_max_x:                  %d",
-			gesture_param_st.st_max_x);
-		ts_info("st_min_y:                  %d",
-			gesture_param_st.st_min_y);
-		ts_info("st_max_y:                  %d",
-			gesture_param_st.st_max_y);
-		ts_info("st_min_count:              %d",
-			gesture_param_st.st_min_count);
-		ts_info("st_max_count:              %d",
-			gesture_param_st.st_max_count);
-		ts_info("st_motion_tolerance:       %d",
-			gesture_param_st.st_motion_tolerance);
-		ts_info("st_max_size:               %d",
-			gesture_param_st.st_max_size);
-	} else {
-		gesture_param_lp.length = sizeof(gesture_param_lp);
-		gesture_param_lp.type = type;
-		gesture_param_lp.lp_min_x = obtain_param(buf);
-		gesture_param_lp.lp_max_x = obtain_param(buf);
-		gesture_param_lp.lp_min_y = obtain_param(buf);
-		gesture_param_lp.lp_max_y = obtain_param(buf);
-		gesture_param_lp.lp_min_count = obtain_param(buf);
-		gesture_param_lp.lp_max_size = obtain_param(buf);
-		gesture_param_lp.lp_marginal_min_x = obtain_param(buf);
-		gesture_param_lp.lp_marginal_max_x = obtain_param(buf);
-		gesture_param_lp.lp_marginal_min_y = obtain_param(buf);
-		gesture_param_lp.lp_marginal_max_y = obtain_param(buf);
-		gesture_param_lp.lp_monitor_chan_min_tx = obtain_param(buf);
-		gesture_param_lp.lp_monitor_chan_max_tx = obtain_param(buf);
-		gesture_param_lp.lp_monitor_chan_min_rx = obtain_param(buf);
-		gesture_param_lp.lp_monitor_chan_max_rx = obtain_param(buf);
-		gesture_param_lp.lp_min_node_count = obtain_param(buf);
-		gesture_param_lp.lp_motion_tolerance_inner = obtain_param(buf);
-		gesture_param_lp.lp_motion_tolerance_outer = obtain_param(buf);
-		goodix_append_checksum(gesture_param_lp.buf,
-			sizeof(gesture_param_lp) - 2, CHECKSUM_MODE_U8_LE);
-		ts_info("lp_min_x:                  %d",
-			gesture_param_lp.lp_min_x);
-		ts_info("lp_max_x:                  %d",
-			gesture_param_lp.lp_max_x);
-		ts_info("lp_min_y:                  %d",
-			gesture_param_lp.lp_min_y);
-		ts_info("lp_max_y:                  %d",
-			gesture_param_lp.lp_max_y);
-		ts_info("lp_min_count:              %d",
-			gesture_param_lp.lp_min_count);
-		ts_info("lp_max_size:               %d",
-			gesture_param_lp.lp_max_size);
-		ts_info("lp_marginal_min_x:         %d",
-			gesture_param_lp.lp_marginal_min_x);
-		ts_info("lp_marginal_max_x:         %d",
-			gesture_param_lp.lp_marginal_max_x);
-		ts_info("lp_marginal_min_y:         %d",
-			gesture_param_lp.lp_marginal_min_y);
-		ts_info("lp_marginal_max_y:         %d",
-			gesture_param_lp.lp_marginal_max_y);
-		ts_info("lp_monitor_chan_min_tx:    %d",
-			gesture_param_lp.lp_monitor_chan_min_tx);
-		ts_info("lp_monitor_chan_max_tx:    %d",
-			gesture_param_lp.lp_monitor_chan_max_tx);
-		ts_info("lp_monitor_chan_min_rx:    %d",
-			gesture_param_lp.lp_monitor_chan_min_rx);
-		ts_info("lp_monitor_chan_max_rx:    %d",
-			gesture_param_lp.lp_monitor_chan_max_rx);
-		ts_info("lp_min_node_count:         %d",
-			gesture_param_lp.lp_min_node_count);
-		ts_info("lp_motion_tolerance_inner: %d",
-			gesture_param_lp.lp_motion_tolerance_inner);
-		ts_info("lp_motion_tolerance_outer: %d",
-			gesture_param_lp.lp_motion_tolerance_outer);
-	}
-
-	return 0;
-}
-
 static void goodix_set_gesture_param(struct goodix_ts_core *cd, u8 type)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	u32 cmd_reg = cd->ic_info.misc.cmd_addr;
 	u32 fw_buffer_addr = cd->ic_info.misc.fw_buffer_addr;
 	int retry;
@@ -3147,12 +2946,940 @@ exit:
 	cd->hw_ops->send_cmd(cd, &temp_cmd);
 }
 
-static void goodix_set_heatmap(struct goodix_ts_core *cd, int val)
+static void goodix_force_update(struct goodix_ts_core *cd, int *buf, int bufsz)
 {
-	struct goodix_ts_cmd temp_cmd;
+	int ret;
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	ret = goodix_get_config_proc(cd);
+	if (ret < 0)
+		ts_err("not found valid config");
+
+	ret = goodix_do_fw_update(cd, UPDATE_MODE_BLOCK | UPDATE_MODE_FORCE |
+					      UPDATE_MODE_SRC_REQUEST);
+	if (ret < 0)
+		index = sprintf(rbuf, "%s: NG\n", CMD_FW_UPDATE);
+	else
+		index = sprintf(rbuf, "%s: OK\n", CMD_FW_UPDATE);
+}
+
+static void goodix_run_auto_test(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+
+	raw_data_cnt = 16;
+	noise_data_cnt = 1;
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	ret = malloc_test_resource();
+	if (ret < 0) {
+		ts_err("malloc test resource failed");
+		return;
+	}
+	ts_test->item[GTP_CAP_TEST] = true;
+	ts_test->item[GTP_NOISE_TEST] = true;
+	ts_test->item[GTP_DELTA_TEST] = true;
+	ts_test->item[GTP_SELFCAP_TEST] = true;
+	ts_test->item[GTP_SHORT_TEST] = true;
+	goodix_auto_test(cd, true);
+}
+
+static void goodix_run_open_test(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+	int tx = cd->ic_info.parm.drv_num;
+	int rx = cd->ic_info.parm.sen_num;
+
+	if (bufsz < 1 || bufsz > 2) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	if (buf[0] <= 0) {
+		ts_err("invalid input param:%d", buf[0]);
+		return;
+	}
+
+	raw_data_cnt = buf[0];
+	/*
+	 * [GOOG]
+	 * Change the size based on the channel number(tx * rx) for
+	 * output (raw + data) and markup text with format "%5d,".
+	 */
+	//rbuf = malloc_proc_buffer(raw_data_cnt * 30000);
+	rbuf = malloc_proc_buffer(raw_data_cnt * tx * rx * 6 * 3);
+	/*~[GOOG]*/
+	if (rbuf == NULL) {
+		ts_err("failed to malloc rbuf");
+		return;
+	}
+	ret = malloc_test_resource();
+	if (ret < 0) {
+		ts_err("malloc test resource failed");
+		return;
+	}
+	ts_test->item[GTP_CAP_TEST] = true;
+	ts_test->freq = buf[1];
+	goodix_auto_test(cd, false);
+}
+
+static void goodix_run_self_open_test(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+
+	rbuf = malloc_proc_buffer(HUGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	ret = malloc_test_resource();
+	if (ret < 0) {
+		ts_err("malloc test resource failed");
+		return;
+	}
+	ts_test->item[GTP_SELFCAP_TEST] = true;
+	goodix_auto_test(cd, false);
+}
+
+static void goodix_run_noise_test(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+	int tx = cd->ic_info.parm.drv_num;
+	int rx = cd->ic_info.parm.sen_num;
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	if (buf[0] <= 0) {
+		ts_err("invalid input param:%d", buf[0]);
+		return;
+	}
+	noise_data_cnt = buf[0];
+	/*
+	 * [GOOG]
+	 * Change the size based on the channel number(tx * rx) for
+	 * output (raw + data) and markup text with format "%5d,".
+	 */
+	//rbuf = malloc_proc_buffer(noise_data_cnt * 30000);
+	rbuf = malloc_proc_buffer(noise_data_cnt * tx * rx * 6 * 3);
+	/*~[GOOG]*/
+	if (rbuf == NULL) {
+		ts_err("failed to malloc rbuf");
+		return;
+	}
+	ret = malloc_test_resource();
+	if (ret < 0) {
+		ts_err("malloc test resource failed");
+		return;
+	}
+	ts_test->item[GTP_NOISE_TEST] = true;
+	goodix_auto_test(cd, false);
+}
+
+static void goodix_run_auto_noise_test(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 2) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	if (buf[0] <= 0 || buf[1] <= 0) {
+		ts_err("invalid input param:%d,%d", buf[0], buf[1]);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(HUGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	goodix_auto_noise_test(cd, buf[0], buf[1]);
+}
+
+static void goodix_run_short_test(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+
+	rbuf = malloc_proc_buffer(HUGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	ret = malloc_test_resource();
+	if (ret < 0) {
+		ts_err("malloc test resource failed");
+		return;
+	}
+	ts_test->item[GTP_SHORT_TEST] = true;
+	goodix_auto_test(cd, false);
+}
+
+static void goodix_get_package_id(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+	u8 id;
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	mutex_lock(&cd->cmd_lock);
+	usleep_range(6000, 6100);
+	if (cd->bus->ic_type == IC_TYPE_BERLIN_B)
+		ret = cd->hw_ops->read_flash(cd, 0x3F301, &id, 1);
+	else
+		ret = cd->hw_ops->read_flash(cd, 0x1F301, &id, 1);
+	mutex_unlock(&cd->cmd_lock);
+	if (ret < 0)
+		index = sprintf(rbuf, "%s: NG\n", CMD_GET_PACKAGE_ID);
+	else
+		index = sprintf(rbuf, "%s: 0x%x\n", CMD_GET_PACKAGE_ID, id);
+}
+
+static void goodix_get_mcu_id(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+	u8 id;
+
+	if (cd->bus->ic_type == IC_TYPE_BERLIN_B) {
+		ts_info("berlinB is always TSMC");
+		return;
+	}
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	mutex_lock(&cd->cmd_lock);
+	ret = cd->hw_ops->read_flash(cd, 0x1F314, &id, 1);
+	mutex_unlock(&cd->cmd_lock);
+	if (ret < 0)
+		index = sprintf(rbuf, "%s: NG\n", CMD_GET_MCU_ID);
+	else
+		index = sprintf(rbuf, "%s: 0x%x\n", CMD_GET_MCU_ID, id);
+}
+
+static void goodix_get_version(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_fw_version fw_ver;
+	struct goodix_ic_info ic_info;
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	cd->hw_ops->read_version(cd, &fw_ver);
+	cd->hw_ops->get_ic_info(cd, &ic_info);
+	index = sprintf(rbuf, "%s: 0x%02x%02x%02x%02x 0x%x\n", CMD_GET_VERSION,
+		fw_ver.patch_vid[0], fw_ver.patch_vid[1], fw_ver.patch_vid[2],
+		fw_ver.patch_vid[3], ic_info.version.config_id);
+}
+
+static void goodix_get_rawdata(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	get_cap_data(cd, CMD_GET_RAWDATA);
+}
+
+static void goodix_get_diffdata(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	get_cap_data(cd, CMD_GET_DIFFDATA);
+}
+
+static void goodix_get_basedata(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	get_cap_data(cd, CMD_GET_BASEDATA);
+}
+
+static void goodix_get_self_rawdata(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	get_cap_data(cd, CMD_GET_SELF_RAWDATA);
+}
+
+static void goodix_get_self_diffdata(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	get_cap_data(cd, CMD_GET_SELF_DIFFDATA);
+}
+
+static void goodix_get_self_basedata(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	get_cap_data(cd, CMD_GET_SELF_BASEDATA);
+}
+
+static void goodix_set_double_tap_gesture(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		cd->gesture_type &= ~GESTURE_DOUBLE_TAP;
+		index = sprintf(rbuf, "%s: disable OK\n", CMD_SET_DOUBLE_TAP);
+		ts_info("disable double tap");
+	} else {
+		cd->gesture_type |= GESTURE_DOUBLE_TAP;
+		index = sprintf(rbuf, "%s: enable OK\n", CMD_SET_DOUBLE_TAP);
+		ts_info("enable single tap");
+	}
+}
+
+static void goodix_set_single_tap_gesture(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		cd->gesture_type &= ~GESTURE_SINGLE_TAP;
+		index = sprintf(rbuf, "%s: disable OK\n", CMD_SET_SINGLE_TAP);
+		ts_info("disable single tap");
+	} else {
+		cd->gesture_type |= GESTURE_SINGLE_TAP;
+		index = sprintf(rbuf, "%s: enable OK\n", CMD_SET_SINGLE_TAP);
+		ts_info("enable single tap");
+	}
+}
+
+static void goodix_set_long_press_gesture(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		cd->gesture_type &= ~GESTURE_FOD_PRESS;
+		index = sprintf(rbuf, "%s: disable OK\n", CMD_SET_LONG_PRESS);
+		ts_info("disable long press");
+	} else {
+		cd->gesture_type |= GESTURE_FOD_PRESS;
+		index = sprintf(rbuf, "%s: enable OK\n", CMD_SET_LONG_PRESS);
+		ts_info("enable long press");
+	}
+}
+
+static void goodix_set_st_param(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 8) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	gesture_param_st.length = sizeof(gesture_param_st);
+	gesture_param_st.type = GESTURE_STTW;
+	gesture_param_st.st_min_x = buf[0];
+	gesture_param_st.st_max_x = buf[1];
+	gesture_param_st.st_min_y = buf[2];
+	gesture_param_st.st_max_y = buf[3];
+	gesture_param_st.st_min_count = buf[4];
+	gesture_param_st.st_max_count = buf[5];
+	gesture_param_st.st_motion_tolerance = buf[6];
+	gesture_param_st.st_max_size = buf[7];
+	goodix_append_checksum(gesture_param_st.buf,
+		sizeof(gesture_param_st) - 2, CHECKSUM_MODE_U8_LE);
+	ts_info("st_min_x:                  %d", gesture_param_st.st_min_x);
+	ts_info("st_max_x:                  %d", gesture_param_st.st_max_x);
+	ts_info("st_min_y:                  %d", gesture_param_st.st_min_y);
+	ts_info("st_max_y:                  %d", gesture_param_st.st_max_y);
+	ts_info("st_min_count:              %d", gesture_param_st.st_min_count);
+	ts_info("st_max_count:              %d", gesture_param_st.st_max_count);
+	ts_info("st_motion_tolerance:       %d",
+		gesture_param_st.st_motion_tolerance);
+	ts_info("st_max_size:               %d", gesture_param_st.st_max_size);
+	goodix_set_gesture_param(cd, GESTURE_STTW);
+}
+
+static void goodix_set_lp_param(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 17) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	gesture_param_lp.length = sizeof(gesture_param_lp);
+	gesture_param_lp.type = GESTURE_LPTW;
+	gesture_param_lp.lp_min_x = buf[0];
+	gesture_param_lp.lp_max_x = buf[1];
+	gesture_param_lp.lp_min_y = buf[2];
+	gesture_param_lp.lp_max_y = buf[3];
+	gesture_param_lp.lp_min_count = buf[4];
+	gesture_param_lp.lp_max_size = buf[5];
+	gesture_param_lp.lp_marginal_min_x = buf[6];
+	gesture_param_lp.lp_marginal_max_x = buf[7];
+	gesture_param_lp.lp_marginal_min_y = buf[8];
+	gesture_param_lp.lp_marginal_max_y = buf[9];
+	gesture_param_lp.lp_monitor_chan_min_tx = buf[10];
+	gesture_param_lp.lp_monitor_chan_max_tx = buf[11];
+	gesture_param_lp.lp_monitor_chan_min_rx = buf[12];
+	gesture_param_lp.lp_monitor_chan_max_rx = buf[13];
+	gesture_param_lp.lp_min_node_count = buf[14];
+	gesture_param_lp.lp_motion_tolerance_inner = buf[15];
+	gesture_param_lp.lp_motion_tolerance_outer = buf[16];
+	goodix_append_checksum(gesture_param_lp.buf,
+		sizeof(gesture_param_lp) - 2, CHECKSUM_MODE_U8_LE);
+	ts_info("lp_min_x:                  %d", gesture_param_lp.lp_min_x);
+	ts_info("lp_max_x:                  %d", gesture_param_lp.lp_max_x);
+	ts_info("lp_min_y:                  %d", gesture_param_lp.lp_min_y);
+	ts_info("lp_max_y:                  %d", gesture_param_lp.lp_max_y);
+	ts_info("lp_min_count:              %d", gesture_param_lp.lp_min_count);
+	ts_info("lp_max_size:               %d", gesture_param_lp.lp_max_size);
+	ts_info("lp_marginal_min_x:         %d",
+		gesture_param_lp.lp_marginal_min_x);
+	ts_info("lp_marginal_max_x:         %d",
+		gesture_param_lp.lp_marginal_max_x);
+	ts_info("lp_marginal_min_y:         %d",
+		gesture_param_lp.lp_marginal_min_y);
+	ts_info("lp_marginal_max_y:         %d",
+		gesture_param_lp.lp_marginal_max_y);
+	ts_info("lp_monitor_chan_min_tx:    %d",
+		gesture_param_lp.lp_monitor_chan_min_tx);
+	ts_info("lp_monitor_chan_max_tx:    %d",
+		gesture_param_lp.lp_monitor_chan_max_tx);
+	ts_info("lp_monitor_chan_min_rx:    %d",
+		gesture_param_lp.lp_monitor_chan_min_rx);
+	ts_info("lp_monitor_chan_max_rx:    %d",
+		gesture_param_lp.lp_monitor_chan_max_rx);
+	ts_info("lp_min_node_count:         %d",
+		gesture_param_lp.lp_min_node_count);
+	ts_info("lp_motion_tolerance_inner: %d",
+		gesture_param_lp.lp_motion_tolerance_inner);
+	ts_info("lp_motion_tolerance_outer: %d",
+		gesture_param_lp.lp_motion_tolerance_outer);
+	goodix_set_gesture_param(cd, GESTURE_LPTW);
+}
+
+static void goodix_set_irq_enable(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		cd->hw_ops->irq_enable(cd, false);
+		index = sprintf(rbuf, "%s: disable OK\n", CMD_SET_IRQ_ENABLE);
+	} else {
+		cd->hw_ops->irq_enable(cd, true);
+		index = sprintf(rbuf, "%s: enable OK\n", CMD_SET_IRQ_ENABLE);
+	}
+}
+
+static void goodix_set_esd_enable(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		goodix_ts_esd_off(cd);
+		index = sprintf(rbuf, "%s: disable OK\n", CMD_SET_ESD_ENABLE);
+	} else {
+		goodix_ts_esd_on(cd);
+		index = sprintf(rbuf, "%s: enable OK\n", CMD_SET_ESD_ENABLE);
+	}
+}
+
+static void goodix_set_debug_log(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		debug_log_flag = false;
+		index = sprintf(rbuf, "%s: disable OK\n", CMD_SET_DEBUG_LOG);
+	} else {
+		debug_log_flag = true;
+		index = sprintf(rbuf, "%s: enable OK\n", CMD_SET_DEBUG_LOG);
+	}
+}
+
+static void goodix_set_scan_mode(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0x9F;
+
+	if (buf[0] == 0) {
+		temp_cmd.data[0] = 0;
+		ts_info("set scan mode to default");
+		index = sprintf(rbuf, "set scan mode to default\n");
+	} else if (buf[0] == 1) {
+		temp_cmd.data[0] = 3;
+		ts_info("set scan mode to idle");
+		index = sprintf(rbuf, "set scan mode to idle\n");
+	} else {
+		temp_cmd.data[0] = 2;
+		ts_info("set scan mode to active");
+		index = sprintf(rbuf, "set scan mode to active\n");
+	}
+
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_get_scan_mode(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	u8 status;
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	cd->hw_ops->read(cd, 0x10219, &status, 1);
+	ts_info("ic status:%d", status);
+
+	if (status == 1) {
+		index = sprintf(rbuf, "normal active\n");
+	} else if (status == 2) {
+		index = sprintf(rbuf, "normal idle\n");
+	} else if (status == 3) {
+		index = sprintf(rbuf, "lowpower active\n");
+	} else if (status == 4) {
+		index = sprintf(rbuf, "lowpower idle\n");
+	} else if (status == 5) {
+		index = sprintf(rbuf, "sleep\n");
+	} else {
+		index = sprintf(rbuf, "invalid mode %d\n", status);
+	}
+}
+
+static void goodix_set_continue_mode(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		ts_info("enable continue report");
+		index = sprintf(rbuf, "enable continue report\n");
+	} else {
+		ts_info("disable continue report");
+		index = sprintf(rbuf, "disable continue report\n");
+	}
+
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0xC6;
+	temp_cmd.data[0] = buf[0];
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_get_channel_num(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	index = sprintf(rbuf, "TX:%d RX:%d\n", cd->ic_info.parm.drv_num,
+		cd->ic_info.parm.sen_num);
+}
+
+static void goodix_get_tx_freq(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	int ret;
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	ret = get_cap_data(cd, CMD_GET_TX_FREQ);
+	if (ret < 0)
+		index = sprintf(rbuf, "%s: NG\n", CMD_GET_TX_FREQ);
+}
+
+static void goodix_hw_reset(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	cd->hw_ops->irq_enable(cd, false);
+	cd->hw_ops->reset(cd, goodix_get_normal_reset_delay(cd));
+	cd->hw_ops->irq_enable(cd, true);
+}
+
+static void goodix_set_sense_mode(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	temp_cmd.len = 4;
+	temp_cmd.cmd = 0xA7;
+
+	if (buf[0] == 1) {
+		/* normal mode */
+		index = sprintf(rbuf, "switch to coordinate mode\n");
+		cd->hw_ops->send_cmd(cd, &temp_cmd);
+		goodix_ts_esd_on(cd);
+		cd->hw_ops->irq_enable(cd, true);
+		atomic_set(&cd->suspended, 0);
+	} else if (buf[0] == 2) {
+		/* gesture mode */
+		index = sprintf(rbuf, "switch to gesture mode\n");
+		goodix_ts_esd_off(cd);
+		cd->hw_ops->gesture(cd, 0);
+		cd->hw_ops->irq_enable(cd, true);
+		atomic_set(&cd->suspended, 1);
+	} else {
+		/* sleep mode */
+		index = sprintf(rbuf, "switch to sleep mode\n");
+		goodix_ts_esd_off(cd);
+		cd->hw_ops->irq_enable(cd, false);
+		cd->hw_ops->suspend(cd);
+	}
+}
+
+static void goodix_get_config(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	goodix_read_config(cd);
+}
+
+static void goodix_get_fw_status(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_status_data status_data;
+	u8 val[2];
+
+	index = 0;
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	cd->hw_ops->read(cd, 0x1021A, val, sizeof(val));
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"coordfilter_status[%d] ", (val[0] >> 7) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"set_highsense_mode[%d] ", (val[0] >> 6) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"set_noise_mode[%d] ", (val[0] >> 4) & 0x03);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"set_water_mode[%d] ", (val[0] >> 3) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"set_grip_mode[%d] ", (val[0] >> 2) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"set_palm_mode[%d] ", (val[0] >> 1) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"set_heatmap_mode[%d]\n", (val[0] >> 0) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"fw_ns/hs[%d]", (val[1] >> 0) & 0x01);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"wireless mode[%d]", (val[1] >> 1) & 0x01);
+
+	cd->hw_ops->read(cd, 0x1021C, (u8 *)&status_data, sizeof(status_data));
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"water[%d] ", status_data.water_sta);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"palm[%d] ", status_data.palm_sta);
+	index += scnprintf(&rbuf[index], SHORT_SIZE - index,
+		"noise_lv[%d]\n", status_data.noise_lv);
+}
+
+static void goodix_set_highsense_mode(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		ts_info("exit highsense mode");
+		index = sprintf(rbuf, "exit highsense mode\n");
+	} else {
+		ts_info("enter highsense mode");
+		index = sprintf(rbuf, "enter highsense mode\n");
+	}
+
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0x72;
+	temp_cmd.data[0] = buf[0];
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_set_grip_data(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	if (buf[0] == 0) {
+		ts_info("portrait mode");
+		index = sprintf(rbuf, "portrait mode\n");
+		temp_cmd.len = 4;
+		temp_cmd.cmd = 0x18;
+	} else if (buf[0] == 1) {
+		ts_info("landscape left");
+		index = sprintf(rbuf, "landscape left\n");
+		temp_cmd.len = 5;
+		temp_cmd.cmd = 0x17;
+		temp_cmd.data[0] = 0;
+	} else if (buf[0] == 2) {
+		ts_info("landscape right");
+		index = sprintf(rbuf, "landscape right\n");
+		temp_cmd.len = 5;
+		temp_cmd.cmd = 0x17;
+		temp_cmd.data[0] = 1;
+	} else {
+		ts_err("invalid grip data, %d", buf[0]);
+		return;
+	}
+
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_set_grip_mode(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	goodix_set_custom_mode(cd, GRIP_FUNC, buf[0]);
+}
+
+static void goodix_set_palm_mode(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	goodix_set_custom_mode(cd, PALM_FUNC, buf[0]);
+}
+
+static void goodix_set_noise_mode(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	goodix_set_custom_mode(cd, NOISE_FUNC, buf[0]);
+}
+
+static void goodix_set_water_mode(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	goodix_set_custom_mode(cd, WATER_FUNC, buf[0]);
+}
+
+static void goodix_set_heatmap(struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
 
 	cd->hw_ops->irq_enable(cd, false);
-	if (val == 0) {
+	if (buf[0] == 0) {
 		index = sprintf(rbuf, "disable heatmap\n");
 /*
  * [GOOG]
@@ -3180,7 +3907,8 @@ static void goodix_set_heatmap(struct goodix_ts_core *cd, int val)
 	cd->hw_ops->irq_enable(cd, true);
 }
 
-static void goodix_get_self_compensation(struct goodix_ts_core *cd)
+static void goodix_get_self_compensation(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
 {
 	u8 *cfg;
 	u8 *cfg_buf;
@@ -3190,6 +3918,7 @@ static void goodix_get_self_compensation(struct goodix_ts_core *cd)
 	int sub_cfg_len;
 	int tx = cd->ic_info.parm.drv_num;
 	int rx = cd->ic_info.parm.sen_num;
+	struct goodix_ts_cmd temp_cmd = {0};
 	s16 val;
 	int i, j;
 
@@ -3199,14 +3928,25 @@ static void goodix_get_self_compensation(struct goodix_ts_core *cd)
 		return;
 	}
 
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0x9F;
+
 	if (cd->bus->ic_type == IC_TYPE_BERLIN_B) {
 		/* exit idle firstly */
-		goodix_set_scan_mode(cd, 2);
+		temp_cmd.data[0] = 2;
+		cd->hw_ops->send_cmd(cd, &temp_cmd);
 		msleep(20);
 		cd->hw_ops->read(cd, cd->ic_info.misc.auto_scan_cmd_addr, cfg_buf,
 			(tx + rx) * 2);
 		/* restore default */
-		goodix_set_scan_mode(cd, 0);
+		temp_cmd.data[0] = 0;
+		cd->hw_ops->send_cmd(cd, &temp_cmd);
 		index += sprintf(&rbuf[index], "Tx:");
 		for (i = 0; i < tx; i++) {
 			val = le16_to_cpup((__le16 *)&cfg_buf[i * 2]);
@@ -3257,15 +3997,27 @@ exit_free:
 	kfree(cfg_buf);
 }
 
-static void goodix_set_report_rate(struct goodix_ts_core *cd, int rate)
+static void goodix_set_report_rate(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
 {
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 
-	index = sprintf(rbuf, "set report rate %d\n", rate);
-	ts_info("set report rate %d", rate);
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	index = sprintf(rbuf, "set report rate %d\n", buf[0]);
+	ts_info("set report rate %d", buf[0]);
 	temp_cmd.len = 5;
 	temp_cmd.cmd = 0x9D;
-	temp_cmd.data[0] = rate;
+	temp_cmd.data[0] = buf[0];
 	cd->hw_ops->send_cmd(cd, &temp_cmd);
 }
 
@@ -3274,157 +4026,97 @@ static void goodix_set_report_rate(struct goodix_ts_core *cd, int rate)
 #define DUMP_AREA2_ADDR 0x10400
 #define DUMP_AREA2_LEN  596
 #define DUMP_AREA3_ADDR 0x10308
-#define DUMP_AREA3_LEN  64
-static void goodix_get_dump_log(struct goodix_ts_core *cd)
+#define DUMP_AREA3_LEN 64
+static void goodix_get_dump_log(struct goodix_ts_core *cd, int *buf, int bufsz)
 {
-	u8 buf[600];
+	u8 debug_buf[DUMP_AREA2_LEN];
 	int i;
 
-	cd->hw_ops->read(cd, DUMP_AREA1_ADDR, buf, DUMP_AREA1_LEN);
-	index += sprintf(&rbuf[index], "0x%04x:\n", DUMP_AREA1_ADDR);
-	for (i = 0; i < DUMP_AREA1_LEN; i++) {
-		index += sprintf(&rbuf[index], "%02x,", buf[i]);
-		if ((i + 1) % 32 == 0)
-			index += sprintf(&rbuf[index], "\n");
-	}
-
-	cd->hw_ops->read(cd, DUMP_AREA2_ADDR, buf, DUMP_AREA2_LEN);
-	index += sprintf(&rbuf[index], "\n0x%04x:\n", DUMP_AREA2_ADDR);
-	for (i = 0; i < DUMP_AREA2_LEN; i++) {
-		index += sprintf(&rbuf[index], "%02x,", buf[i]);
-		if ((i + 1) % 32 == 0)
-			index += sprintf(&rbuf[index], "\n");
-	}
-
-	cd->hw_ops->read(cd, DUMP_AREA3_ADDR, buf, DUMP_AREA3_LEN);
-	index += sprintf(&rbuf[index], "\n0x%04x:\n", DUMP_AREA3_ADDR);
-	for (i = 0; i < DUMP_AREA3_LEN; i++) {
-		index += sprintf(&rbuf[index], "%02x,", buf[i]);
-		if ((i + 1) % 32 == 0)
-			index += sprintf(&rbuf[index], "\n");
-	}
-}
-
-static void goodix_get_stylus_data(struct goodix_ts_core *cd)
-{
-	struct goodix_stylus_data stylus_data;
-	u8 temp_buf[40] = { 0 };
-	u32 flag_addr = cd->ic_info.misc.touch_data_addr;
-	int tx = cd->ic_info.parm.drv_num;
-	int rx = cd->ic_info.parm.sen_num;
-	u32 stylus_struct_addr;
-	u8 point_type;
-	int touch_num;
-	int tx1_coor_x;
-	int tx1_coor_y;
-	s8 angle_x;
-	s8 angle_y;
-	int retry = 20;
-	int ret;
-	int i;
-
-	if (cd->bus->ic_type != IC_TYPE_BERLIN_B) {
-		index = sprintf(rbuf, "not support stylus data\n");
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
 		return;
 	}
 
-	/* disable irq & close esd */
-	cd->hw_ops->irq_enable(cd, false);
-	goodix_ts_esd_off(cd);
-
-	/* clean touch event flag */
-	ret = cd->hw_ops->write(cd, flag_addr, temp_buf, 1);
-	if (ret < 0) {
-		ts_err("clean touch event failed, exit!");
-		goto exit;
+	cd->hw_ops->read(cd, DUMP_AREA1_ADDR, debug_buf, DUMP_AREA1_LEN);
+	index += scnprintf(&rbuf[index], DUMP_AREA2_LEN - index, "0x%04x:\n", DUMP_AREA1_ADDR);
+	for (i = 0; i < DUMP_AREA1_LEN; i++) {
+		index += scnprintf(&rbuf[index], sizeof(rbuf) - index,
+			"%02x,", debug_buf[i]);
+		if ((i + 1) % 32 == 0)
+			index += sprintf(&rbuf[index], "\n");
 	}
 
-	while (retry--) {
-		usleep_range(2000, 2100);
-		ret = cd->hw_ops->read(cd, flag_addr, temp_buf, 8 + 16 + 2);
-		if (!ret && (temp_buf[0] & 0x80))
-			break;
-	}
-	if (retry < 0) {
-		ts_err("touch data is not ready val:0x%02x, exit!",
-			temp_buf[0]);
-		ret = -EINVAL;
-		goto exit;
+	cd->hw_ops->read(cd, DUMP_AREA2_ADDR, debug_buf, DUMP_AREA2_LEN);
+	index += scnprintf(&rbuf[index], DUMP_AREA2_LEN - index,
+		"\n0x%04x:\n", DUMP_AREA2_ADDR);
+	for (i = 0; i < DUMP_AREA2_LEN; i++) {
+		index += scnprintf(&rbuf[index], sizeof(rbuf) - index, "%02x,",
+			debug_buf[i]);
+		if ((i + 1) % 32 == 0)
+			index += sprintf(&rbuf[index], "\n");
 	}
 
-	touch_num = temp_buf[2] & 0x0F;
-	if (touch_num == 0) {
-		ts_err("touch num is 0");
-		goto exit;
+	cd->hw_ops->read(cd, DUMP_AREA3_ADDR, debug_buf, DUMP_AREA3_LEN);
+	index += scnprintf(&rbuf[index], DUMP_AREA2_LEN - index,
+		"\n0x%04x:\n", DUMP_AREA3_ADDR);
+	for (i = 0; i < DUMP_AREA3_LEN; i++) {
+		index += scnprintf(&rbuf[index], sizeof(rbuf) - index, "%02x,",
+			debug_buf[i]);
+		if ((i + 1) % 32 == 0)
+			index += sprintf(&rbuf[index], "\n");
 	}
-	point_type = temp_buf[8] & 0x0F;
-	if (point_type != 0x01 && point_type != 0x03) {
-		ts_err("point type is not stylus");
-		goto exit;
-	}
-
-	tx1_coor_x = le16_to_cpup((__le16 *)(temp_buf + 10));
-	tx1_coor_y = le16_to_cpup((__le16 *)(temp_buf + 12));
-	angle_x = le16_to_cpup((__le16 *)(temp_buf + 16)) / 100;
-	angle_y = le16_to_cpup((__le16 *)(temp_buf + 18)) / 100;
-
-	stylus_struct_addr = cd->ic_info.misc.frame_data_addr +
-			     cd->ic_info.misc.frame_data_head_len +
-			     cd->ic_info.misc.fw_attr_len +
-			     cd->ic_info.misc.fw_log_len;
-	ret = cd->hw_ops->read(
-		cd, stylus_struct_addr, (u8 *)&stylus_data, sizeof(stylus_data));
-	if (ret < 0) {
-		ts_err("read stylus struct data failed");
-		goto exit;
-	}
-
-	index += sprintf(&rbuf[index], "Tx1_rawdata\n");
-	for (i = 0; i < tx; i++)
-		index += sprintf(&rbuf[index], "%d,", stylus_data.tx1[i]);
-
-	index += sprintf(&rbuf[index], "\nRx1_rawdata\n");
-	for (i = 0; i < rx; i++)
-		index += sprintf(&rbuf[index], "%d,", stylus_data.rx1[i]);
-
-	index += sprintf(&rbuf[index], "\nTx2_rawdata\n");
-	for (i = 0; i < tx; i++)
-		index += sprintf(&rbuf[index], "%d,", stylus_data.tx2[i]);
-
-	index += sprintf(&rbuf[index], "\nRx2_rawdata\n");
-	for (i = 0; i < rx; i++)
-		index += sprintf(&rbuf[index], "%d,", stylus_data.rx2[i]);
-
-	index += sprintf(&rbuf[index], "\nTx1_coordinate_X/Tx1_coordinate_Y\n");
-	index += sprintf(&rbuf[index], "%d,%d", tx1_coor_x, tx1_coor_y);
-
-	index += sprintf(&rbuf[index], "\nTx2_coordinate_X/Tx2_coordinate_Y\n");
-	index += sprintf(&rbuf[index], "%d,%d", stylus_data.angle_coord_x,
-		stylus_data.angle_coord_y);
-
-	index += sprintf(&rbuf[index], "\nRing_delta_X/Ring_delta_Y\n");
-	index += sprintf(&rbuf[index], "%d,%d", stylus_data.delta_x,
-		stylus_data.delta_y);
-
-	index += sprintf(&rbuf[index], "\nRing_Angle_X/Y\n");
-	index += sprintf(&rbuf[index], "%d,%d", angle_x, angle_y);
-
-	index += sprintf(&rbuf[index],
-		"\nfreq_indexA/freq_indexB/freq1_noise_level/freq2_noise_level/freq3_noise_level/freq4_noise_level\n");
-	index += sprintf(&rbuf[index], "%d,%d,%d,%d,%d,%d\n",
-		stylus_data.freq_indexA, stylus_data.freq_indexB,
-		stylus_data.stylus_noise_value[0],
-		stylus_data.stylus_noise_value[1],
-		stylus_data.stylus_noise_value[2],
-		stylus_data.stylus_noise_value[3]);
-
-exit:
-	/* enable irq & esd */
-	cd->hw_ops->irq_enable(cd, true);
-	goodix_ts_esd_on(cd);
 }
 
-static void goodix_get_im_rawdata(struct goodix_ts_core *cd)
+static void goodix_set_freq_index(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	index = sprintf(rbuf, "set frequency index %d\n", buf[0]);
+	ts_info("set frequency index %d", buf[0]);
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0x9C;
+	temp_cmd.data[0] = buf[0];
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_disable_coor_filter(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd = {0};
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	index = sprintf(rbuf, "disable coordinate filter %d\n", buf[0]);
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0xCA;
+	temp_cmd.data[0] = buf[0] ? 1 : 0;
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_get_im_rawdata(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
 {
 	u32 im_addr = cd->ic_info.misc.frame_data_addr +
 		      cd->ic_info.misc.frame_data_head_len +
@@ -3437,7 +4129,7 @@ static void goodix_get_im_rawdata(struct goodix_ts_core *cd)
 	s16 data[MAX_SCAN_FREQ_NUM * MAX_SEN_NUM_BRB];
 	int i, j;
 	int cnt = 0;
-	struct goodix_ts_cmd temp_cmd;
+	struct goodix_ts_cmd temp_cmd = {0};
 	u32 flag_addr = cd->ic_info.misc.frame_data_addr;
 	u8 val;
 	int retry = 20;
@@ -3466,6 +4158,12 @@ static void goodix_get_im_rawdata(struct goodix_ts_core *cd)
 	}
 
 	cd->hw_ops->read(cd, im_addr, (u8 *)data, freq_num * rx * 2);
+	rbuf = malloc_proc_buffer(LARGE_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
 	for (i = 0; i < freq_num; i++) {
 		index += sprintf(&rbuf[index], "freq%d: ", i);
 		for (j = 0; j < rx; j++)
@@ -3485,62 +4183,152 @@ exit:
 	goodix_ts_esd_on(cd);
 }
 
-static void goodix_force_update(struct goodix_ts_core *cd)
+static void goodix_set_hsync_speed(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
 {
-	int i;
-	int ret;
+	struct goodix_ts_cmd temp_cmd = {0};
 
-	for (i = 0; i < GOODIX_MAX_CONFIG_GROUP; i++) {
-		kfree(cd->ic_configs[i]);
-		cd->ic_configs[i] = NULL;
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
 	}
 
-	ret = goodix_get_config_proc(cd);
-	if (ret < 0)
-		ts_err("not found valid config");
-
-	ret = goodix_do_fw_update(cd,
-		UPDATE_MODE_BLOCK | UPDATE_MODE_FORCE |
-			UPDATE_MODE_SRC_REQUEST);
-	if (ret < 0)
-		index = sprintf(rbuf, "%s: NG\n", CMD_FW_UPDATE);
-	else
-		index = sprintf(rbuf, "%s: OK\n", CMD_FW_UPDATE);
-}
-
-static void goodix_set_freq_index(struct goodix_ts_core *cd, int freq)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	index = sprintf(rbuf, "set frequency index %d\n", freq);
-	ts_info("set frequency index %d", freq);
-	temp_cmd.len = 5;
-	temp_cmd.cmd = 0x9C;
-	temp_cmd.data[0] = freq;
-	cd->hw_ops->send_cmd(cd, &temp_cmd);
-}
-
-static void goodix_disable_coor_filter(struct goodix_ts_core *cd, int val)
-{
-	struct goodix_ts_cmd temp_cmd;
-
-	index = sprintf(rbuf, "disable coordinate filter %d\n", val);
-	temp_cmd.len = 5;
-	temp_cmd.cmd = 0xCA;
-	temp_cmd.data[0] = val ? 1 : 0;
-	cd->hw_ops->send_cmd(cd, &temp_cmd);
-}
-
-static void goodix_set_hsync_speed(struct goodix_ts_core *cd, int val)
-{
-	struct goodix_ts_cmd temp_cmd;
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
 
 	index = sprintf(rbuf, "hsync mode: %s\n",
-		(val == 0) ? "high speed" : "normal speed");
+		(buf[0] == 0) ? "high speed" : "normal speed");
 	temp_cmd.len = 5;
 	temp_cmd.cmd = 0xF2;
-	temp_cmd.data[0] = (val == 0) ? 0 : 1;
+	temp_cmd.data[0] = (buf[0] == 0) ? 0 : 1;
 	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_set_wireless_charge(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd;
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	if (rbuf == NULL) {
+		ts_err("failed to alloc rbuf");
+		return;
+	}
+
+	index = sprintf(
+		rbuf, "%s wireless mode\n", (buf[0] == 0) ? "exit" : "enter");
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0xAF;
+	temp_cmd.data[0] = (buf[0] == 0) ? 0 : 1;
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static void goodix_set_continue_heatmap(
+	struct goodix_ts_core *cd, int *buf, int bufsz)
+{
+	struct goodix_ts_cmd temp_cmd;
+
+	if (bufsz != 1) {
+		ts_err("invalid cmd size:%d", bufsz);
+		return;
+	}
+
+	rbuf = malloc_proc_buffer(SHORT_SIZE);
+	index = sprintf(rbuf, "%s continue heatmap\n",
+		(buf[0] == 0) ? "disable" : "enable");
+	temp_cmd.len = 5;
+	temp_cmd.cmd = 0xCC;
+	temp_cmd.data[0] = (buf[0] == 0) ? 0 : 1;
+	cd->hw_ops->send_cmd(cd, &temp_cmd);
+}
+
+static struct cmd_handler cmd_handler_list[] = {
+	{ CMD_FW_UPDATE, goodix_force_update },
+	{ CMD_AUTO_TEST, goodix_run_auto_test }, { CMD_STYLUS_RAW_TEST, NULL },
+	{ CMD_STYLUS_OSC_TEST, NULL }, { CMD_GET_STYLUS_DATA, NULL },
+	{ CMD_OPEN_TEST, goodix_run_open_test },
+	{ CMD_SELF_OPEN_TEST, goodix_run_self_open_test },
+	{ CMD_NOISE_TEST, goodix_run_noise_test },
+	{ CMD_AUTO_NOISE_TEST, goodix_run_auto_noise_test },
+	{ CMD_SHORT_TEST, goodix_run_short_test },
+	{ CMD_GET_PACKAGE_ID, goodix_get_package_id },
+	{ CMD_GET_MCU_ID, goodix_get_mcu_id },
+	{ CMD_GET_VERSION, goodix_get_version },
+	{ CMD_GET_RAWDATA, goodix_get_rawdata },
+	{ CMD_GET_DIFFDATA, goodix_get_diffdata },
+	{ CMD_GET_BASEDATA, goodix_get_basedata },
+	{ CMD_GET_SELF_RAWDATA, goodix_get_self_rawdata },
+	{ CMD_GET_SELF_DIFFDATA, goodix_get_self_diffdata },
+	{ CMD_GET_SELF_BASEDATA, goodix_get_self_basedata },
+	{ CMD_SET_DOUBLE_TAP, goodix_set_double_tap_gesture },
+	{ CMD_SET_SINGLE_TAP, goodix_set_single_tap_gesture },
+	{ CMD_SET_LONG_PRESS, goodix_set_long_press_gesture },
+	{ CMD_SET_ST_PARAM, goodix_set_st_param },
+	{ CMD_SET_LP_PARAM, goodix_set_lp_param },
+	{ CMD_SET_CHARGE_MODE, NULL },
+	{ CMD_SET_IRQ_ENABLE, goodix_set_irq_enable },
+	{ CMD_SET_ESD_ENABLE, goodix_set_esd_enable },
+	{ CMD_SET_DEBUG_LOG, goodix_set_debug_log },
+	{ CMD_SET_SCAN_MODE, goodix_set_scan_mode },
+	{ CMD_GET_SCAN_MODE, goodix_get_scan_mode },
+	{ CMD_SET_CONTINUE_MODE, goodix_set_continue_mode },
+	{ CMD_GET_CHANNEL_NUM, goodix_get_channel_num },
+	{ CMD_GET_TX_FREQ, goodix_get_tx_freq }, { CMD_RESET, goodix_hw_reset },
+	{ CMD_SET_SENSE_MODE, goodix_set_sense_mode },
+	{ CMD_GET_CONFIG, goodix_get_config },
+	{ CMD_GET_FW_STATUS, goodix_get_fw_status },
+	{ CMD_SET_HIGHSENSE_MODE, goodix_set_highsense_mode },
+	{ CMD_SET_GRIP_DATA, goodix_set_grip_data },
+	{ CMD_SET_GRIP_MODE, goodix_set_grip_mode },
+	{ CMD_SET_PALM_MODE, goodix_set_palm_mode },
+	{ CMD_SET_NOISE_MODE, goodix_set_noise_mode },
+	{ CMD_SET_WATER_MODE, goodix_set_water_mode },
+	{ CMD_SET_HEATMAP, goodix_set_heatmap },
+	{ CMD_GET_SELF_COMPEN, goodix_get_self_compensation },
+	{ CMD_SET_REPORT_RATE, goodix_set_report_rate },
+	{ CMD_GET_DUMP_LOG, goodix_get_dump_log },
+	{ CMD_SET_FREQ_INDEX, goodix_set_freq_index },
+	{ CMD_DISABLE_FILTER, goodix_disable_coor_filter },
+	{ CMD_GET_IM_DATA, goodix_get_im_rawdata },
+	{ CMD_SET_HSYNC_SPEED, goodix_set_hsync_speed },
+	{ CMD_SET_WIRELESS_CHARGE, goodix_set_wireless_charge },
+	{ CMD_SET_CONTINUE_HEATMAP, goodix_set_continue_heatmap },
+	{ NULL, NULL } };
+
+static int split_string(char *str, char *cmd, int *param, int *param_len)
+{
+	char buf[150] = { 0 };
+	char *token = NULL;
+	char *rest = buf;
+	int i = 0;
+	s32 val;
+
+	strcpy(buf, str);
+	if (buf[strlen(buf) - 1] == '\n')
+		buf[strlen(buf) - 1] = 0;
+	token = strsep(&rest, ",");
+	if (token == NULL)
+		return -1;
+	strcpy(cmd, token);
+
+	while ((token = strsep(&rest, ",")) != NULL) {
+		if (kstrtos32(token, 10, &val))
+			return -1;
+		if (i == *param_len)
+			break;
+		param[i++] = val;
+	}
+
+	*param_len = i;
+	return 0;
 }
 
 static ssize_t driver_test_write(struct file *file, const char __user *buf,
@@ -3548,14 +4336,12 @@ static ssize_t driver_test_write(struct file *file, const char __user *buf,
 {
 	struct seq_file *seq_file = (struct seq_file *)file->private_data;
 	struct goodix_ts_core *cd = (struct goodix_ts_core *)seq_file->private;
-	struct goodix_fw_version fw_ver;
-	struct goodix_ic_info ic_info;
-	char *p = wbuf;
-	char *token;
+	struct cmd_handler *cmder = &cmd_handler_list[0];
 	int ret;
-	int cmd_val;
-	int cmd_val2;
-	u8 id;
+	char *p = wbuf;
+	char cmd[64] = { 0 };
+	int tx_buf[32] = { 0 };
+	int tx_len = 0;
 
 	if (count >= SHORT_SIZE) { /* [GOOG] */
 		ts_err("invalid cmd size[%ld]", count);
@@ -3567,999 +4353,52 @@ static ssize_t driver_test_write(struct file *file, const char __user *buf,
 		ts_err("copy from user failed");
 		return count;
 	}
-	//p[strlen(p) - 1] = 0; /* [GOOG] */
 
 	free_proc_buffer(&rbuf);
 	index = 0;
 	release_test_resource();
 
+	tx_len = 32;
+	ret = split_string(p, cmd, tx_buf, &tx_len);
+	if (ret < 0) {
+		ts_err("invalid cmd: %s", p);
+		return count;
+	}
+
 	ts_info("input cmd[%s]", p);
 
-	if (!strncmp(p, CMD_FW_UPDATE, strlen(CMD_FW_UPDATE))) {
+	while (cmder->name) {
+		if (!strcmp(cmd, cmder->name))
+			break;
+		cmder++;
+	}
+
+	if (cmder->name == NULL) {
 		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		goodix_force_update(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_VERSION, strlen(CMD_GET_VERSION))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
+		if (rbuf == NULL) {
 			ts_err("failed to alloc rbuf");
-			goto exit;
+			return count;
 		}
-		cd->hw_ops->read_version(cd, &fw_ver);
-		cd->hw_ops->get_ic_info(cd, &ic_info);
-		index = sprintf(rbuf, "%s: 0x%02x%02x%02x%02x 0x%x\n",
-			CMD_GET_VERSION, fw_ver.patch_vid[0],
-			fw_ver.patch_vid[1], fw_ver.patch_vid[2],
-			fw_ver.patch_vid[3], ic_info.version.config_id);
-		goto exit;
+
+		index = sprintf(rbuf, "not support cmd %s\n", p);
+		ts_err("not support cmd[%s]", p);
+		return count;
 	}
-
-	if (!strncmp(p, CMD_GET_RAWDATA, strlen(CMD_GET_RAWDATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_RAWDATA);
-		if (ret < 0) {
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_RAWDATA);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_BASEDATA, strlen(CMD_GET_BASEDATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_BASEDATA);
-		if (ret < 0) {
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_BASEDATA);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_DIFFDATA, strlen(CMD_GET_DIFFDATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_DIFFDATA);
-		if (ret < 0) {
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_DIFFDATA);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_SELF_RAWDATA, strlen(CMD_GET_SELF_RAWDATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_SELF_RAWDATA);
-		if (ret < 0) {
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_SELF_RAWDATA);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_SELF_DIFFDATA, strlen(CMD_GET_SELF_DIFFDATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_SELF_DIFFDATA);
-		if (ret < 0) {
-			index = sprintf(
-				rbuf, "%s: NG\n", CMD_GET_SELF_DIFFDATA);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_SELF_BASEDATA, strlen(CMD_GET_SELF_BASEDATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_SELF_BASEDATA);
-		if (ret < 0) {
-			index = sprintf(
-				rbuf, "%s: NG\n", CMD_GET_SELF_BASEDATA);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_DOUBLE_TAP, strlen(CMD_SET_DOUBLE_TAP))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_DOUBLE_TAP);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_DOUBLE_TAP);
-			goto exit;
-		}
-		if (cmd_val == 0) {
-			cd->gesture_type &= ~GESTURE_DOUBLE_TAP;
-			index = sprintf(
-				rbuf, "%s: disable OK\n", CMD_SET_DOUBLE_TAP);
-			ts_info("disable double tap");
-		} else {
-			cd->gesture_type |= GESTURE_DOUBLE_TAP;
-			index = sprintf(
-				rbuf, "%s: enable OK\n", CMD_SET_DOUBLE_TAP);
-			ts_info("enable single tap");
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_SINGLE_TAP, strlen(CMD_SET_SINGLE_TAP))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SINGLE_TAP);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SINGLE_TAP);
-			goto exit;
-		}
-		if (cmd_val == 0) {
-			cd->gesture_type &= ~GESTURE_SINGLE_TAP;
-			index = sprintf(
-				rbuf, "%s: disable OK\n", CMD_SET_SINGLE_TAP);
-			ts_info("disable single tap");
-		} else {
-			cd->gesture_type |= GESTURE_SINGLE_TAP;
-			index = sprintf(
-				rbuf, "%s: enable OK\n", CMD_SET_SINGLE_TAP);
-			ts_info("enable single tap");
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_LONG_PRESS, strlen(CMD_SET_LONG_PRESS))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_LONG_PRESS);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_LONG_PRESS);
-			goto exit;
-		}
-		if (cmd_val == 0) {
-			cd->gesture_type &= ~GESTURE_FOD_PRESS;
-			index = sprintf(
-				rbuf, "%s: disable OK\n", CMD_SET_LONG_PRESS);
-			ts_info("disable long press");
-		} else {
-			cd->gesture_type |= GESTURE_FOD_PRESS;
-			index = sprintf(
-				rbuf, "%s: enable OK\n", CMD_SET_LONG_PRESS);
-			ts_info("enable long press");
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_IRQ_ENABLE, strlen(CMD_SET_IRQ_ENABLE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_IRQ_ENABLE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_IRQ_ENABLE);
-			goto exit;
-		}
-		if (cmd_val == 0) {
-			cd->hw_ops->irq_enable(cd, false);
-			index = sprintf(
-				rbuf, "%s: disable OK\n", CMD_SET_IRQ_ENABLE);
-		} else {
-			cd->hw_ops->irq_enable(cd, true);
-			index = sprintf(
-				rbuf, "%s: enable OK\n", CMD_SET_IRQ_ENABLE);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_ESD_ENABLE, strlen(CMD_SET_ESD_ENABLE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_ESD_ENABLE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_ESD_ENABLE);
-			goto exit;
-		}
-		if (cmd_val == 0) {
-			goodix_ts_esd_off(cd);
-			index = sprintf(
-				rbuf, "%s: disable OK\n", CMD_SET_ESD_ENABLE);
-		} else {
-			goodix_ts_esd_on(cd);
-			index = sprintf(
-				rbuf, "%s: enable OK\n", CMD_SET_ESD_ENABLE);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_DEBUG_LOG, strlen(CMD_SET_DEBUG_LOG))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_DEBUG_LOG);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_DEBUG_LOG);
-			goto exit;
-		}
-		if (cmd_val == 0) {
-			debug_log_flag = false;
-			index = sprintf(
-				rbuf, "%s: disable OK\n", CMD_SET_DEBUG_LOG);
-		} else {
-			debug_log_flag = true;
-			index = sprintf(
-				rbuf, "%s: enable OK\n", CMD_SET_DEBUG_LOG);
-		}
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_AUTO_TEST, strlen(CMD_AUTO_TEST))) {
-		raw_data_cnt = 16;
-		noise_data_cnt = 1;
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = malloc_test_resource();
-		if (ret < 0) {
-			ts_err("malloc test resource failed");
-			goto exit;
-		}
-		ts_test->item[GTP_CAP_TEST] = true;
-		ts_test->item[GTP_NOISE_TEST] = true;
-		ts_test->item[GTP_DELTA_TEST] = true;
-		ts_test->item[GTP_SELFCAP_TEST] = true;
-		ts_test->item[GTP_SHORT_TEST] = true;
-		goodix_auto_test(cd, true);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_CHANNEL_NUM, strlen(CMD_GET_CHANNEL_NUM))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		index = sprintf(rbuf, "TX:%d RX:%d\n", cd->ic_info.parm.drv_num,
-			cd->ic_info.parm.sen_num);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_TX_FREQ, strlen(CMD_GET_TX_FREQ))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = get_cap_data(cd, CMD_GET_TX_FREQ);
-		if (ret < 0)
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_TX_FREQ);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_RESET, strlen(CMD_RESET))) {
-		cd->hw_ops->irq_enable(cd, false);
-		cd->hw_ops->reset(cd, 100);
-		cd->hw_ops->irq_enable(cd, true);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_SENSE_MODE, strlen(CMD_SET_SENSE_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SENSE_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SENSE_MODE);
-			goto exit;
-		}
-		if (cmd_val > 2 || cmd_val < 0) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SENSE_MODE);
-			goto exit;
-		}
-		goodix_set_sense_mode(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_NOISE_TEST, strlen(CMD_NOISE_TEST))) {
-		int tx = cd->ic_info.parm.drv_num;
-		int rx = cd->ic_info.parm.sen_num;
-
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			ts_err("%s: invalid cmd param", CMD_NOISE_TEST);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			ts_err("%s: invalid cmd param", CMD_NOISE_TEST);
-			goto exit;
-		}
-		noise_data_cnt = cmd_val;
-		/*
-		 * [GOOG]
-		 * Change the size based on the channel number(tx * rx) for
-		 * output (raw + data) and markup text with format "%5d,".
-		 */
-		//rbuf = malloc_proc_buffer(noise_data_cnt * 30000);
-		rbuf = malloc_proc_buffer(noise_data_cnt * tx * rx * 6 * 3);
-		/*~[GOOG]*/
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = malloc_test_resource();
-		if (ret < 0) {
-			ts_err("malloc test resource failed");
-			goto exit;
-		}
-		ts_test->item[GTP_NOISE_TEST] = true;
-		goodix_auto_test(cd, false);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_AUTO_NOISE_TEST, strlen(CMD_AUTO_NOISE_TEST))) {
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			ts_err("%s: invalid cmd param", CMD_AUTO_NOISE_TEST);
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			ts_err("%s: invalid cmd param", CMD_AUTO_NOISE_TEST);
-			goto exit;
-		}
-		if (kstrtos32(token, 10, &cmd_val)) {
-			ts_err("%s: invalid cmd param", CMD_AUTO_NOISE_TEST);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val2)) {
-			ts_err("%s: invalid cmd param", CMD_AUTO_NOISE_TEST);
-			goto exit;
-		}
-		rbuf = malloc_proc_buffer(HUGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_auto_noise_test(cd, cmd_val, cmd_val2);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_PACKAGE_ID, strlen(CMD_GET_PACKAGE_ID))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		mutex_lock(&cd->cmd_lock);
-		usleep_range(6000, 6100);
-		if (cd->bus->ic_type == IC_TYPE_BERLIN_B)
-			ret = cd->hw_ops->read_flash(cd, 0x3F301, &id, 1);
-		else
-			ret = cd->hw_ops->read_flash(cd, 0x1F301, &id, 1);
-		mutex_unlock(&cd->cmd_lock);
-		if (ret < 0)
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_PACKAGE_ID);
-		else
-			index = sprintf(
-				rbuf, "%s: 0x%x\n", CMD_GET_PACKAGE_ID, id);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_MCU_ID, strlen(CMD_GET_MCU_ID))) {
-		if (cd->bus->ic_type == IC_TYPE_BERLIN_B)
-			goto exit;
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		mutex_lock(&cd->cmd_lock);
-		usleep_range(6000, 6100);
-		ret = cd->hw_ops->read_flash(cd, 0x1F314, &id, 1);
-		mutex_unlock(&cd->cmd_lock);
-		if (ret < 0)
-			index = sprintf(rbuf, "%s: NG\n", CMD_GET_MCU_ID);
-		else
-			index = sprintf(rbuf, "%s: 0x%x\n", CMD_GET_MCU_ID, id);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_SCAN_MODE, strlen(CMD_SET_SCAN_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SCAN_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SCAN_MODE);
-			goto exit;
-		}
-		if (cmd_val > 2 || cmd_val < 0) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_SCAN_MODE);
-			goto exit;
-		}
-		goodix_set_scan_mode(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_SCAN_MODE, strlen(CMD_GET_SCAN_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_get_scan_mode(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_CONTINUE_MODE, strlen(CMD_SET_CONTINUE_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_CONTINUE_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_CONTINUE_MODE);
-			goto exit;
-		}
-		if (cmd_val > 1 || cmd_val < 0) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_CONTINUE_MODE);
-			goto exit;
-		}
-		goodix_set_continue_mode(cd, cmd_val);
-		goto exit;
-	}
-
-	/* open test */
-	if (!strncmp(p, CMD_OPEN_TEST, strlen(CMD_OPEN_TEST))) {
-		int tx = cd->ic_info.parm.drv_num;
-		int rx = cd->ic_info.parm.sen_num;
-
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			ts_err("%s: invalid cmd param", CMD_OPEN_TEST);
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token) {
-			ts_err("%s: invalid cmd param", CMD_OPEN_TEST);
-			goto exit;
-		}
-		if (kstrtos32(token, 10, &cmd_val)) {
-			ts_err("%s: invalid cmd param", CMD_OPEN_TEST);
-			goto exit;
-		}
-		if (p != NULL) {
-			if (kstrtos32(p, 10, &cmd_val2)) {
-				ts_err("%s: invalid cmd param", CMD_OPEN_TEST);
-				goto exit;
-			}
-		} else {
-			cmd_val2 = 0;
-		}
-		raw_data_cnt = cmd_val;
-		/*
-		 * [GOOG]
-		 * Change the size based on the channel number(tx * rx) for
-		 * output (raw + data) and markup text with format "%5d,".
-		 */
-		//rbuf = malloc_proc_buffer(raw_data_cnt * 30000);
-		rbuf = malloc_proc_buffer(raw_data_cnt * tx * rx * 6 * 3);
-		/*~[GOOG]*/
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = malloc_test_resource();
-		if (ret < 0) {
-			ts_err("malloc test resource failed");
-			goto exit;
-		}
-		ts_test->item[GTP_CAP_TEST] = true;
-		ts_test->freq = cmd_val2;
-		goodix_auto_test(cd, false);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SELF_OPEN_TEST, strlen(CMD_SELF_OPEN_TEST))) {
-		rbuf = malloc_proc_buffer(HUGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = malloc_test_resource();
-		if (ret < 0) {
-			ts_err("malloc test resource failed");
-			goto exit;
-		}
-		ts_test->item[GTP_SELFCAP_TEST] = true;
-		goodix_auto_test(cd, false);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SHORT_TEST, strlen(CMD_SHORT_TEST))) {
-		rbuf = malloc_proc_buffer(HUGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = malloc_test_resource();
-		if (ret < 0) {
-			ts_err("malloc test resource failed");
-			goto exit;
-		}
-		ts_test->item[GTP_SHORT_TEST] = true;
-		goodix_auto_test(cd, false);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_CONFIG, strlen(CMD_GET_CONFIG))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_read_config(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_FW_STATUS, strlen(CMD_GET_FW_STATUS))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_get_fw_status(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_HIGHSENSE_MODE,
-		    strlen(CMD_SET_HIGHSENSE_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HIGHSENSE_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HIGHSENSE_MODE);
-			goto exit;
-		}
-		if (cmd_val > 1 || cmd_val < 0) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HIGHSENSE_MODE);
-			goto exit;
-		}
-		goodix_set_highsense_mode(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_GRIP_DATA, strlen(CMD_SET_GRIP_DATA))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_GRIP_DATA);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_GRIP_DATA);
-			goto exit;
-		}
-		goodix_set_grip_data(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_GRIP_MODE, strlen(CMD_SET_GRIP_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_GRIP_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_GRIP_MODE);
-			goto exit;
-		}
-		goodix_set_custom_mode(cd, GRIP_FUNC, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_PALM_MODE, strlen(CMD_SET_PALM_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_PALM_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_PALM_MODE);
-			goto exit;
-		}
-		goodix_set_custom_mode(cd, PALM_FUNC, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_NOISE_MODE, strlen(CMD_SET_NOISE_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_NOISE_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_NOISE_MODE);
-			goto exit;
-		}
-		goodix_set_custom_mode(cd, NOISE_FUNC, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_WATER_MODE, strlen(CMD_SET_WATER_MODE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_WATER_MODE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_WATER_MODE);
-			goto exit;
-		}
-		goodix_set_custom_mode(cd, WATER_FUNC, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_ST_PARAM, strlen(CMD_SET_ST_PARAM))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_ST_PARAM);
-			goto exit;
-		}
-		goodix_parse_gesture_param(cd, GESTURE_STTW, &p);
-		goodix_set_gesture_param(cd, GESTURE_STTW);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_LP_PARAM, strlen(CMD_SET_LP_PARAM))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_LP_PARAM);
-			goto exit;
-		}
-		goodix_parse_gesture_param(cd, GESTURE_LPTW, &p);
-		goodix_set_gesture_param(cd, GESTURE_LPTW);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_HEATMAP, strlen(CMD_SET_HEATMAP))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HEATMAP);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HEATMAP);
-			goto exit;
-		}
-		goodix_set_heatmap(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_SELF_COMPEN, strlen(CMD_GET_SELF_COMPEN))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_get_self_compensation(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_REPORT_RATE, strlen(CMD_SET_REPORT_RATE))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_REPORT_RATE);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_REPORT_RATE);
-			goto exit;
-		}
-		goodix_set_report_rate(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_DUMP_LOG, strlen(CMD_GET_DUMP_LOG))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_get_dump_log(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_STYLUS_DATA, strlen(CMD_GET_STYLUS_DATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		goodix_get_stylus_data(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_FREQ_INDEX, strlen(CMD_SET_FREQ_INDEX))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_FREQ_INDEX);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_FREQ_INDEX);
-			goto exit;
-		}
-		goodix_set_freq_index(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_DISABLE_FILTER, strlen(CMD_DISABLE_FILTER))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_DISABLE_FILTER);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_DISABLE_FILTER);
-			goto exit;
-		}
-		goodix_disable_coor_filter(cd, cmd_val);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_STYLUS_RAW_TEST, strlen(CMD_STYLUS_RAW_TEST))) {
-		cmd_val = 0;
-		raw_data_cnt = 16;
-		rbuf = malloc_proc_buffer(HUGE_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		token = strsep(&p, ",");
-		if (p) {
-			if (kstrtos32(p, 10, &cmd_val)) {
-				index = sprintf(rbuf, "%s: invalid cmd param\n",
-					CMD_STYLUS_RAW_TEST);
-				goto exit;
-			}
-		}
-		ret = malloc_test_resource();
-		if (ret < 0) {
-			ts_err("malloc test resource failed");
-			goto exit;
-		}
-		ts_test->stylus_test_freq = cmd_val;
-		ts_test->item[GTP_STYLUS_RAW_TEST] = true;
-		goodix_auto_test(cd, false);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_STYLUS_OSC_TEST, strlen(CMD_STYLUS_OSC_TEST))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		if (!rbuf) {
-			ts_err("failed to alloc rbuf");
-			goto exit;
-		}
-		ret = goodix_stylus_osc_test(cd);
-		if (ret < 0)
-			index = sprintf(rbuf, "stylus osc test:\nFAIL\n");
-		else
-			index = sprintf(rbuf, "stylus osc test:\nPASS\n");
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_GET_IM_DATA, strlen(CMD_GET_IM_DATA))) {
-		rbuf = malloc_proc_buffer(LARGE_SIZE);
-		goodix_get_im_rawdata(cd);
-		goto exit;
-	}
-
-	if (!strncmp(p, CMD_SET_HSYNC_SPEED, strlen(CMD_SET_HSYNC_SPEED))) {
-		rbuf = malloc_proc_buffer(SHORT_SIZE);
-		token = strsep(&p, ",");
-		if (!token || !p) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HSYNC_SPEED);
-			goto exit;
-		}
-		if (kstrtos32(p, 10, &cmd_val)) {
-			index = sprintf(rbuf, "%s: invalid cmd param\n",
-				CMD_SET_HSYNC_SPEED);
-			goto exit;
-		}
-		goodix_set_hsync_speed(cd, cmd_val);
-		goto exit;
-	}
-
-	rbuf = malloc_proc_buffer(SHORT_SIZE);
-	if (!rbuf) {
-		ts_err("failed to alloc rbuf");
-		goto exit;
-	}
-	index = sprintf(rbuf, "not support cmd %s\n", p);
-	ts_err("not support cmd[%s]", p);
-exit:
+	if (cmder->handler)
+		cmder->handler(cd, tx_buf, tx_len);
 	return count;
 }
 
 static int cmd_list_show(struct seq_file *m, void *v)
 {
-	int i = 0;
+	struct cmd_handler *cmder = &cmd_handler_list[0];
 
 	if (!m || !v)
 		return -EIO;
 
-	while (cmd_list[i] != NULL) {
-		seq_printf(m, "%s\n", cmd_list[i]);
-		i++;
+	while (cmder->name != NULL) {
+		seq_printf(m, "%s\n", cmder->name);
+		cmder++;
 	}
 
 	return 0;

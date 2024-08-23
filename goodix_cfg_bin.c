@@ -239,6 +239,19 @@ exit:
 	return -EINVAL;
 }
 
+static void goodix_free_config(struct goodix_ts_core *cd)
+{
+	int i;
+
+	for (i = 0; i < GOODIX_MAX_CONFIG_GROUP; i++) {
+		if (cd->ic_configs[i] == NULL)
+			continue;
+
+		devm_kfree(&cd->pdev->dev, cd->ic_configs[i]);
+		cd->ic_configs[i] = NULL;
+	}
+}
+
 static int goodix_get_reg_and_cfg(
 	struct goodix_ts_core *cd, u8 sensor_id, struct goodix_cfg_bin *cfg_bin)
 {
@@ -252,6 +265,8 @@ static int goodix_get_reg_and_cfg(
 			cfg_bin->head.pkg_num);
 		return -EINVAL;
 	}
+
+	goodix_free_config(cd);
 
 	/* find cfg packages with same sensor_id */
 	for (i = 0; i < cfg_bin->head.pkg_num; i++) {
@@ -281,7 +296,8 @@ static int goodix_get_reg_and_cfg(
 			continue;
 		}
 		cd->ic_configs[cfg_type] =
-			kzalloc(sizeof(struct goodix_ic_config), GFP_KERNEL);
+			devm_kzalloc(&cd->pdev->dev,
+			sizeof(struct goodix_ic_config), GFP_KERNEL);
 		if (!cd->ic_configs[cfg_type])
 			goto err_out;
 		cd->ic_configs[cfg_type]->len = cfg_len;
@@ -293,10 +309,7 @@ static int goodix_get_reg_and_cfg(
 
 err_out:
 	/* parse config enter error, release memory alloced */
-	for (i = 0; i < GOODIX_MAX_CONFIG_GROUP; i++) {
-		kfree(cd->ic_configs[i]);
-		cd->ic_configs[i] = NULL;
-	}
+	goodix_free_config(cd);
 	return -EINVAL;
 }
 

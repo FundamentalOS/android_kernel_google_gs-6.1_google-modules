@@ -33,6 +33,7 @@
 #include <linux/completion.h>
 #include <linux/of_irq.h>
 #include <drm/drm_panel.h>
+#include <linux/version.h>
 #if IS_ENABLED(CONFIG_OF)
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
@@ -57,7 +58,7 @@
 
 #define GOODIX_CORE_DRIVER_NAME "goodix_ts"
 #define GOODIX_PEN_DRIVER_NAME "goodix_ts,pen"
-#define GOODIX_DRIVER_VERSION "v1.3.5"
+#define GOODIX_DRIVER_VERSION "v1.3.11"
 #define GOODIX_MAX_TOUCH 10
 #define GOODIX_PEN_MAX_PRESSURE 4096
 #define GOODIX_MAX_PEN_KEY 2
@@ -291,12 +292,23 @@ struct goodix_ic_info_misc { /* other data */
 	u32 auto_scan_info_addr;
 };
 
+struct goodix_ic_info_other {
+	u16 normalize_k_version;
+	u32 irrigation_data_addr;
+	u32 algo_debug_data_addr;
+	u16 algo_debug_data_len;
+	u32 update_sync_data_addr;
+	u16 screen_max_x;
+	u16 screen_max_y;
+};
+
 struct goodix_ic_info {
 	u16 length;
 	struct goodix_ic_info_version version;
 	struct goodix_ic_info_feature feature;
 	struct goodix_ic_info_param parm;
 	struct goodix_ic_info_misc misc;
+	struct goodix_ic_info_other other;
 };
 
 struct goodix_frame_head {
@@ -378,6 +390,7 @@ struct goodix_ts_board_data {
 	bool pen_enable;
 	bool sleep_enable;
 	bool use_one_binary;
+	bool noise_test_disable_cmd;
 	char fw_name[GOODIX_MAX_STR_LABEL_LEN];
 	char cfg_bin_name[GOODIX_MAX_STR_LABEL_LEN];
 	char test_limits_name[GOODIX_MAX_STR_LABEL_LEN];
@@ -418,6 +431,7 @@ struct goodix_status_data {
 	u8 palm_change : 1;
 	u8 noise_lv_change : 1;
 	u8 grip_change : 1;
+	u8 others_change : 1;
 	u8 water_sta;
 	u8 before_factorA;
 	u8 after_factorA;
@@ -426,7 +440,13 @@ struct goodix_status_data {
 	u8 palm_sta;
 	u8 noise_lv;
 	u8 grip_type;
-	u8 res[9];
+	u8 fold_sta; // open 1, folded 0
+	u8 wireless_mode;
+	u8 fw_sta : 2;
+	u8 sys_cmd : 2;
+	u8 fw_hs_ns : 2;
+	u8 hsync_error : 2;
+	u8 res[6];
 	u8 event_id;
 	u8 checksum;
 };

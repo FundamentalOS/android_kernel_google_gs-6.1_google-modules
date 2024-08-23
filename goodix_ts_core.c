@@ -1147,8 +1147,13 @@ exit:
 
 static int rawdata_proc_open(struct inode *inode, struct file *file)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0))
 	return single_open_size(
 		file, rawdata_proc_show, pde_data(inode), PAGE_SIZE * 10);
+#else
+	return single_open_size(
+		file, rawdata_proc_show, PDE_DATA(inode), PAGE_SIZE * 10);
+#endif
 }
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
@@ -1497,6 +1502,9 @@ static int goodix_parse_dt(
 	board_data->pen_enable =
 		of_property_read_bool(node, "goodix,pen-enable");
 
+	board_data->noise_test_disable_cmd =
+		of_property_read_bool(node, "goodix,noise-test-disable-cmd");
+
 	ts_info("[DT]x:%d, y:%d, w:%d, p:%d sleep_enable:%d pen_enable:%d",
 		board_data->panel_max_x, board_data->panel_max_y,
 		board_data->panel_max_w, board_data->panel_max_p,
@@ -1792,17 +1800,20 @@ void goodix_ts_report_status(struct goodix_ts_core *core_data,
 		return;
 	}
 
-	ts_info("grip_change[%d] noise_lv_change[%d] palm_change[%d] soft_reset[%d] base_update[%d] hop_change[%d] water_change[%d]",
-		st->grip_change, st->noise_lv_change, st->palm_change,
-		st->soft_reset, st->base_update, st->hop_change,
-		st->water_change);
-	ts_info("water_status[%d] before_factorA[%d] after_factorA[%d]" \
-		" base_update_type[0x%x] soft_reset_type[0x%x] palm_status[%d]" \
-		" noise_lv[%d] grip_type[%d] event_id[%d] clear_count1[%d]" \
-		" clear_count2[%d]", st->water_sta, st->before_factorA,
-		st->after_factorA, st->base_update_type, st->soft_reset_type,
-		st->palm_sta, st->noise_lv, st->grip_type, st->event_id,
-		ts_event->clear_count1, ts_event->clear_count2);
+	ts_info("others_change[%d] grip_change[%d] noise_lv_change[%d] palm_change[%d]"
+		"soft_reset[%d] base_update[%d] hop_change[%d] water_change[%d]",
+		st->others_change, st->grip_change, st->noise_lv_change,
+		st->palm_change, st->soft_reset, st->base_update,
+		st->hop_change, st->water_change);
+	ts_info("water_status[%d] before_factorA[%d] after_factorA[%d] base_update_type[0x%x]\n"
+		"soft_reset_type[0x%x] palm_status[%d] noise_lv[%d] grip_type[%d] \n"
+		"wireless_mode[%d] fw_sta[%x] sys_cmd[%x] fw_hs_ns[%x] hsync_err[%x] event_id[%d] \n"
+		"clear_count1[%d] clear_count2[%d]",
+		st->water_sta, st->before_factorA, st->after_factorA,
+		st->base_update_type, st->soft_reset_type, st->palm_sta,
+		st->noise_lv, st->grip_type, st->wireless_mode,
+		st->fw_sta, st->sys_cmd, st->fw_hs_ns, st->hsync_error,
+		st->event_id, ts_event->clear_count1, ts_event->clear_count2);
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	if (st->soft_reset)
 		goog_notify_fw_status_changed(core_data->gti, GTI_FW_STATUS_RESET,
@@ -2150,6 +2161,8 @@ static int goodix_ts_input_dev_config(struct goodix_ts_core *core_data)
 {
 	struct goodix_ts_board_data *ts_bdata = board_data(core_data);
 	struct input_dev *input_dev = NULL;
+	int max_x = ts_bdata->panel_max_x;
+	int max_y = ts_bdata->panel_max_y;
 	int dev_id = core_data->pdev->id;
 	int r;
 
@@ -2176,11 +2189,15 @@ static int goodix_ts_input_dev_config(struct goodix_ts_core *core_data)
 	set_bit(BTN_TOOL_FINGER, input_dev->keybit);
 	set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
 
+	if (core_data->ic_info.other.screen_max_x > 0 &&
+		core_data->ic_info.other.screen_max_y > 0) {
+		max_x = core_data->ic_info.other.screen_max_x;
+		max_y = core_data->ic_info.other.screen_max_y;
+	}
+
 	/* set input parameters */
-	input_set_abs_params(
-		input_dev, ABS_MT_POSITION_X, 0, ts_bdata->panel_max_x, 0, 0);
-	input_set_abs_params(
-		input_dev, ABS_MT_POSITION_Y, 0, ts_bdata->panel_max_y, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, max_x - 1, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, max_y - 1, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_PRESSURE, 0, 255, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0, ts_bdata->panel_max_y, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MINOR, 0, ts_bdata->panel_max_x, 0, 0);
@@ -2913,7 +2930,7 @@ static int goodix_send_ic_config(struct goodix_ts_core *cd, int type)
  */
 static int goodix_later_init_thread(void *data)
 {
-	int ret, i;
+	int ret;
 	int update_flag = UPDATE_MODE_BLOCK | UPDATE_MODE_SRC_REQUEST;
 	struct goodix_ts_core *cd = data;
 	struct goodix_ts_hw_ops *hw_ops = cd->hw_ops;
@@ -2980,10 +2997,6 @@ uninit_fw:
 err_out:
 	ts_err("stage2 init failed");
 	cd->init_stage = CORE_INIT_FAIL;
-	for (i = 0; i < GOODIX_MAX_CONFIG_GROUP; i++) {
-		kfree(cd->ic_configs[i]);
-		cd->ic_configs[i] = NULL;
-	}
 	return ret;
 }
 

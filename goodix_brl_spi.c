@@ -406,11 +406,20 @@ err_get_ic_type:
 	return ret;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0))
 static void goodix_spi_remove(struct spi_device *spi)
 {
 	/* goodix_ts_core_exit() will unregister device(s)
 	   platform_device_unregister(dev_res->pdev); */
 }
+#else
+static int goodix_spi_remove(struct spi_device *spi)
+{
+	/* goodix_ts_core_exit() will unregister device(s)
+	   platform_device_unregister(dev_res->pdev); */
+	return 0;
+}
+#endif
 
 #ifdef CONFIG_OF
 static const struct of_device_id spi_matches[] = {

@@ -721,6 +721,7 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	struct goodix_ic_info_feature *feature = &info->feature;
 	struct goodix_ic_info_param *parm = &info->parm;
 	struct goodix_ic_info_misc *misc = &info->misc;
+	struct goodix_ic_info_other *other = &info->other;
 
 	info->length = le16_to_cpup((__le16 *)data);
 
@@ -833,6 +834,9 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	LE32_TO_CPU(misc->auto_scan_cmd_addr);
 	LE32_TO_CPU(misc->auto_scan_info_addr);
 
+	data += sizeof(*misc);
+	memcpy((u8 *)other, data, sizeof(*other));
+
 	return 0;
 }
 
@@ -842,6 +846,7 @@ void print_ic_info(struct goodix_ic_info *ic_info)
 	struct goodix_ic_info_feature *feature = &ic_info->feature;
 	struct goodix_ic_info_param *parm = &ic_info->parm;
 	struct goodix_ic_info_misc *misc = &ic_info->misc;
+	struct goodix_ic_info_other *other = &ic_info->other;
 
 	ts_info("ic_info_length:                %d", ic_info->length);
 	ts_info("info_customer_id:              0x%01X",
@@ -901,6 +906,8 @@ void print_ic_info(struct goodix_ic_info *ic_info)
 		misc->stylus_rawdata_addr, misc->stylus_rawdata_len);
 	ts_info("esd_addr:                      0x%04X", misc->esd_addr);
 	ts_info("frame_data_addr:               0x%04X", misc->frame_data_addr);
+	ts_info("screen_max_x:                  %u", other->screen_max_x);
+	ts_info("screen_max_y:                  %u", other->screen_max_y);
 }
 
 static int brl_get_ic_info(

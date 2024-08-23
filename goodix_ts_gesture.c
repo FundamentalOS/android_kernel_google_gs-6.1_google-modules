@@ -258,7 +258,7 @@ int goodix_ts_report_gesture(struct goodix_ts_core *cd)
 
 int gesture_module_init(struct goodix_ts_core *core_data)
 {
-	int ret = 0;
+	int ret = -1;
 	struct kobject *parent = &core_data->pdev->dev.kobj;
 
 	/* gesture sysfs init */
