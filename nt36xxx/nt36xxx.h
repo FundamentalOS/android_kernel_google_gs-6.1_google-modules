@@ -158,12 +158,13 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #endif // SPI_FLASH
 
 //---ESD Protect.---
-#define NVT_TOUCH_ESD_PROTECT 1
 #define NVT_TOUCH_ESD_CHECK_PERIOD 1500	/* ms */
 #if SPI_FLASH
 #define NVT_TOUCH_WDT_RECOVERY 0
+#define NVT_TOUCH_ESD_PROTECT 0
 #else
 #define NVT_TOUCH_WDT_RECOVERY 1
+#define NVT_TOUCH_ESD_PROTECT 1
 #endif // SPI_FLASH
 
 #define CHECK_PEN_DATA_CHECKSUM 0
@@ -522,7 +523,7 @@ inline const char *get_mp_fw_name(void);
 int nvt_ts_resume(struct device *dev);
 int nvt_ts_suspend(struct device *dev);
 
-void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts);
+void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts, bool force_update);
 extern struct workqueue_struct *nvt_fwu_wq;
 extern int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode);
 extern int32_t nvt_selftest(void);

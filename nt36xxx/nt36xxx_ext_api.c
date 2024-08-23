@@ -397,7 +397,7 @@ static ssize_t nvt_heatmap_data_type_store(struct device *dev,
 		ts->heatmap_host_cmd_addr = HEATMAP_PEN_ADDR;
 	} else {
 		ts->heatmap_host_cmd_addr = HEATMAP_TOUCH_ADDR;
-		nvt_set_heatmap_host_cmd(ts);
+		nvt_set_heatmap_host_cmd(ts, true);
 	}
 
 	ts->heatmap_data_type = type;

@@ -202,7 +202,7 @@ const char *get_mp_fw_name(void)
 		return MP_UPDATE_FIRMWARE_NAME;
 }
 
-void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts)
+void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts, bool force_update)
 {
 	uint8_t cmd_type = 0;
 	uint8_t cmd_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, 0};
@@ -231,7 +231,7 @@ void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts)
 		break;
 	}
 
-	if (ts->heatmap_host_cmd != cmd_type) {
+	if (force_update || (ts->heatmap_host_cmd != cmd_type)) {
 		NVT_LOG("new host cmd(%#x) for heatmap type(%d)\n",
 			cmd_type, ts->heatmap_data_type);
 		cmd_buf[2] = cmd_type;
@@ -733,8 +733,6 @@ void nvt_bootloader_reset(void)
 		/* disable SPI_RD_FAST */
 		nvt_write_addr(SPI_RD_FAST_ADDR, 0x00);
 	}
-
-	NVT_LOGD("end\n");
 }
 
 /*******************************************************
@@ -861,6 +859,17 @@ int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state)
 		usleep_range(10000, 10000);
 	}
 
+#if SPI_FLASH
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	if (ts && ts->gti) {
+		struct gti_fw_status_data fw_status = {0};
+
+		goog_notify_fw_status_changed(ts->gti, GTI_FW_STATUS_RESET,
+			&fw_status);
+	}
+#endif
+#endif
+
 	return ret;
 }
 
@@ -955,11 +964,7 @@ info_retry:
 
 	/* Allocate buffer for SPI heatmap(delta) data. */
 	if (!ts->heatmap_spi_buf) {
-#if SPI_FLASH
-		ts->heatmap_data_type = HEATMAP_DATA_TYPE_DISABLE; // TODO: track heatmap function with flash mode
-#else
 		ts->heatmap_data_type = HEATMAP_DATA_TYPE_TOUCH_STRENGTH_COMP; // keep the default
-#endif // SPI_FLASH
 		ts->heatmap_host_cmd_addr = HEATMAP_TOUCH_ADDR;
 		/* Need one stuffing byte for I/O transfer. */
 		ts->heatmap_spi_buf_size = ts->x_num * ts->y_num * 2 + 1;
@@ -985,7 +990,7 @@ info_retry:
 
 	/* Initialize heatmap_host_cmd. */
 	ts->heatmap_host_cmd = HEATMAP_HOST_CMD_DISABLE;
-	nvt_set_heatmap_host_cmd(ts);
+	nvt_set_heatmap_host_cmd(ts, true);
 
 #if NVT_TOUCH_EXT_API
 	/* Get DTTW initialized conf. */
