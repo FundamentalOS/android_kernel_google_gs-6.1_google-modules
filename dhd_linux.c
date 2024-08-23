@@ -13456,6 +13456,8 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* WL_BCNRECV */
 	setbit(mask, WLC_E_COUNTRY_CODE_CHANGED);
 
+	setbit(mask, WLC_E_AP_BCN_MUTE);
+
 	/* Write updated Event mask */
 	eventmask_msg->ver = EVENTMSGS_VER;
 	eventmask_msg->command = EVENTMSGS_SET_MASK;

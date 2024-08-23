@@ -25,7 +25,17 @@ M ?= $(shell pwd)
 
 ifneq ($(KERNEL_SRC),)
   KBUILD_OPTIONS += BCMDHD_ROOT=$(shell cd $(KERNEL_SRC); readlink -e $(M))
-  -include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
+
+  # For distinguishing P24 and P25. CONFIG_PCI_EXYNOS_GS is only enabled for P24.
+  CONFIG_PCI_EXYNOS_GS := $(shell grep -w CONFIG_PCI_EXYNOS_GS $(O)/.config | cut -d'=' -f2)
+  ifneq ($(CONFIG_PCI_EXYNOS_GS), )
+    -include $(KERNEL_SRC)/../private/google-modules/soc/gs/Makefile.include
+  else
+    KCFLAGS += -I$(dir $(KERNEL_SRC))private/google-modules/soc/rdo/include
+    # For "include/linux/platform_data/sscoredump.h"
+    KCFLAGS += -I$(dir $(KERNEL_SRC))private/google-modules/soc/gs/include
+    EXTRA_SYMBOLS+= $(dir ${O})private/google-modules/soc/rdo/Module.symvers
+  endif
   EXTRA_CFLAGS+="-Wno-missing-prototypes"
 endif
 

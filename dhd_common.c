@@ -4686,6 +4686,53 @@ wl_get_event_status_name(uint32 event_type, uint32 status)
 	return def_status_str;
 }
 
+
+static void
+wl_show_host_bcn_mute_miti_event(wl_event_msg_t *event, char *data)
+{
+	int status, reason;
+	char buf[ETHER_ADDR_STR_LEN] = {0};
+	wl_event_msg_t *event_msg;
+	wlc_bcn_mute_miti_event_data_v1_t *event_data_v1 =
+		(wlc_bcn_mute_miti_event_data_v1_t*)data;
+
+	event_msg = event;
+	status = ntoh32(event->status);
+	reason = ntoh32(event->reason);
+
+	switch (event_data_v1->version) {
+		case WLC_BCN_MUTE_MITI_EVENT_DATA_VER_1: {
+			DHD_EVENT(("MACEVENT: WLC_E_AP_BCN_MUTE event : %d "
+				"Reason code=%d uatbtt count=%d\n", WLC_E_AP_BCN_MUTE,
+				reason, event_data_v1->uatbtt_count));
+			break;
+		}
+
+		case WLC_BCN_MUTE_MITI_EVENT_DATA_VER_2:
+		case WLC_BCN_MUTE_MITI_EVENT_DATA_VER_3:
+		{
+			wlc_bcn_mute_miti_event_data_v3_t *event_data_v3;
+
+			event_data_v3 = (wlc_bcn_mute_miti_event_data_v3_t*)data;
+			DHD_EVENT(("MACEVENT: WLC_E_AP_BCN_MUTE event : %d "
+				"BSSID = %s Reason code=%d status=%d uatbtt count=%d rssi = %d\n",
+				WLC_E_AP_BCN_MUTE, bcm_ether_ntoa(&event_msg->addr, buf),
+				reason, status, event_data_v3->uatbtt_count, event_data_v3->rssi));
+
+			break;
+		}
+
+		default:
+			DHD_EVENT(("MACEVENT: WLC_E_AP_BCN_MUTE event : %d "
+				"Error: invalid version %d\n", WLC_E_AP_BCN_MUTE,
+				event_data_v1->version));
+			goto exit;
+	}
+
+exit:
+	return;
+}
+
 static void
 wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 	void *raw_event_ptr, char *eventmask)
@@ -5427,6 +5474,12 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 			break;
 		}
 #endif /* WL_MLO */
+	case WLC_E_AP_BCN_MUTE:
+		{
+			DHD_INFO(("MACEVENT: WLC_E_AP_BCN_MUTE, MAC %s\n", eabuf));
+			wl_show_host_bcn_mute_miti_event(event, event_data);
+			break;
+		}
 	default:
 		DHD_INFO(("MACEVENT: %s %d, MAC %s, status %d, reason %d, auth %d\n",
 		       event_name, event_type, eabuf, (int)status, (int)reason,

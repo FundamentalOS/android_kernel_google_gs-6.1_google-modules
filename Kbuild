@@ -20,6 +20,12 @@
 # <<Broadcom-WL-IPTag/Dual:>>
 #
 
+# include main kernel build env for BCMDHD if exists
+-include $(BCMDHD_ROOT)/BCMDHD.Kbuild
+ifeq ($(BCMDHD),)
+  GG_REF_PLATFORM=1
+endif
+
 # Path to the module source, KERNEL_SRC is defined for out-of-tree Kbuild
 # and BCMDHD_ROOT is passed as KBUILD_OPTIONS for out-of-tree Makefile
 ifeq ($(KERNEL_SRC),)
@@ -28,6 +34,12 @@ ifeq ($(KERNEL_SRC),)
   else
     BCMDHD_ROOT=$(srctree)/$(src)
   endif
+endif
+
+# undef hikey and STB when GG is defined
+ifneq ($(CONFIG_SOC_GOOGLE),)
+  CONFIG_ARCH_HISI=
+  CONFIG_ARCH_BRCMSTB=
 endif
 
 #####################
@@ -109,6 +121,11 @@ DHDCFLAGS += -Wall -Werror -Wstrict-prototypes -Wno-parentheses-equality -Dlinux
 	-DDHD_DUMP_FILE_WRITE_FROM_KERNEL \
 	-DDHD_USE_RANDMAC -DWL_BW320MHZ -DWL_BW160MHZ \
 	-DWL_P2P_USE_RANDMAC
+
+# Allow Zero-length and one-element arrays instead of forcing C99 FAM
+ifneq ($(CONFIG_SOC_GOOGLE),)
+	DHDCFLAGS += -fstrict-flex-arrays=0
+endif
 
 DHDCFLAGS += -DOEM_ANDROID
 DHDCFLAGS += -DDHD_COREDUMP
@@ -309,7 +326,11 @@ endif
     # DHD_LB_TXP - Perform TX Packet processing in parallel, default disabled, enabled using DHD_LB_TXP_DEFAULT_ENAB
     # DHD_LB_STATS - To display the Load Blancing statistics
 	DHDCFLAGS += -DDHD_LB -DDHD_LB_RXP -DDHD_LB_TXP -DDHD_LB_STATS
-	DHDCFLAGS += -DDHD_LB_CPU_SET8=0x100 -DDHD_LB_CPU_SET4=0x0F0 -DDHD_LB_CPU_SET0=0x00E
+	ifneq ($(filter y, $(CONFIG_SOC_ZUMAPRO)),)
+		DHDCFLAGS += -DDHD_LB_CPU_SET8=0x100 -DDHD_LB_CPU_SET4=0x070 -DDHD_LB_CPU_SET0=0x00E
+	else
+		DHDCFLAGS += -DDHD_LB_CPU_SET8=0x100 -DDHD_LB_CPU_SET4=0x0F0 -DDHD_LB_CPU_SET0=0x00E
+	endif
     # Tx/Rx tasklet bounds
 	DHDCFLAGS += -DDHD_TX_CPL_BOUND=64
 	DHDCFLAGS += -DDHD_TX_POST_BOUND=128
@@ -335,12 +356,34 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	# Tasklet load detection and balancing
 	DHDCFLAGS += -DRESCHED_CNT_CHECK_PERIOD_SEC=2
 	DHDCFLAGS += -DAFFINITY_UPDATE_MIN_PERIOD_SEC=6
+ifneq ($(filter y, $(CONFIG_SOC_ZUMAPRO)),)
+	DHDCFLAGS += -DDHD_CUSTOM_PKT_COUNT_ENABLE
+	DHDCFLAGS += -DPKT_COUNT_HIGH=50000
+	DHDCFLAGS += -DPKT_COUNT_MID=5000
+	DHDCFLAGS += -DPKT_COUNT_LOW=3000
+	DHDCFLAGS += -DDHD_CPUFREQ_BIGGER=7u
+else
 	DHDCFLAGS += -DRESCHED_STREAK_MAX_HIGH=20
 	DHDCFLAGS += -DRESCHED_STREAK_MAX_LOW=2
+	DHDCFLAGS += -DDHD_CPUFREQ_BIGGER=8u
+endif
 	DHDCFLAGS += -DCLEAN_IRQ_AFFINITY_HINT
-	DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=8
-	DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=7
-	DHDCFLAGS += -DWAKEUP_KSOFTIRQD_POST_NAPI_SCHEDULE
+	ifneq ($(CONFIG_PCI_EXYNOS_GS),)
+	ifneq ($(filter y, $(CONFIG_SOC_ZUMAPRO)),)
+		DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=7
+		DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=6
+	else
+		DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=8
+		DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=7
+	endif
+		DHDCFLAGS += -DWAKEUP_KSOFTIRQD_POST_NAPI_SCHEDULE
+	else
+		DHDCFLAGS += -DIRQ_AFFINITY_SMALL_CORE=0
+		DHDCFLAGS += -DIRQ_AFFINITY_BIG_CORE=0
+		# Support L1SS control
+		DHDCFLAGS += -DDHD_SUPPORT_L1SS
+	endif
+	#DHDCFLAGS += -DWAKEUP_KSOFTIRQD_POST_NAPI_SCHEDULE
 	DHDCFLAGS += -DDHD_BUS_BUSY_TIMEOUT=5000
 	# MSI supported in GOOGLE SOC
 	DHDCFLAGS += -DDHD_MSI_SUPPORT
@@ -363,10 +406,12 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -DDHD_SKIP_COREDUMP_OLDER_CHIPS
 	# Skip coredump for continousy pkt drop health check
 	DHDCFLAGS += -DSKIP_COREDUMP_PKTDROP_RXHC
-	# Boost host cpufreq to max for peak tput. default is false
-	DHDCFLAGS += -DDHD_HOST_CPUFREQ_BOOST
-	# Boost host cpufreq to max for peak tput. default is true
-	DHDCFLAGS += -DDHD_HOST_CPUFREQ_BOOST_DEFAULT_ENAB
+	ifneq ($(CONFIG_PCI_EXYNOS_GS),)
+		# Boost host cpufreq to max for peak tput. default is false
+		DHDCFLAGS += -DDHD_HOST_CPUFREQ_BOOST
+		# Boost host cpufreq to max for peak tput. default is true
+		DHDCFLAGS += -DDHD_HOST_CPUFREQ_BOOST_DEFAULT_ENAB
+	endif
 endif
 endif
 
@@ -470,7 +515,8 @@ DHDCFLAGS += -DWL_P2P_RAND
 DHDCFLAGS += -DWL_CUSTOM_MAPPING_OF_DSCP
 # Enable below define for production
 ifneq ($(CONFIG_SOC_GOOGLE),)
-    DHDCFLAGS += -DMACADDR_PROVISION_ENFORCED
+  # temporary disable for 4383. Must be enabled for production.
+  #DHDCFLAGS += -DMACADDR_PROVISION_ENFORCED
 endif
 ifneq ($(CONFIG_BCMDHD_PCIE),)
 	DHDCFLAGS += -DDHD_WAKE_STATUS
@@ -501,7 +547,6 @@ DHDCFLAGS += -DWL_CFGVENDOR_SEND_HANG_EVENT
 # Packet
 DHDCFLAGS += -DBLOCK_IPV6_PACKET
 #DHDCFLAGS += -DDHD_DONOT_FORWARD_BCMEVENT_AS_NETWORK_PKT # NAN test failure
-DHDCFLAGS += -DENABLE_IPMCAST_FILTER
 DHDCFLAGS += -DPASS_ALL_MCAST_PKTS
 DHDCFLAGS += -DPKTPRIO_OVERRIDE
 DHDCFLAGS += -DNDO_CONFIG_SUPPORT
