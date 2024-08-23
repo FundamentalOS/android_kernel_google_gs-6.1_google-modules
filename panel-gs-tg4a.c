@@ -846,7 +846,7 @@ static void tg4a_set_nolp_mode(struct gs_panel *ctx,
 {
 	const struct gs_panel_mode *current_mode = ctx->current_mode;
 	unsigned int vrefresh = current_mode ? drm_mode_vrefresh(&current_mode->mode) : 30;
-	unsigned int te_usec = current_mode ? current_mode->gs_mode.te_usec : 1109;
+	unsigned int te_usec = current_mode ? current_mode->gs_mode.te_usec : 1106;
 	struct device *dev = ctx->dev;
 
 	if (!gs_is_panel_active(ctx))
@@ -1031,7 +1031,7 @@ static void tg4a_set_ssc_en(struct gs_panel *ctx, bool enabled)
 }
 
 static const struct gs_display_underrun_param underrun_param = {
-	.te_idle_us = 2510,
+	.te_idle_us = 1000,
 	.te_var = 1,
 };
 
@@ -1177,7 +1177,7 @@ const struct gs_panel_brightness_desc tg4a_brightness_desc = {
 	.max_brightness = 4095,
 	.min_brightness = 2,
 	.max_luminance = 10000000,
-	.max_avg_luminance = 1200000,
+	.max_avg_luminance = 10000000,
 	.min_luminance = 5,
 	.default_brightness = 1290, /* 140 nits */
 	.brt_capability = &tg4a_brightness_capability,
