@@ -4175,7 +4175,7 @@ void dhd_wk_lock_stats_dump(dhd_pub_t *dhdp);
 #endif
 #endif /* LINUX || linux */
 
-extern bool dhd_query_bus_erros(dhd_pub_t *dhdp);
+extern bool dhd_query_bus_errors(dhd_pub_t *dhdp);
 void dhd_clear_bus_errors(dhd_pub_t *dhdp);
 
 #if (defined(linux) || defined(LINUX)) && defined(CONFIG_64BIT)
