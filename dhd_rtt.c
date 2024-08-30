@@ -153,7 +153,8 @@ static DEFINE_SPINLOCK(noti_list_lock);
 
 #define DHD_NAN_RTT_MAX_SESSIONS		4u
 #define DHD_NAN_RTT_MAX_SESSIONS_LEGACY		1u
-
+#define DHD_NAN_RTT_MIN_GEOFENCE_DIST_IN_MM	250u
+/* structure */
 struct rtt_noti_callback {
 	struct list_head list;
 	void *ctx;
@@ -4426,12 +4427,12 @@ dhd_rtt_convert_results_to_host_v2(rtt_result_t *rtt_result, const uint8 *p_data
 	/* show avg_dist (1/256m units), burst_num */
 	avg_dist = ltoh32_ua(&p_data_info->avg_dist);
 	if (avg_dist == 0xffffffff) {	/* report 'failure' case */
-		DHD_RTT((">\tavg_dist=-1m, burst_num=%d, valid_measure_cnt=%d\n",
+		DHD_RTT_ERR((">\tavg_dist=-1m, burst_num=%d, valid_measure_cnt=%d\n",
 		ltoh16_ua(&p_data_info->burst_num),
 		p_data_info->num_valid_rtt)); /* in a session */
 		avg_dist = FTM_INVALID;
 	} else {
-		DHD_RTT((">\tavg_dist=%d.%04dm, burst_num=%d, valid_measure_cnt=%d num_ftm=%d "
+		DHD_RTT_ERR((">\tavg_dist=%d.%04dm, burst_num=%d, valid_measure_cnt=%d num_ftm=%d "
 			"num_meas_ota=%d, result_flags=%x\n", avg_dist >> 8, /* 1/256m units */
 			((avg_dist & 0xff) * 625) >> 4,
 			ltoh16_ua(&p_data_info->burst_num),
@@ -4445,7 +4446,7 @@ dhd_rtt_convert_results_to_host_v2(rtt_result_t *rtt_result, const uint8 *p_data
 	/* in v2, avg_rtt is the first element of the variable rtt[] */
 	p_sample_avg = &p_data_info->rtt[0];
 
-	DHD_RTT((">\tavg_rtt sample: rssi=%d rtt=%d%s std_deviation =%d.%d"
+	DHD_RTT_ERR((">\tavg_rtt sample: rssi=%d rtt=%d%s std_deviation =%d.%d"
 		"ratespec=0x%08x chanspec=0x%08x\n",
 		(int16) ltoh16_ua(&p_sample_avg->rssi),
 		ltoh32_ua(&p_sample_avg->rtt.intvl),
@@ -5283,8 +5284,11 @@ dhd_rtt_nan_range_report(struct bcm_cfg80211 *cfg,
 	rtt_status = rtt_result->report.status;
 	bzero(&range_res, sizeof(range_res));
 	/* RTT can be negative(for GG req).. for geofence make it zero */
-	range_res.dist_mm = (rtt_result->report.distance < 0) ?
-		0 : rtt_result->report.distance;
+	if (rtt_result->report.distance < 0) {
+		range_res.dist_mm = DHD_NAN_RTT_MIN_GEOFENCE_DIST_IN_MM;
+	} else {
+		range_res.dist_mm = rtt_result->report.distance;
+	}
 	/* same src and header len, ignoring ret val here */
 	(void)memcpy_s(&range_res.peer_m_addr, ETHER_ADDR_LEN,
 		&rtt_result->report.addr, ETHER_ADDR_LEN);

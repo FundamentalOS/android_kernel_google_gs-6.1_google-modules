@@ -8600,7 +8600,7 @@ wl_cfgnan_check_ranging_cond(nan_svc_info_t *svc_info, uint32 distance,
 		goto done;
 	}
 done:
-	WL_INFORM_MEM(("SVC ranging Ind %d distance %d prev_distance %d, "
+	WL_ERR(("SVC ranging Ind %d distance %d prev_distance %d, "
 		"range_rep_ev_once %d ingress_limit %d egress_limit %d notify %d\n",
 		svc_ind, distance, prev_distance, range_rep_ev_once,
 		ingress_limit, egress_limit, notify));
@@ -8633,7 +8633,7 @@ wl_cfgnan_notify_disc_with_ranging(struct bcm_cfg80211 *cfg,
 					&ranging_ind, rng_inst->prev_distance_mm);
 				nan_event_data->ranging_ind = ranging_ind;
 			}
-			WL_DBG(("Ranging notify for svc_id %d, notify %d and ind %d"
+			WL_ERR(("Ranging notify for svc_id %d, notify %d and ind %d"
 				" distance_mm %d result_present %d\n", svc_info->svc_id, notify_svc,
 				ranging_ind, distance, result_present));
 		} else {
@@ -8741,6 +8741,14 @@ wl_cfgnan_process_range_report(struct bcm_cfg80211 *cfg,
 			&range_res->peer_m_addr, ETHER_ADDR_LEN);
 
 	if (rng_inst->range_type == RTT_TYPE_NAN_GEOFENCE) {
+		if (range_res->dist_mm == 0) {
+			/* When reported distance is 0, report previous distance.
+			 * Zero distance may come whenever ranging fails for two
+			 * consequtive CRBs.
+			 */
+			nan_event_data.range_measurement_cm =
+				range_res->dist_mm = rng_inst->prev_distance_mm;
+		}
 		/* check in cache and event match to host */
 		wl_cfgnan_notify_disc_with_ranging(cfg, rng_inst, &nan_event_data,
 				range_res->dist_mm);

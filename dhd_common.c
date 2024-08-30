@@ -8582,47 +8582,6 @@ bool dhd_support_sta_mode(dhd_pub_t *dhd)
 		return TRUE;
 }
 
-#if defined(KEEP_ALIVE)
-int dhd_keep_alive_onoff(dhd_pub_t *dhd)
-{
-	char				buf[32] = {0};
-	const char			*str;
-	wl_mkeep_alive_pkt_v1_t	mkeep_alive_pkt = {0, 0, 0, 0, 0, {0}};
-	wl_mkeep_alive_pkt_v1_t	*mkeep_alive_pktp;
-	int					buf_len;
-	int					str_len;
-	int res					= -1;
-
-	if (!dhd_support_sta_mode(dhd))
-		return res;
-
-	DHD_TRACE(("%s execution\n", __FUNCTION__));
-
-	str = "mkeep_alive";
-	str_len = strlen(str);
-	strlcpy(buf, str, sizeof(buf));
-	mkeep_alive_pktp = (wl_mkeep_alive_pkt_v1_t *) (buf + str_len + 1);
-	mkeep_alive_pkt.period_msec = CUSTOM_KEEP_ALIVE_SETTING;
-	buf_len = str_len + 1;
-	mkeep_alive_pkt.version = htod16(WL_MKEEP_ALIVE_VERSION_1);
-	mkeep_alive_pkt.length = htod16(WL_MKEEP_ALIVE_FIXED_LEN);
-	/* Setup keep alive zero for null packet generation */
-	mkeep_alive_pkt.keep_alive_id = 0;
-	mkeep_alive_pkt.len_bytes = 0;
-	buf_len += WL_MKEEP_ALIVE_FIXED_LEN;
-	bzero(mkeep_alive_pkt.data, sizeof(mkeep_alive_pkt.data));
-	/* Keep-alive attributes are set in local	variable (mkeep_alive_pkt), and
-	 * then memcpy'ed into buffer (mkeep_alive_pktp) since there is no
-	 * guarantee that the buffer is properly aligned.
-	 */
-	memcpy((char *)mkeep_alive_pktp, &mkeep_alive_pkt, WL_MKEEP_ALIVE_FIXED_LEN);
-
-	res = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, buf, buf_len, TRUE, 0);
-
-	return res;
-}
-#endif /* defined(KEEP_ALIVE) */
-
 #if defined(OEM_ANDROID)
 #define	CSCAN_TLV_TYPE_SSID_IE	'S'
 /*
