@@ -9,6 +9,8 @@
 #include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
 
+#include <gcip/gcip-iommu.h>
+
 #include "gxp-internal.h"
 
 #include "gxp-common-platform.c"
@@ -16,6 +18,11 @@
 void gxp_iommu_setup_shareability(struct gxp_dev *gxp)
 {
 	/* IO coherency not supported */
+}
+
+int gxp_iommu_get_max_vd_activation(struct gxp_dev *gxp)
+{
+	return gcip_iommu_domain_pool_get_num_pasid(gxp->domain_pool);
 }
 
 static int gxp_platform_probe(struct platform_device *pdev)

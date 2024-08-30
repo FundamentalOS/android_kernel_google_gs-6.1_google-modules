@@ -26,7 +26,15 @@
 /* At most GXP_NUM_CORES VDs can be supported on Amalthea. */
 #define GXP_NUM_SHARED_SLICES GXP_NUM_CORES
 
+/* Enable a partial LAP workaround for sync barrier access only. */
+#define GXP_ENABLE_PARTIAL_LAP 1
+
 #define GXP_HAS_MCU 0
+
+#define GXP_HAS_BPM 1
+#define GXP_HAS_GEM 0
+
+#define GXP_HAS_CMU 1
 
 #include "config-pwr-state.h"
 #include "context.h"
