@@ -260,14 +260,19 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_SELFTEST: {
-		int buf_idx = 0;
 		char *buf = cmd->selftest_cmd.buffer;
 		size_t size = sizeof(cmd->selftest_cmd.buffer);
 
-		cmd->selftest_cmd.result = GTI_SELFTEST_RESULT_SHELL_CMDS_REDIRECT;
-		buf_idx += scnprintf(buf + buf_idx, size,
-			"cat /proc/nvt_selftest\n");
-		ret = 0;
+		ret = nvt_selftest();
+		if (ret) {
+			NVT_LOGE("nvt_selftest abort, ret=%d!\n", ret);
+		} else {
+			if (ts->selftest_failed_result)
+				cmd->selftest_cmd.result = GTI_SELFTEST_RESULT_FAIL;
+			else
+				cmd->selftest_cmd.result = GTI_SELFTEST_RESULT_PASS;
+			nvt_print_selftest_result(buf, size);
+		}
 	}
 		break;
 
