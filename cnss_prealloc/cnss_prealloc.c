@@ -233,7 +233,7 @@ void *wcnss_prealloc_get(size_t size)
 {
 
 	void *mem = NULL;
-	gfp_t gfp_mask = __GFP_ZERO;
+	gfp_t gfp_mask = 0;
 	int i;
 
 	if (in_interrupt() || irqs_disabled())
