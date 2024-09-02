@@ -11,7 +11,6 @@
 #include <linux/lockdep.h>
 #include <linux/mutex.h>
 #include <linux/string.h>
-#include <linux/sysfs.h>
 #include <linux/types.h>
 
 #include <gcip/gcip-usage-stats.h>
@@ -114,14 +113,14 @@ static unsigned int gcip_usage_stats_find_dvfs_freq_index(struct gcip_usage_stat
 	mutex_unlock(&ustats->dvfs_freqs_lock);
 
 	/* Uses default one in case of the firmware has never reported supported frequencies. */
-	nums = ustats->default_dvfs_freqs_num;
+	nums = ustats->ops->get_default_dvfs_freqs_num(ustats->data);
 	if (nums <= 0) {
 		dev_warn_once(ustats->dev, "The kernel driver doesn't have default DVFS freqs");
 		return 0;
 	}
 
 	for (i = nums - 1; i >= 0; i--) {
-		cur_freq = ustats->default_dvfs_freqs[i];
+		cur_freq = ustats->ops->get_default_dvfs_freq(i, ustats->data);
 
 		if (dvfs_freq == cur_freq)
 			return i;
@@ -250,8 +249,10 @@ static ssize_t gcip_usage_stats_core_usage_show(struct device *dev,
 
 	mutex_lock(&ustats->dvfs_freqs_lock);
 
-	dvfs_freqs_num = ustats->dvfs_freqs_num ? ustats->dvfs_freqs_num :
-						  ustats->default_dvfs_freqs_num;
+	if (!ustats->dvfs_freqs_num)
+		dvfs_freqs_num = ustats->ops->get_default_dvfs_freqs_num(ustats->data);
+	else
+		dvfs_freqs_num = ustats->dvfs_freqs_num;
 
 	mutex_unlock(&ustats->dvfs_freqs_lock);
 	mutex_lock(&ustats->usage_stats_lock);
@@ -709,7 +710,7 @@ static ssize_t gcip_usage_stats_dvfs_freqs_show(struct device *dev,
 	struct gcip_usage_stats_attr *attr =
 		container_of(dev_attr, struct gcip_usage_stats_attr, dev_attr);
 	struct gcip_usage_stats *ustats = attr->ustats;
-	int i;
+	int i, dvfs_freqs_num;
 	ssize_t written = 0;
 
 	ustats->ops->update_usage_kci(ustats->data);
@@ -718,11 +719,13 @@ static ssize_t gcip_usage_stats_dvfs_freqs_show(struct device *dev,
 
 	if (!ustats->dvfs_freqs_num) {
 		mutex_unlock(&ustats->dvfs_freqs_lock);
-		for (i = 0; i < ustats->default_dvfs_freqs_num; i++)
+		dvfs_freqs_num = ustats->ops->get_default_dvfs_freqs_num(ustats->data);
+		for (i = 0; i < dvfs_freqs_num; i++)
 			written += scnprintf(buf + written, PAGE_SIZE - written, "%.*s%u", i, " ",
-					     ustats->default_dvfs_freqs[i]);
+					     ustats->ops->get_default_dvfs_freq(i, ustats->data));
 	} else {
-		for (i = 0; i < ustats->dvfs_freqs_num; i++)
+		dvfs_freqs_num = ustats->dvfs_freqs_num;
+		for (i = 0; i < dvfs_freqs_num; i++)
 			written += scnprintf(buf + written, PAGE_SIZE - written, "%.*s%u", i, " ",
 					     ustats->dvfs_freqs[i]);
 		mutex_unlock(&ustats->dvfs_freqs_lock);
@@ -900,7 +903,6 @@ static int gcip_usage_stats_alloc_attrs(struct gcip_usage_stats *ustats,
 			return ret;
 		}
 
-		sysfs_attr_init(&attr->dev_attr.attr);
 		ustats->attrs[i] = &attr->dev_attr.attr;
 	}
 
@@ -960,47 +962,11 @@ static void gcip_usage_stats_free_stats(struct gcip_usage_stats *ustats)
 static int gcip_usage_stats_set_ops(struct gcip_usage_stats *ustats,
 				    const struct gcip_usage_stats_args *args)
 {
-	if (!args->ops || !args->ops->update_usage_kci || !args->ops->get_default_dvfs_freqs_num ||
+	if (!args->ops->update_usage_kci || !args->ops->get_default_dvfs_freqs_num ||
 	    !args->ops->get_default_dvfs_freq)
 		return -EINVAL;
 
 	ustats->ops = args->ops;
-
-	return 0;
-}
-
-/*
- * Fetches the default DVFS freqs from the IP driver and copies distinct values of them to
- * @ustats->default_dvfs_freqs.
- */
-static int gcip_usage_stats_get_default_dvfs_freqs(struct gcip_usage_stats *ustats)
-{
-	int i, j, dvfs_freqs_num = ustats->ops->get_default_dvfs_freqs_num(ustats->data);
-	uint32_t freq;
-
-	for (i = 0; i < dvfs_freqs_num; i++) {
-		freq = ustats->ops->get_default_dvfs_freq(i, ustats->data);
-
-		/* See if there is a duplicate one. */
-		for (j = 0; j < ustats->default_dvfs_freqs_num; j++) {
-			if (ustats->default_dvfs_freqs[j] == freq)
-				break;
-		}
-
-		/* If there was, skip appending it to the @default_dvfs_freqs array. */
-		if (j < ustats->default_dvfs_freqs_num)
-			continue;
-
-		/* The value is distinct, but we can't store more values to the array. */
-		if (ustats->default_dvfs_freqs_num == GCIP_USAGE_STATS_MAX_DVFS_FREQ_NUM) {
-			dev_err(ustats->dev, "Exceeded the number limit of default DVFS freqs");
-			return -EINVAL;
-		}
-
-		/* Appends the distinct one to the array. */
-		ustats->default_dvfs_freqs[ustats->default_dvfs_freqs_num] = freq;
-		ustats->default_dvfs_freqs_num++;
-	}
 
 	return 0;
 }
@@ -1025,14 +991,8 @@ int gcip_usage_stats_init(struct gcip_usage_stats *ustats, const struct gcip_usa
 	mutex_init(&ustats->usage_stats_lock);
 	mutex_init(&ustats->dvfs_freqs_lock);
 	ustats->dvfs_freqs_num = 0;
-	ustats->default_dvfs_freqs_num = 0;
-	ustats->group.name = NULL;
 
 	ret = gcip_usage_stats_set_ops(ustats, args);
-	if (ret)
-		return ret;
-
-	ret = gcip_usage_stats_get_default_dvfs_freqs(ustats);
 	if (ret)
 		return ret;
 

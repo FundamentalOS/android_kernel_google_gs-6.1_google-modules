@@ -127,7 +127,6 @@ struct gxp_dev {
 	struct gxp_core_telemetry_manager *core_telemetry_mgr;
 	struct gcip_iommu_domain *default_domain;
 	struct gcip_thermal *thermal;
-	struct gcip_devfreq *devfreq;
 	/* The accessor to register resources to the debugfs interface. */
 	struct gcip_resource_accessor *resource_accessor;
 	/*
@@ -135,6 +134,7 @@ struct gxp_dev {
 	 * May be NULL if the chip does not support firmware authentication
 	 */
 	struct device *gsa_dev;
+	u32 memory_per_core;
 	struct gcip_iommu_domain_pool *domain_pool;
 	struct list_head client_list;
 	struct mutex client_list_lock;
