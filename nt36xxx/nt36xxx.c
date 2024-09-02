@@ -205,8 +205,12 @@ void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts, bool force_update)
 	uint8_t cmd_type = 0;
 	uint8_t cmd_buf[3] = {EVENT_MAP_HOST_CMD, 0x70, 0};
 
-	if (!ts || ts->heatmap_data_type == HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP)
+	if (!ts ||
+		ts->heatmap_data_type == HEATMAP_DATA_TYPE_PEN_STRENGTH_COMP ||
+		ts->selftest_in_process == true) {
+		NVT_LOG("Skip to set heatmap mode!\n");
 		return;
+	}
 
 	switch (ts->heatmap_data_type) {
 	case HEATMAP_DATA_TYPE_TOUCH_RAWDATA:
@@ -864,7 +868,7 @@ int32_t nvt_check_fw_reset_state(RST_COMPLETE_STATE check_reset_state)
 
 #if SPI_FLASH
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
-	if (ts && ts->gti) {
+	if (ts && ts->gti && ts->selftest_in_process == false) {
 		struct gti_fw_status_data fw_status = {0};
 
 		goog_notify_fw_status_changed(ts->gti, GTI_FW_STATUS_RESET,

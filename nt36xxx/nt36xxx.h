@@ -361,6 +361,7 @@ struct nvt_ts_data {
 	/*
 	 * Used for google touch interface.
 	 */
+	bool selftest_in_process;
 	struct goog_touch_interface *gti;
 	uint8_t heatmap_host_cmd;
 	uint32_t heatmap_host_cmd_addr;
