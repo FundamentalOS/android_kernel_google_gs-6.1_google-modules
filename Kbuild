@@ -30,6 +30,12 @@ ifeq ($(KERNEL_SRC),)
   endif
 endif
 
+# undef hikey and STB when GG is defined
+ifneq ($(CONFIG_SOC_GOOGLE),)
+  CONFIG_ARCH_HISI=
+  CONFIG_ARCH_BRCMSTB=
+endif
+
 #####################
 # SDIO/PCIe Basic feature
 #####################
@@ -716,8 +722,8 @@ DHDCFLAGS += -DWL_SAE_FT
 DHDCFLAGS += -DWL_GET_RCC
 # ROAM candidatae RSSI limit
 DHDCFLAGS += -DCONFIG_ROAM_RSSI_LIMIT
-DHDCFLAGS += -DCUSTOM_ROAMRSSI_2G=-70
-DHDCFLAGS += -DCUSTOM_ROAMRSSI_5G=-70
+DHDCFLAGS += -DCUSTOM_ROAMRSSI_2G=-80
+DHDCFLAGS += -DCUSTOM_ROAMRSSI_5G=-77
 
 # SAE..if kernel < 4.17 ..back port support required
 ifneq ($(CONFIG_CFG80211_SAE_BKPORT),)
