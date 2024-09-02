@@ -1580,6 +1580,12 @@ static int32_t nvt_ts_point_data_checksum(uint8_t *buf, uint8_t length)
 
 static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_buf)
 {
+	if (info_buf_flags & USI_GID_FLAG) {
+		goog_usi_report_gid(ts->g_usi_handle, info_buf + USI_GID_OFFSET);
+		goog_usi_set_drvdata(ts->g_usi_handle,
+				     (void *)(uintptr_t)*(info_buf + USI_PEN_MODEL_IDX_OFFSET));
+	}
+
 	if (info_buf_flags & USI_NORMAL_PAIR_FLAG) {
 		struct g_usi_pairing_info  pairing_info;
 		u8 usi_version = 0x20;	/* USI version is always 2.0 */
@@ -1598,18 +1604,6 @@ static void process_usi_responses(uint16_t info_buf_flags, const uint8_t *info_b
 	if (info_buf_flags & USI_FAST_PAIR_FLAG)
 		goog_usi_update_status(ts->g_usi_handle,
 				       G_USI_UPDATE_FAST_PAIRING_DONE, NULL);
-
-	/*
-	 * Sometimes, pairing and other USI information comes at the same time.
-	 * Pairing information should be sent before any other information so
-	 * the following flags shouldn't be handled before handling XXXX_PAIR_FLAG
-	 */
-
-	if (info_buf_flags & USI_GID_FLAG) {
-		goog_usi_report_gid(ts->g_usi_handle, info_buf + USI_GID_OFFSET);
-		goog_usi_set_drvdata(ts->g_usi_handle,
-				     (void *)(uintptr_t)*(info_buf + USI_PEN_MODEL_IDX_OFFSET));
-	}
 
 	if (info_buf_flags & USI_BATTERY_FLAG) {
 		goog_usi_report_battery(ts->g_usi_handle, info_buf + USI_BATTERY_OFFSET);
