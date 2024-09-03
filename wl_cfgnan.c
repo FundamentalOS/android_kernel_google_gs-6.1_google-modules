@@ -5545,6 +5545,7 @@ wl_cfgnan_trigger_ranging(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 			range_req->egress = svc->egress_limit;
 		}
 		range_req->indication = NAN_RANGING_INDICATE_CONTINUOUS_MASK;
+		range_req->num_meas = ranging_inst->num_meas;
 	} else {
 		/* range response config */
 		sub_cmd->id = htod16(WL_NAN_CMD_RANGE_RESPONSE);

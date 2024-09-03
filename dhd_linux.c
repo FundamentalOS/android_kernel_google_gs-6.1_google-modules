@@ -5913,6 +5913,8 @@ dhd_deferred_work_rte_log_time_sync(void *handle, void *event_info, u8 event)
 }
 #endif /* DHD_H2D_LOG_TIME_SYNC */
 
+#define APF_PKT_DLOAD "apf_pkt_dload"
+
 int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_buf)
 {
 	int bcmerror = BCME_OK;
@@ -6014,9 +6016,14 @@ int dhd_ioctl_process(dhd_pub_t *pub, int ifidx, dhd_ioctl_t *ioc, void *data_bu
 		bcmerror = BCME_UNSUPPORTED;
 		goto done;
 	}
-
-	/* this typecast is BAD !!! */
-	bcmerror = dhd_wl_ioctl(pub, ifidx, (wl_ioctl_t *)ioc, data_buf, buflen);
+	/* PKT_FILTER_ADD iovar needs special 'split' handling */
+	if (ioc->cmd == WLC_SET_VAR && data_buf != NULL &&
+		!strncmp(APF_PKT_DLOAD, data_buf, strlen(APF_PKT_DLOAD))) {
+		bcmerror = dhd_download_blob(pub, (uint8 *)data_buf + strlen(APF_PKT_DLOAD) + 1,
+			buflen - (strlen(APF_PKT_DLOAD) + 1), APF_PKT_DLOAD, ifidx);
+	} else {
+		bcmerror = dhd_wl_ioctl(pub, ifidx, (wl_ioctl_t *)ioc, data_buf, buflen);
+	}
 
 #ifdef REPORT_FATAL_TIMEOUTS
 	/* ensure that the timeouts/flags are started/set after the ioctl returns success */
@@ -14940,7 +14947,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 
 			dhd_if_del_sta_list(ifp);
 
-			MFREE(dhd->pub.osh, ifp, sizeof(*ifp));
+			MFREE(dhd->pub.osh, dhd->iflist[0], sizeof(*ifp));
 			ifp = NULL;
 #ifdef WL_CFG80211
 			if (cfg && cfg->wdev) {
@@ -17528,20 +17535,20 @@ int
 dhd_dev_rtt_avail_channel(struct net_device *dev, wifi_channel_info *channel_info)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
-	return (dhd_rtt_avail_channel(&dhd->pub, channel_info));
+	return dhd_rtt_avail_channel(&dhd->pub, channel_info);
 }
 
 int
 dhd_dev_rtt_enable_responder(struct net_device *dev, wifi_channel_info *channel_info)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
-	return (dhd_rtt_enable_responder(&dhd->pub, channel_info));
+	return dhd_rtt_enable_responder(&dhd->pub, channel_info);
 }
 
 int dhd_dev_rtt_cancel_responder(struct net_device *dev)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
-	return (dhd_rtt_cancel_responder(&dhd->pub));
+	return dhd_rtt_cancel_responder(&dhd->pub);
 }
 
 #endif /* RTT_SUPPORT */
@@ -17571,7 +17578,7 @@ _dhd_apf_add_filter(struct net_device *ndev, uint32 filter_id, u8* program, uint
 	char *buf = NULL;
 	u32 cmd_len, buf_len, max_len;
 	int ifidx, ret = BCME_OK;
-	char cmd[] = "pkt_filter_add";
+	char cmd[] = APF_PKT_DLOAD;
 
 	ifidx = dhd_net2idx(dhd, ndev);
 	if (ifidx == DHD_BAD_IF) {
@@ -17624,7 +17631,8 @@ _dhd_apf_add_filter(struct net_device *ndev, uint32 filter_id, u8* program, uint
 		goto exit;
 	}
 
-	ret = dhd_wl_ioctl_cmd(dhdp, WLC_SET_VAR, buf, buf_len, TRUE, ifidx);
+	ret = dhd_download_blob(dhdp, (uint8 *)buf + strlen(cmd) + 1,
+			buf_len - (strlen(cmd) + 1), cmd, ifidx);
 	if (unlikely(ret)) {
 		DHD_ERROR(("%s: failed to add APF filter, id=%d, ret=%d\n", __FUNCTION__,
 			filter_id, ret));
@@ -20585,6 +20593,11 @@ exit:
 		dhdp->hang_was_pending = 0;
 	}
 #endif /* OEM_ANDROID */
+
+	/* Clear memdump_type and check for the same in logdump
+	 * to avoid racing with other contexts
+	 */
+	dhdp->memdump_type = DUMP_TYPE_CLEAR;
 
 	DHD_PRINT(("%s: EXIT \n", __FUNCTION__));
 
