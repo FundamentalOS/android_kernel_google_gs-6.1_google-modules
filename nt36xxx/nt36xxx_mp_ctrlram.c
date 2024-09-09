@@ -2059,13 +2059,20 @@ int32_t nvt_selftest(void)
 		return -ERESTARTSYS;
 	}
 
+	ts->selftest_in_process = true;
 	nvt_mp_test_result_printed = 0;
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-#if !SPI_FLASH
+
+#if SPI_FLASH
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN))
+		NVT_LOGE("FW is not ready for self-test!\n");
+#else
 	//---Download MP FW---
 	nvt_update_firmware(get_mp_fw_name(), 1);
 #endif // !SPI_FLASH
@@ -2097,6 +2104,7 @@ int32_t nvt_selftest(void)
 #endif // !SPI_FLASH
 			mutex_unlock(&ts->lock);
 			NVT_ERR("mp parse device tree failed!\n");
+			ts->selftest_in_process = false;
 			return -EINVAL;
 		}
 	} else {
@@ -2385,9 +2393,13 @@ failed_out:
 		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
 	}
 
+	ts->selftest_in_process = false;
 #if SPI_FLASH
 	//---Reset IC---
+	nvt_clear_fw_reset_state();
 	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN))
+		NVT_LOGE("FW is not ready after self-test done!\n");
 #else
 	//---Download Normal FW---
 	nvt_update_firmware(get_fw_name(), 1);
