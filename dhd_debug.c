@@ -683,10 +683,6 @@ dhd_log_enhanced_timestamp(dhd_pub_t *dhdp, event_log_hdr_t *ts_hdr, uint32 *dat
 {
 	ets_msg_t *ets_msg_ptr = (ets_msg_t *)ts_hdr - ts_hdr->count;
 
-	if (!dhdp || !dhdp->dbg) {
-		return;
-	}
-
 	if (!dhdp->dbg->event_log_ts_ver) {
 		dhdp->dbg->event_log_ts_ver = ets_msg_ptr->version;
 	}
@@ -3821,7 +3817,7 @@ dhd_dbg_detach(dhd_pub_t *dhdp)
 		VMFREE(dhdp->osh, dbg->wrapper_buf.buf, DHD_PCIE_WRAPPER_LEN);
 	}
 
-	VMFREE(dhdp->osh, dhdp->dbg, sizeof(dhd_dbg_t));
+	VMFREE(dhdp->osh, dbg, sizeof(dhd_dbg_t));
 
 #ifdef DHD_DEBUGABILITY_LOG_DUMP_RING
 	g_ring_buf.dhd_pub = NULL;
