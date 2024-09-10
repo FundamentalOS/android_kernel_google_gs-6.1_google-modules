@@ -1042,7 +1042,7 @@ static const u16 VFP = 10, VSA = 6, VBP = 10;
 
 #define TG4A_DSC {\
 	.enabled = true,\
-	.dsc_count = 2,\
+	.dsc_count = 1,\
 	.cfg = &pps_config,\
 }
 
