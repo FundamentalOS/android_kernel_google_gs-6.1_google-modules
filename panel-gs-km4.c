@@ -615,7 +615,7 @@ static void km4_set_panel_feat_te(struct gs_panel *ctx, unsigned long *feat,
 	struct device *dev = ctx->dev;
 	bool is_vrr = gs_is_vrr_mode(pmode);
 	u32 te_freq = gs_drm_mode_te_freq(&pmode->mode);
-	__maybe_unused u32 vrefresh = drm_mode_vrefresh(&pmode->mode);
+	u32 vrefresh = drm_mode_vrefresh(&pmode->mode);
 
 	if (test_bit(FEAT_EARLY_EXIT, feat) && !spanel->force_changeable_te) {
 		if (is_vrr && te_freq == 240) {
@@ -913,15 +913,6 @@ static void km4_set_panel_feat_frequency(struct gs_panel *ctx, unsigned long *fe
 	GS_DCS_BUF_ADD_CMDLIST(dev, freq_update);
 }
 
-static void km4_set_panel_feat_dbi(struct gs_panel *ctx, u8 value)
-{
-	struct device *dev = ctx->dev;
-
-	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x67, 0x69);
-	GS_DCS_BUF_ADD_CMD(dev, 0x69, value);
-	dev_dbg(dev, "%s: DBI: setting %#02X\n", __func__, value);
-}
-
 static u8 km4_calc_dbi_ref(struct gs_panel *ctx)
 {
 	struct km4_panel *spanel = to_spanel(ctx);
@@ -942,8 +933,10 @@ static void km4_set_dbi_ref(struct gs_panel *ctx, u8 value)
 	struct device *dev = ctx->dev;
 
 	GS_DCS_BUF_ADD_CMDLIST(dev, unlock_cmd_f0);
-	km4_set_panel_feat_dbi(ctx, value);
+	GS_DCS_BUF_ADD_CMD(dev, 0xB0, 0x00, 0x67, 0x69);
+	GS_DCS_BUF_ADD_CMD(dev, 0x69, value);
 	GS_DCS_BUF_ADD_CMDLIST_AND_FLUSH(dev, lock_cmd_f0);
+	dev_dbg(dev, "%s: DBI: setting 0x%02X\n", __func__, value);
 }
 
 static void km4_set_frame_rate(struct gs_panel *ctx, u16 frame_rate)
@@ -1068,9 +1061,10 @@ static void km4_set_panel_feat(struct gs_panel *ctx, const struct gs_panel_mode 
 	if (enforce)
 		km4_set_panel_feat_tsp_sync(ctx);
 
-	/* Reset DBI Reference frequency */
-	if (test_bit(FEAT_FRAME_AUTO, feat) || vrefresh == 120)
-		km4_set_panel_feat_dbi(ctx, KM4_DBI_REF_DEFAULT);
+
+	/* Reset DBI Reference frequency for auto and fixed peak manual mode */
+	if (test_bit(FEAT_FRAME_AUTO, feat) || idle_vrefresh == vrefresh)
+		km4_set_dbi_ref(ctx, KM4_DBI_REF_DEFAULT);
 
 	/*
 	 * Frequency setting: FI, frequency, idle frequency
