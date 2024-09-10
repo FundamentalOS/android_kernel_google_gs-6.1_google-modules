@@ -64,7 +64,7 @@ void nvt_heatmap_decode(
 	}
 }
 
-#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#ifdef GOOG_TOUCH_INTERFACE
 int nvt_get_channel_data(void *private_data,
 			u32 type, u8 **ptr, u32 *size)
 {
@@ -485,7 +485,7 @@ int nvt_callback(void *private_data,
 	return ret;
 }
 
-#endif /* CONFIG_GOOG_TOUCH_INTERFACE */
+#endif /* GOOG_TOUCH_INTERFACE */
 
 #if defined(CONFIG_SOC_GOOGLE)
 bool nvt_ts_check_tid(struct nvt_ts_data *ts, u8 *tid)
@@ -507,8 +507,10 @@ ssize_t force_touch_active_show(struct device *dev,
 
 	NVT_LOGD("++\n");
 
+#ifdef GOOG_TOUCH_INTERFACE
 	ret = sysfs_emit(buf, "%#x\n",
 		goog_pm_wake_get_locks(ts->gti));
+#endif
 
 	NVT_LOGD("--\n");
 	return ret;
@@ -519,9 +521,11 @@ ssize_t force_touch_active_store(struct device *dev,
 				const char *buf, size_t count)
 {
 	u8 mode;
-	int __maybe_unused ret;
-	bool __maybe_unused active;
-	u32 __maybe_unused lock = 0;
+#ifdef GOOG_TOUCH_INTERFACE
+	int ret;
+	bool active;
+	u32 lock = 0;
+#endif
 
 	NVT_LOGD("++\n");
 
@@ -530,7 +534,7 @@ ssize_t force_touch_active_store(struct device *dev,
 		return -EINVAL;
 	}
 
-#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#ifdef GOOG_TOUCH_INTERFACE
 	switch (mode) {
 	case 0x10:
 		lock = GTI_PM_WAKELOCK_TYPE_FORCE_ACTIVE;
@@ -629,13 +633,15 @@ int nvt_ts_pm_suspend(struct device *dev)
 	struct nvt_ts_data *ts = dev_get_drvdata(dev);
 	u32 locks = 0;
 
+#ifdef GOOG_TOUCH_INTERFACE
 	locks = goog_pm_wake_get_locks(ts->gti);
-	NVT_LOGD("locks %#x\n", locks);
+	NVT_LOG("locks %#x\n", locks);
+#endif
 
 	if (ts->bTouchIsAwake) {
 		NVT_ERR("can't suspend because touch bus is in use, locks %#x!\n",
 			locks);
-#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#ifdef GOOG_TOUCH_INTERFACE
 		if (locks & GTI_PM_WAKELOCK_TYPE_BUGREPORT) {
 			s64 delta_ms = ktime_ms_delta(ktime_get(),
 							ts->bugreport_ktime_start);

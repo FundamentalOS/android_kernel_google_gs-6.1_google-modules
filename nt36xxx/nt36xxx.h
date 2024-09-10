@@ -361,7 +361,6 @@ struct nvt_ts_data {
 	/*
 	 * Used for google touch interface.
 	 */
-	bool selftest_in_process;
 	struct goog_touch_interface *gti;
 	uint8_t heatmap_host_cmd;
 	uint32_t heatmap_host_cmd_addr;
@@ -376,7 +375,7 @@ struct nvt_ts_data {
 	/*
 	 * Stylus context used by touch_offload
 	 */
-#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#ifdef GOOG_TOUCH_INTERFACE
 	struct TouchOffloadCoord pen_offload_coord;
 #endif
 	ktime_t pen_offload_coord_timestamp;
