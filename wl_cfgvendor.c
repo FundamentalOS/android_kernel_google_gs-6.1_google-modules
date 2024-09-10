@@ -10489,18 +10489,9 @@ wl_cfgvendor_apf_set_filter(struct wiphy *wiphy,
 		WL_ERR(("APF add filter failed, ret=%d\n", ret));
 		goto exit;
 	}
-
-	if (wl_dbg_level & WL_DBG_DBG) {
-		prhex("add apf_program: ", (uint8 *)program, program_len);
-	}
-
 	WL_INFORM_MEM(("Success to add APF filter program, program_len=%d\n", program_len));
 
 exit:
-	if (unlikely(ret)) {
-		WL_ERR(("Failed to add APF filter program, program_len=%d\n", program_len));
-	}
-
 	if (program) {
 		MFREE(cfg->osh, program, program_len);
 	}
@@ -10515,8 +10506,7 @@ wl_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	struct sk_buff *skb = NULL;
 	uint8 *buf = NULL;
-	int ret;
-	int buf_len = 0, max_len = 0, mem_needed = 0;
+	int ret, buf_len, max_len, mem_needed;
 
 	/* Get APF memory size limit */
 	max_len = 0;
@@ -10571,22 +10561,13 @@ wl_cfgvendor_apf_read_filter_data(struct wiphy *wiphy,
 		WL_ERR(("vendor command reply failed, ret=%d\n", ret));
 	}
 
-	if (wl_dbg_level & WL_DBG_DBG) {
-		prhex("read apf_program: ", (uint8 *)buf, buf_len);
-	}
-
 	if (buf) {
 		MFREE(cfg->osh, buf, buf_len);
 	}
 
-	WL_INFORM_MEM(("Success to read APF filter program, buf_len=%d\n", buf_len));
 	return ret;
 
 fail:
-	if (unlikely(ret)) {
-		WL_ERR(("Failed to read APF filter program, buf_len=%d\n", buf_len));
-	}
-
 	if (buf) {
 		MFREE(cfg->osh, buf, buf_len);
 	}
