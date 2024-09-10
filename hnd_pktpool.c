@@ -1701,26 +1701,26 @@ pktpool_emptycb_disabled(pktpool_t *pktp)
 #ifdef BCMPKTPOOL
 #include <hnd_lbuf.h>
 
-pktpool_t *pktpool_shared = NULL;
+pktpool_t *pktpool_shared;
 
 #ifdef BCMFRAGPOOL
-pktpool_t *pktpool_shared_lfrag = NULL;
-pktpool_t *pktpool_shared_alfrag = NULL;
-pktpool_t *pktpool_shared_alfrag_data = NULL;
+pktpool_t *pktpool_shared_lfrag;
+pktpool_t *pktpool_shared_alfrag;
+pktpool_t *pktpool_shared_alfrag_data;
 #endif /* BCMFRAGPOOL */
 
 #ifdef BCMRESVFRAGPOOL
-resv_info_t *resv_pool_info = NULL;
-pktpool_t *pktpool_resv_alfrag = NULL;
-pktpool_t *pktpool_resv_alfrag_data = NULL;
+resv_info_t *resv_pool_info;
+pktpool_t *pktpool_resv_alfrag;
+pktpool_t *pktpool_resv_alfrag_data;
 #endif /* BCMRESVFRAGPOOL */
 
-pktpool_t *pktpool_shared_rxlfrag = NULL;
+pktpool_t *pktpool_shared_rxlfrag;
 
 /* Rx data pool w/o rxfrag structure */
-pktpool_t *pktpool_shared_rxdata = NULL;
+pktpool_t *pktpool_shared_rxdata;
 
-static osl_t *pktpool_osh = NULL;
+static osl_t *pktpool_osh;
 
 /**
  * Initializes several packet pools and allocates packets within those pools.
@@ -1830,8 +1830,9 @@ BCMATTACHFN(hnd_pktpool_init)(osl_t *osh)
 	 */
 	n = 1;
 	MALLOC_SET_NOPERSIST(osh); /* Ensure subsequent allocations are non-persist */
-	if ((err = pktpool_init(osh, pktpool_shared,
-			&n, PKTBUFSZ, FALSE, lbuf_basic, FALSE, 0, 0)) != BCME_OK) {
+	err = pktpool_init(osh, pktpool_shared,	&n, PKTBUFSZ, FALSE,
+		lbuf_basic, FALSE, 0, 0);
+	if (err != BCME_OK) {
 		ASSERT(0);
 		goto error;
 	}
