@@ -148,21 +148,12 @@ void gcip_telemetry_fw_trace(struct gcip_telemetry *trace)
 
 void gcip_telemetry_irq_handler(struct gcip_telemetry *tel)
 {
-	unsigned long flags;
-
-	/*
-	 * If the lock is held by other threads - it means either
-	 *   1. The worker gcip_telemetry_worker is working, or
-	 *   2. The telemetry object is being released
-	 * Either way we don't need to schedule another job.
-	 */
-	if (!spin_trylock_irqsave(&tel->state_lock, flags))
-		return;
+	spin_lock(&tel->state_lock);
 
 	if (tel->state == GCIP_TELEMETRY_ENABLED && tel->header->head != tel->header->tail)
 		schedule_work(&tel->work);
 
-	spin_unlock_irqrestore(&tel->state_lock, flags);
+	spin_unlock(&tel->state_lock);
 }
 
 void gcip_telemetry_inc_mmap_count(struct gcip_telemetry *tel, int dif)

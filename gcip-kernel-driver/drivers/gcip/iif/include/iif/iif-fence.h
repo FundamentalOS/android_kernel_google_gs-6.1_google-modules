@@ -2,11 +2,21 @@
 /*
  * The inter-IP fence.
  *
- * The meaning of "a fence is signaled" or "unblocked" is that the fence has been signaled enough
- * times as many as the expected number of signals which is decided when the fence is initialized
- * and it has been unblocked. That says every single signaler commands are expected to signal the
- * fence (i.e., call `iif_fence_signal{_with_status}` function) even though commands weren't
- * processed normally.
+ * Please note that the meaning of fence is "signaled" and "unblocked" are different. It might be
+ * confusing since IIF can be signaled multiple times by the signaler unlike general fences such as
+ * the DMA fence.
+ *
+ * The meaning of "a fence is signaled" is that the fence has been signaled enough times as many as
+ * the expected number of signals which should be decided when the fence is initialized nevertheless
+ * it has been signaled with an error or not. That says every single signaler command are expected
+ * to signal the fence (i.e., call `iif_fence_signal{_with_status}` function) even though commands
+ * weren't processed normally.
+ *
+ * On the other hand, the meaning of "a fence is unblocked" is that the fence has been "signaled" or
+ * at least one of signalers signaled the fence with an error even though the fence hasn't been
+ * signaled enough times so that the waiters don't need to be blocked by the fence anymore. Note
+ * that even though a fence has been unblocked with an error, remaining signalers are still expected
+ * to signal the fence.
  *
  * Also, unblocking a fence here is only for the kernel perspective. Therefore, the IIF driver will
  * notify the fence unblock to only who are polling the fences (via poll callbacks or poll syscall).
@@ -17,9 +27,8 @@
  *
  * If the signaler IP requires a support of the kernel driver to unblock the fence in case the IP is
  * already faulty and can't notify waiter IPs, the signaler IP kernel driver can unblock the fence
- * with an error and each waiter IP kernel driver can notice it by `fence_unblocked` operator of the
- * fence manager or registering a poll callback to the fence directly and propagate the error to the
- * IP of each.
+ * with an error and each waiter IP kernel driver can notice it by registering a poll callback to
+ * the fence and propagate the error to the IP of each.
  *
  * Besides, one of the main roles of the IIF driver is creating fences with assigning fence IDs,
  * initializing the fence table and managing the life cycle of them.
@@ -34,10 +43,9 @@
 #include <linux/lockdep_types.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
-#include <linux/workqueue.h>
 
 #include <iif/iif-manager.h>
-#include <iif/iif-shared.h>
+#include <iif/iif.h>
 
 struct iif_fence;
 struct iif_fence_ops;
@@ -47,17 +55,15 @@ struct iif_fence_all_signaler_submitted_cb;
 /*
  * The callback which will be called when all signalers have signaled @fence.
  *
- * It will be called while @fence->signalers_lock is held and it is safe to read
+ * It will be called while @fence->signaled_signalers_lock is held and it is safe to read
  * @fence->signal_error inside.
- *
- * The callback will be called in the normal context.
  */
 typedef void (*iif_fence_poll_cb_t)(struct iif_fence *fence, struct iif_fence_poll_cb *cb);
 
 /*
  * The callback which will be called when all signalers have been submitted to @fence.
  *
- * It will be called while @fence->signalers_lock is held and it is safe to read
+ * It will be called while @fence->submitted_signalers_lock is held and it is safe to read
  * @fence->all_signaler_submitted_error inside.
  */
 typedef void (*iif_fence_all_signaler_submitted_cb_t)(
@@ -115,29 +121,24 @@ struct iif_fence {
 	uint16_t total_signalers;
 	/* The number of submitted signalers. */
 	uint16_t submitted_signalers;
+	/*
+	 * Protects @submitted_signalers, @all_signaler_submitted_cb_list and
+	 * @all_signaler_submitted_error.
+	 */
+	spinlock_t submitted_signalers_lock;
+#if IS_ENABLED(CONFIG_DEBUG_SPINLOCK)
+	struct lock_class_key submitted_signalers_key;
+#endif /* IS_ENABLED(CONFIG_DEBUG_SPINLOCK) */
+	/* The interrupt state before holding @submitted_signalers_lock. */
+	unsigned long submitted_signalers_lock_flags;
 	/* The number of signaled signalers. */
 	uint16_t signaled_signalers;
-	/*
-	 * Protects @submitted_signalers, @signaled_signalers, @all_signaler_submitted_cb_list,
-	 * @all_signaler_submitted_error, @poll_cb_list and @signal_error.
-	 */
-	spinlock_t signalers_lock;
-#if IS_ENABLED(CONFIG_DEBUG_SPINLOCK)
-	struct lock_class_key signalers_key;
-#endif /* IS_ENABLED(CONFIG_DEBUG_SPINLOCK) */
-	/* The interrupt state before holding @signalers_lock. */
-	unsigned long signalers_lock_flags;
+	/* Protects @signaled_signalers, @poll_cb_list and @signal_error. */
+	spinlock_t signaled_signalers_lock;
 	/* The number of outstanding waiters. */
 	uint16_t outstanding_waiters;
-	/* The number of outstanding waiters per IP. */
-	uint16_t outstanding_waiters_per_ip[IIF_IP_RESERVED];
-	/* The number of outstanding wakelock holds per waiter IP. */
-	uint16_t outstanding_block_wakelock[IIF_IP_RESERVED];
-	/*
-	 * Protects @outstanding_waiters, @outstanding_waiters_per_ip and
-	 * @outstanding_block_wakelock.
-	 */
-	spinlock_t waiters_lock;
+	/* Protects @outstanding_waiters. */
+	spinlock_t outstanding_waiters_lock;
 	/* Reference count. */
 	struct kref kref;
 	/* Operators. */
@@ -154,16 +155,8 @@ struct iif_fence {
 	int all_signaler_submitted_error;
 	/* The number of sync_file(s) bound to the fence. */
 	atomic_t num_sync_file;
-	/* The callback called once the fence has been unblocked. */
-	struct iif_fence_poll_cb unblocked_cb;
-	/* If true, the waiter IP drivers should propagate the fence unblock to their IP. */
-	bool propagate;
-	/* Work which will be executed when the fence has been unblocked. */
-	struct work_struct signaled_work;
-	/* Work which will be executed when each waiter command finished waiting on the fence. */
-	struct work_struct waited_work;
-	/* Work decreasing the refcount of fence asynchronously. */
-	struct work_struct put_work;
+	/* The callback called if the fence's signaler is AP and the fence is unblocked. */
+	struct iif_fence_poll_cb ap_poll_cb;
 };
 
 /* Operators of `struct iif_fence`. */
@@ -212,36 +205,30 @@ struct iif_fence *iif_fence_get(struct iif_fence *fence);
  */
 struct iif_fence *iif_fence_fdget(int fd);
 
-/*
- * Decreases the reference count of @fence and if it becomes 0, releases @fence.
- *
- * If the caller is going to put @fence in the un-sleepable context such as the IRQ context or spin
- * lock, they should use the async one.
- */
+/* Decreases the reference count of @fence and if it becomes 0, releases @fence. */
 void iif_fence_put(struct iif_fence *fence);
-void iif_fence_put_async(struct iif_fence *fence);
 
 /*
  * Submits a signaler. @fence->submitted_signalers will be incremented by 1.
  *
- * This function cannot be called in the IRQ context.
+ * This function can be called in the IRQ context.
  *
  * Returns 0 if the submission succeeds. Otherwise, returns a negative errno.
  */
 int iif_fence_submit_signaler(struct iif_fence *fence);
 
 /*
+ * Its functionality is the same with the `iif_fence_submit_signaler` function, but the caller
+ * is holding @fence->submitted_signalers_lock.
+ */
+int iif_fence_submit_signaler_locked(struct iif_fence *fence);
+
+/*
  * Submits a waiter of @ip IP. @fence->outstanding_waiters will be incremented by 1.
  * Note that the waiter submission will not be done when not all signalers have been submitted.
  * (i.e., @fence->submitted_signalers < @fence->total_signalers)
  *
- * This function will acquire the block wakelock of @ip before it updates the IIF's wait table to
- * mark @ip is going to wait on @fence. Otherwise, if the signaler IPx processes its command even
- * earlier than the waiter IPy powers its block up by the race, IPx may try to notify IPy which is
- * not powered up yet. If IPy spec doesn't allow that, it may cause an unexpected bug. Therefore, we
- * should acquire the block wakelock of @ip before updating the wait table.
- *
- * This function cannot be called in the IRQ context.
+ * This function can be called in the IRQ context.
  *
  * Returns the number of remaining signalers to be submitted (i.e., returning 0 means the submission
  * actually succeeded). Otherwise, returns a negative errno if it fails with other reasons.
@@ -249,48 +236,14 @@ int iif_fence_submit_signaler(struct iif_fence *fence);
 int iif_fence_submit_waiter(struct iif_fence *fence, enum iif_ip_type ip);
 
 /*
- * Submits a waiter of @waiter_ip to each fence in @in_fences and a signaler to each fence in
- * @out_fences. Either @in_fences or @out_fences is allowed to be NULL.
- *
- * For the waiter submission, if at least one fence of @in_fences haven't finished the signaler
- * submission, this function will fail and return -EAGAIN.
- *
- * For the signaler submission, if at least one fence of @out_fences have already finished the
- * signaler submission, this function will fail and return -EPERM.
- *
- * This function will be useful when the caller wants to accomplish the waiter submission and the
- * signaler submission atomically.
- *
- * This function cannot be called in the IRQ context.
- *
- * Note that this function may reorder fences internally. This is to prevent a potential dead lock
- * which can be caused by holding the locks of multiple fences at the same time. Also, fences in
- * @in_fences and @out_fences should be unique. Otherwise, it will return -EDEADLK.
- *
- * The function returns 0 on success.
- */
-int iif_fence_submit_signaler_and_waiter(struct iif_fence **in_fences, int num_in_fences,
-					 struct iif_fence **out_fences, int num_out_fences,
-					 enum iif_ip_type waiter_ip);
-
-/*
  * Signals @fence.
  *
  * If all signaler commands have called this function for the fence and it has been unblocked, all
  * registered poll callbacks will be executed.
  *
- * If the caller is going to signal @fence in the un-sleepable context such as IRQ context or spin
- * lock, one should use the `iif_fence_signal_async` function below. Its functionality is the same,
- * but notifying poll callbacks will be done asynchronously.
- *
- * It may try to release the block wakelock of waiter IPs if there are some IPs which called the
- * `iif_fence_waited` function earlier than this function call and releasing the block wakelock of
- * those IPs was pended. (See `iif_fence_waited` function below.)
- *
  * Returns the number of remaining signals on success. Otherwise, returns a negative errno.
  */
 int iif_fence_signal(struct iif_fence *fence);
-int iif_fence_signal_async(struct iif_fence *fence);
 
 /*
  * Signals @fence with a status.
@@ -298,20 +251,17 @@ int iif_fence_signal_async(struct iif_fence *fence);
  * Basically, its functionality is the same as the `iif_fence_signal` function above, but the user
  * can supply an optional error status.
  *
- * Note that even though @error is non-zero, @fence won't be unblocked until the number of remaining
- * signals becomes 0.
+ * If the signal error was set, it will make the fence as unblocked even though the number of
+ * remaining signals before this function call was bigger than 1. That says all registered poll
+ * callbacks will be executed to propagate the fence error to the ones polling the fence
+ * immediately.
  *
  * If the caller passes 0 to @error, its functionality is the same as the `iif_fence_signal`
  * function.
  *
- * If the caller is going to signal @fence in the un-sleepable context such as IRQ context or spin
- * lock, one should use the `iif_fence_signal_with_status_async` function below. Its functionality
- * is the same, but notifying poll callbacks will be done asynchronously.
- *
  * Returns the number of remaining signals on success. Otherwise, returns a negative errno.
  */
 int iif_fence_signal_with_status(struct iif_fence *fence, int error);
-int iif_fence_signal_with_status_async(struct iif_fence *fence, int error);
 
 /*
  * Returns the signal status of @fence.
@@ -322,28 +272,7 @@ int iif_fence_signal_with_status_async(struct iif_fence *fence, int error);
 int iif_fence_get_signal_status(struct iif_fence *fence);
 
 /*
- * Sets @fence->propagate to true.
- *
- * When @fence has been unblocked and the `fence_unblocked` callback is called, the waiter IP
- * drivers will refer to @fence->propagate and they will inform their IP of the fence unblock if
- * that is true.
- *
- * In case of the signaler IPx of @fence is not able to notify waiter IPs of the fence unblock, the
- * IPx driver can utilize this function to propagate the fence unblock to waiter IP drivers. For
- * example, if IPx becomes faulty and it can't propagate the fence unblock with an error to waiter
- * IPs by itself, the IPx driver can utilize this function when it detects the IP crash to set
- * @fence->propagate to true and the waiter IP drivers will inform their IP of the fence unblock
- * when the `fence_unblocked` callback is called.
- *
- * Note that this function must be called before signaling the fence if needed. Also, the IIF driver
- * will take over the responsibility of updating the number of remaining signals in the fence table
- * of @fence from the IP firmware since calling this function means that the signaler IP doesn't
- * have ability of managing the signal of @fence anymore.
- */
-void iif_fence_set_propagate_unblock(struct iif_fence *fence);
-
-/*
- * Returns whether all signalers have signaled @fence and it has been unblocked.
+ * Returns whether all signalers have signaled @fence.
  *
  * As this function doesn't require to hold any lock, even if this function returns false, @fence
  * can be signaled right after this function returns. One should care about this and may not use
@@ -351,26 +280,8 @@ void iif_fence_set_propagate_unblock(struct iif_fence *fence);
  */
 bool iif_fence_is_signaled(struct iif_fence *fence);
 
-/*
- * Notifies the driver that a waiter of @ip finished waiting on @fence.
- *
- * It will try to release the block wakelock of @ip which was held when `iif_fence_submit_waiter`
- * was called if @fence was already signaled (i.e., `iif_fence_signal` was called) and the IP
- * defined the `release_block_wakelock` operator (See iif-manager.h file).
- *
- * Note that if @fence is not signaled yet, releasing the block wakelock will be pended until @fence
- * is signaled (i.e., `iif_fence_signal` is called) or it is destroyed. This case can happen when
- * the signaler IPx is not responding in time and the waiter IPy processes its command as timeout.
- * This pending logic is required because if IPy doesn't pend releasing its block wakelock and IPx
- * suddenly processes its command, IPx may try to notify IPy whose block is already powered down and
- * it may cause an unexpected bug if IPy spec doesn't allow that.
- *
- * If the caller is going to stop waiting on @fence in the un-sleepable context such as IRQ context
- * or spin lock, one should use the `iif_fence_waited_async` function below. Its functionality is
- * the same, but `release_block_wakelock` callbacks will be called asynchronously.
- */
+/* Notifies the driver that a waiter of @ip finished waiting on @fence. */
 void iif_fence_waited(struct iif_fence *fence, enum iif_ip_type ip);
-void iif_fence_waited_async(struct iif_fence *fence, enum iif_ip_type ip);
 
 /*
  * Registers a callback which will be called when @fence has been unblocked. Once the callback is
@@ -422,5 +333,26 @@ int iif_fence_unsubmitted_signalers(struct iif_fence *fence);
 int iif_fence_submitted_signalers(struct iif_fence *fence);
 int iif_fence_signaled_signalers(struct iif_fence *fence);
 int iif_fence_outstanding_waiters(struct iif_fence *fence);
+
+/*
+ * Returns true if a waiter or a signaler is submittable to @fence.
+ *
+ * The caller must hold @fence->submitted_signalers_lock.
+ */
+bool iif_fence_is_waiter_submittable_locked(struct iif_fence *fence);
+bool iif_fence_is_signaler_submittable_locked(struct iif_fence *fence);
+
+/* Holds @fence->submitted_signalers_lock. */
+static inline void iif_fence_submitted_signalers_lock(struct iif_fence *fence)
+{
+	spin_lock_irqsave(&fence->submitted_signalers_lock, fence->submitted_signalers_lock_flags);
+}
+
+/* Releases @fence->submitted_signalers_lock. */
+static inline void iif_fence_submitted_signalers_unlock(struct iif_fence *fence)
+{
+	spin_unlock_irqrestore(&fence->submitted_signalers_lock,
+			       fence->submitted_signalers_lock_flags);
+}
 
 #endif /* __IIF_IIF_FENCE_H__ */

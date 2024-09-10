@@ -2,15 +2,6 @@
 #
 # Makefile for GXP driver.
 #
-# Arguments
-#   GMODULE_OUT_PATH: The path of directory containing built google-modules.
-#                     This directory is expected to contain *.ko and
-#                     Module.symvers files per module. If $(OUT_DIR) is
-#                     defined, it will be set to
-#                     "$(OUT_DIR)/../private/google-modules".
-#
-#   GMODULE_SRC_PATH: The path of directory containing source of google-modules.
-#                     (default: $(KERNEL_SRC)/../private/google-modules)
 
 GXP_CHIP := AMALTHEA
 CONFIG_$(GXP_CHIP) ?= m
@@ -20,6 +11,7 @@ CURRENT_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 obj-$(CONFIG_$(GXP_CHIP)) += gxp.o
 
 gxp-objs += \
+		gxp-bpm.o \
 		gxp-client.o \
 		gxp-core-telemetry.o \
 		gxp-dci.o \
@@ -38,14 +30,12 @@ gxp-objs += \
 		gxp-mailbox.o \
 		gxp-mapping.o \
 		gxp-mb-notification.o \
-		gxp-monitor.o \
 		gxp-pm.o \
 		gxp-thermal.o \
 		gxp-trace.o \
 		gxp-vd.o
 
 gxp-mcu-objs := \
-		gxp-devfreq.o \
 		gxp-kci.o \
 		gxp-mcu-firmware.o \
 		gxp-mcu-fs.o \
@@ -56,8 +46,6 @@ gxp-mcu-objs := \
 		gxp-usage-stats.o
 
 gsx01-objs := \
-		gxp-bpm.o \
-		gxp-cmu.o \
 		gxp-gsx01-mailbox.o \
 		gxp-gsx01-ssmt.o \
 		mobile-soc-gsx01.o
@@ -69,6 +57,7 @@ gxp-objs += \
 		amalthea-platform.o \
 		amalthea-pm.o \
 
+GMODULE_PATH := $(OUT_DIR)/../private/google-modules
 EDGETPU_CHIP := janeiro
 
 endif
@@ -103,9 +92,11 @@ endif
 GXP_PLATFORM ?= SILICON
 
 gxp-flags := -DCONFIG_GXP_$(GXP_PLATFORM) -DCONFIG_$(GXP_CHIP)=1 \
-	     -I$(CURRENT_DIR)/include -I$(CURRENT_DIR)/gcip-kernel-driver/include
+	     -I$(CURRENT_DIR)/include -I$(CURRENT_DIR)/gcip-kernel-driver/include \
+	     -I$(KERNEL_SRC)/../private/google-modules/power/mitigation
 # TODO(b/336717718): Remove path of embedded IIF
-gxp-flags += -I$(CURRENT_DIR)/gcip-kernel-driver/drivers/gcip/iif/include
+gxp-flags += -I$(CURRENT_DIR)/gcip-kernel-driver/drivers/gcip/iif/include \
+	     -I$(KERNEL_SRC)/../private/google-modules/iif/include
 
 ccflags-y += $(EXTRA_CFLAGS) $(gxp-flags)
 # Flags needed for external modules.
@@ -113,43 +104,21 @@ ccflags-y += -DCONFIG_GOOGLE_BCL
 
 KBUILD_OPTIONS += GXP_CHIP=$(GXP_CHIP) GXP_PLATFORM=$(GXP_PLATFORM)
 
-# Set google-modules source and out paths if not defined.
-GMODULE_SRC_PATH ?= $(KERNEL_SRC)/../private/google-modules
-GMODULE_OUT_PATH ?= $(OUT_DIR)/../private/google-modules
-
+ifneq ($(OUT_DIR),)
 # Access TPU driver's exported symbols.
-ifneq ($(wildcard $(GMODULE_OUT_PATH)/edgetpu/$(EDGETPU_CHIP)/drivers/edgetpu/Module.symvers),)
-EXTRA_SYMBOLS += $(GMODULE_OUT_PATH)/edgetpu/$(EDGETPU_CHIP)/drivers/edgetpu/Module.symvers
-endif
-
-ifneq ($(wildcard $(GMODULE_OUT_PATH)/soc/gs/drivers/soc/google/gsa/Module.symvers),)
-EXTRA_SYMBOLS += $(GMODULE_OUT_PATH)/soc/gs/drivers/soc/google/gsa/Module.symvers
+EXTRA_SYMBOLS += $(GMODULE_PATH)/edgetpu/$(EDGETPU_CHIP)/drivers/edgetpu/Module.symvers
+ifneq ($(wildcard $(GMODULE_PATH)/soc/gs/drivers/soc/google/gsa/Module.symvers),)
+EXTRA_SYMBOLS += $(GMODULE_PATH)/soc/gs/drivers/soc/google/gsa/Module.symvers
 endif
 
 ifneq ($(GXP_POWER_MITIGATION), false)
-ifneq ($(wildcard $(GMODULE_SRC_PATH)/power/mitigation),)
-ccflags-y     += -I$(GMODULE_SRC_PATH)/power/mitigation
-endif
-ifneq ($(wildcard $(GMODULE_OUT_PATH)/power/mitigation/Module.symvers),)
-EXTRA_SYMBOLS += $(GMODULE_OUT_PATH)/power/mitigation/Module.symvers
-endif
-endif # GXP_POWER_MITIGATION
-
-ifneq ($(wildcard $(GMODULE_SRC_PATH)/iif/include),)
-ccflags-y     += -I$(GMODULE_SRC_PATH)/iif/include
+EXTRA_SYMBOLS += $(GMODULE_PATH)/power/mitigation/Module.symvers
 endif
 
-ifneq ($(wildcard $(GMODULE_OUT_PATH)/iif/Module.symvers),)
-EXTRA_SYMBOLS += $(GMODULE_OUT_PATH)/iif/Module.symvers
+ifneq ($(wildcard $(GMODULE_PATH)/iif/Module.symvers),)
+EXTRA_SYMBOLS += $(GMODULE_PATH)/iif/Module.symvers
 endif
-
-ifneq ($(wildcard $(GMODULE_SRC_PATH)/perf/include),)
-ccflags-y     += -I$(GMODULE_SRC_PATH)/perf/include
-endif
-
-ifneq ($(wildcard $(GMODULE_OUT_PATH)/perf/google_pm_qos_Module.symvers),)
-EXTRA_SYMBOLS += $(GMODULE_OUT_PATH)/perf/google_pm_qos_Module.symvers
-endif
+endif # OUT_DIR
 
 modules modules_install:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M)/$(GCIP_DIR) gcip.o
