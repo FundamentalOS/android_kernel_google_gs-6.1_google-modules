@@ -54,13 +54,10 @@ bool edgetpu_mmu_is_domain_default_domain(struct edgetpu_dev *etdev,
 	return etdomain == &etiommu->default_etdomain;
 }
 
-static int edgetpu_iommu_dev_fault_handler(struct iommu_fault *fault, void *token)
+static int edgetpu_iommu_dev_fault_handler(struct iommu_fault *fault,
+					   void *token)
 {
 	struct edgetpu_dev *etdev = (struct edgetpu_dev *)token;
-	static DEFINE_RATELIMIT_STATE(rs, DEFAULT_RATELIMIT_INTERVAL, DEFAULT_RATELIMIT_BURST);
-
-	if (!__ratelimit(&rs))
-		return -EAGAIN;
 
 	if (fault->type == IOMMU_FAULT_DMA_UNRECOV) {
 		etdev_warn(etdev, "Unrecoverable IOMMU fault!\n");
@@ -78,7 +75,7 @@ static int edgetpu_iommu_dev_fault_handler(struct iommu_fault *fault, void *toke
 		etdev_dbg(etdev, "perms = %08X\n", fault->prm.perm);
 		etdev_dbg(etdev, "addr = %llX\n", fault->prm.addr);
 	}
-	/* Tell the IOMMU driver to carry on */
+	// Tell the IOMMU driver to carry on
 	return -EAGAIN;
 }
 
