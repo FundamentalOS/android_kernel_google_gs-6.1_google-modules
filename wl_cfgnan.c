@@ -8558,8 +8558,7 @@ wl_cfgnan_reset_geofence_ranging(struct bcm_cfg80211 *cfg,
 		mutex_lock(&rtt_status->rtt_mutex);
 	}
 
-	WL_INFORM_MEM(("wl_cfgnan_reset_geofence_ranging: "
-		"sched_reason = %d, cur_idx = %d, target_cnt = %d\n",
+	WL_INFORM_MEM(("sched_reason = %d, cur_idx = %d, target_cnt = %d\n",
 		sched_reason, rtt_status->geofence_cfg.cur_target_idx,
 		rtt_status->geofence_cfg.geofence_target_cnt));
 
