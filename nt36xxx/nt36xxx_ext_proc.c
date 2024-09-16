@@ -392,7 +392,9 @@ static int32_t c_fw_version_show(struct seq_file *m, void *v)
 		ts->trim_table->id[0], ts->trim_table->id[1],
 		ts->trim_table->id[2], ts->trim_table->id[3],
 		ts->trim_table->id[4], ts->trim_table->id[5]);
+#if !SPI_FLASH
 	seq_printf(m, "mp_fw_name= %s\n", get_mp_fw_name());
+#endif
 	seq_printf(m, "fw_name= %s\n", get_fw_name());
 #endif
 	return 0;
