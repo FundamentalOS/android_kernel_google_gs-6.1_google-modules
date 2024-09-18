@@ -406,6 +406,7 @@ int nvt_callback(void *private_data,
 		break;
 
 	case GTI_CMD_SET_SENSING_MODE:
+		NVT_LOGI("set sensing %s.\n", cmd->sensing_cmd.setting ? "ON" : "OFF");
 		if (cmd->sensing_cmd.setting == GTI_SENSING_MODE_DISABLE) {
 			uint8_t spi_buf[3] = {0};
 
