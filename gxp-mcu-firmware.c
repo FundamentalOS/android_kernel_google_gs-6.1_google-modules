@@ -974,8 +974,12 @@ void gxp_mcu_firmware_crash_handler(struct gxp_dev *gxp,
 		goto out_unlock_pm;
 	}
 
-	/* Hold @mcu_fw->lock because manipulating the MCU FW state must be a critical section. */
-	mutex_lock(&mcu_fw->lock);
+	/*
+	 * Hold @mcu_fw->lock because manipulating the MCU FW state must be a critical section,
+	 * skip if contested.
+	 */
+	if (!mutex_trylock(&mcu_fw->lock))
+		goto out_unlock_pm;
 
 	/*
 	 * Prevent @gxp->client_list is being changed while handling the crash.

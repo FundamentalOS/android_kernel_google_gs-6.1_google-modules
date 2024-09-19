@@ -28,7 +28,9 @@
 
 /* Timeout for KCI responses from the firmware (milliseconds) */
 #ifndef GXP_KCI_TIMEOUT
-#if IS_GXP_TEST
+#if IS_GXP_TEST && IS_ENABLED(CONFIG_DEBUG_KMEMLEAK)
+#define GXP_KCI_TIMEOUT (1000)
+#elif IS_GXP_TEST
 #define GXP_KCI_TIMEOUT (200) /* Fake firmware could respond in a short time. */
 #elif IS_ENABLED(CONFIG_GXP_IP_ZEBU)
 #define GXP_KCI_TIMEOUT (10000) /* 10 secs. */
