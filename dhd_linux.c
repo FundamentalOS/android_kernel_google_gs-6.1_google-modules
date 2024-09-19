@@ -14599,7 +14599,7 @@ dhd_legacy_preinit_ioctls(dhd_pub_t *dhd)
 #endif /* BCMPCIE_OOB_HOST_WAKE */
 #ifdef EVENT_LOG_RATE_HC
 	/* threshold number of lines per second */
-#define EVENT_LOG_RATE_HC_THRESHOLD	1000
+#define EVENT_LOG_RATE_HC_THRESHOLD	50000
 	uint32 event_log_rate_hc = EVENT_LOG_RATE_HC_THRESHOLD;
 #endif /* EVENT_LOG_RATE_HC */
 #if defined(WBTEXT) && defined(WBTEXT_BTMDELTA)
