@@ -24,7 +24,7 @@ kernel_module(
         "sscoredump_sample_test.ko",
         "sscoredump_test.ko",
     ],
-    kernel_build = "//private/google-modules/soc/gs:gs_kernel_build",
+    kernel_build = "//private/devices/google/common:kernel",
     visibility = [
         "//private/devices/google:__subpackages__",
     ],
