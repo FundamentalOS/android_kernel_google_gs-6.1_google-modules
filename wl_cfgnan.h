@@ -311,6 +311,7 @@ typedef struct nan_ranging_inst {
 	uint8 geof_retry_count;
 	uint8 ftm_ssn_retry_count;
 	bool role_concurrency_status;
+	uint8 num_meas;
 } nan_ranging_inst_t;
 
 #define DUMP_NAN_RTT_INST(inst) { WL_CONS_ONLY(("svc instance ID %d", (inst)->svc_inst_id)); \

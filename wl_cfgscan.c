@@ -6438,9 +6438,11 @@ static int wl_cfgscan_acs_parse_parameter(struct bcm_cfg80211 *cfg,
 			return 0;
 		}
 
-		/* Handle 5G band (from bw20 to bw80) */
-		/* bw80 */
-		if ((bw == 80) &&
+		/* Handle 5G band (from bw20 to bw160)
+		 * Since bw160 falls into DFS, we downgrade the bw to 80MHz,
+		 * hence handling commonly here for both 160MHz and 80MHz
+		 */
+		if (((bw == 80) || (bw == 160)) &&
 				(pParameter->vht_enabled || pParameter->he_enabled)) {
 			chspec = wf_create_chspec_from_primary(channel,
 				WL_CHANSPEC_BW_80, chspec_band, 0);
@@ -7950,4 +7952,22 @@ u8 wl_cfgscan_get_max_num_chans_per_bw(chanspec_t chspec)
 
 	}
 	return max_num_chans;
+}
+
+void
+wl_connected_channel_debuggability(struct bcm_cfg80211 * cfg, struct net_device * ndev)
+{
+	chanspec_t *chanspec;
+	struct ieee80211_channel *chan;
+	u32 center_freq;
+	struct wiphy *wiphy = bcmcfg_to_wiphy(cfg);
+
+	chanspec = (chanspec_t *)wl_read_prof(cfg, ndev, WL_PROF_CHAN);
+	center_freq = wl_channel_to_frequency(wf_chspec_ctlchan(*chanspec),
+			CHSPEC_BAND(*chanspec));
+
+	chan = ieee80211_get_channel(wiphy, center_freq);
+	if (chan) {
+		WL_INFORM_MEM(("Connected center_freq:%d flags:%x\n", center_freq, chan->flags));
+	}
 }

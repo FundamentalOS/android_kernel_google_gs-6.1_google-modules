@@ -1306,6 +1306,16 @@ dhd_lb_rx_napi_dispatch(dhd_pub_t *dhdp)
 		return;
 	}
 
+#ifdef DHD_SCHED_NAPI_DIRECTLY_LOW_TPUT
+	/* Based on customer request, for lower TPUTs
+	 * schedule napi directly on the same core.
+	 */
+	if (!dhd_plat_pcie_enable_big_core()) {
+		dhd_napi_schedule(dhd);
+		return;
+	}
+#endif /* DHD_SCHED_NAPI_DIRECTLY_LOW_TPUT */
+
 	/*
 	 * Get cpu will disable pre-ermption and will not allow any cpu to go offline
 	 * and call put_cpu() only after scheduling rx_napi_dispatcher_work.

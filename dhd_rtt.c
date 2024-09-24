@@ -1808,6 +1808,7 @@ dhd_rtt_nan_start_session(dhd_pub_t *dhd, rtt_target_info_t *rtt_target)
 	}
 
 	DHD_RTT(("Trigger nan based range request\n"));
+	ranging_inst->num_meas = rtt_target->num_frames_per_burst;
 	err = wl_cfgnan_trigger_ranging(bcmcfg_to_prmry_ndev(cfg),
 			cfg, ranging_inst, NULL, NAN_RANGE_REQ_CMD, TRUE);
 	if (unlikely(err)) {

@@ -1510,7 +1510,7 @@ typedef uint32 ratespec_t;
 #define WL_JOIN_PREF_6G_DISABLE			9u	/* Used to disable join/roam
 							 * 6G BSS target
 							 */
-#define WL_JOIN_PREF_ML_LINK_CAP_BOOST		10u	/* Used to configure boost
+#define WL_JOIN_PREF_ML_LINK_RSSI_BOOST		10u	/* Used to configure boost
 							 * for MLO targets
 							 */
 #define WL_JOIN_PREF_ML_SUB_LINK_WEIGHTAGE	11u	/* Percent weightage for
@@ -2516,7 +2516,6 @@ typedef uint32 ratespec_t;
 #define WL_PWRSTATS_TYPE_SCAN_6E	17 /* struct wl_pwr_scan_6E_stats_v1 */
 #define WL_PWRSTATS_TYPE_SCAN_EXT	18 /**< struct wl_pwr_scan_stats_v1 */
 
-
 /* IOV AWD DATA */
 #define AWD_DATA_JOIN_INFO	0
 #define AWD_DATA_VERSION_V1	1
@@ -2665,6 +2664,7 @@ enum {
 	WL_REINIT_RC_PHY_HC		  = 54,
 	WL_REINIT_RC_LAST,	/* DONOT use this any more, kept for legacy reasons */
 	WL_REINIT_RC_RADIO_CRASH	  = 55,
+	WL_REINIT_RC_BM_IDLE_FAIL_TO	  = 56, /* BM idle fail timeout */
 	WL_REINIT_RC_SUPPORTED_LAST	/* Use for app ONLY, DONOT use this in wlc code.
 					 * For wlc, use WL_REINIT_RC_VERSIONED_LAST
 					 */
@@ -2734,6 +2734,7 @@ enum {
  */
 enum wl_cnt_xtlv_id {
 	WL_CNT_XTLV_SLICE_IDX = 0x1,		/**< Slice index */
+	WL_CNT_XTLV_COUNTERS_REPORT_STATUS = 0x2,	/* IOV Counter Reporting */
 	WL_CNT_XTLV_WLC = 0x100,		/**< WLC layer counters */
 	WL_CNT_XTLV_WLC_RINIT_RSN = 0x101,	/**< WLC layer reinitreason extension: LEGACY */
 	WL_CNT_XTLV_WLC_HE = 0x102,		/* he counters */
@@ -2779,7 +2780,8 @@ enum wl_cnt_xtlv_id {
 	WL_CNT_XTLV_WLC_HE_TX_BLK0 = 0x1018,
 	WL_CNT_XTLV_DYN_BW_BLK0 = 0x1019,
 	WL_CNT_XTLV_DATA_BW_BLK0 = 0x101a,
-	/* 14 XTLVs reserved for new counters that may need to be added */
+	WL_CNT_XTLV_WLC_HE_UNIFIED_BLK0 = 0x101b,
+	/* 13 XTLVs reserved for new counters that may need to be added */
 	WL_CNT_XTLV_UCODE_TX_BLK1 = 0x1028,
 	WL_CNT_XTLV_UCODE_RX_BLK1 = 0x1029,
 	WL_CNT_XTLV_UCODE_RXERR_BLK1 = 0x102a,
@@ -2788,7 +2790,8 @@ enum wl_cnt_xtlv_id {
 	WL_CNT_XTLV_WLC_HE_TX_BLK1 = 0x102d,
 	WL_CNT_XTLV_DYN_BW_BLK1 = 0x102e,
 	WL_CNT_XTLV_DATA_BW_BLK1 = 0x102f,
-	/* 14 XTLVs reserved for new counters that may need to be added */
+	WL_CNT_XTLV_WLC_HE_UNIFIED_BLK1 = 0x1030,
+	/* 13 XTLVs reserved for new counters that may need to be added */
 };
 
 /* bitmap for clm_flags iovar */
@@ -2821,6 +2824,7 @@ enum wl_cnt_xtlv_id {
 #define WL_CLM_VLP_P2P_DISABLE     0x7000000u /**< Flag VLP_P2P_DISABLE */
 #define WL_CLM_DFS_FCC             WL_CLM_DFS_TPC /**< Flag for DFS FCC */
 #define WL_CLM_DFS_EU              (WL_CLM_DFS_TPC | WL_CLM_RADAR_TYPE_EU) /**< Flag for DFS EU */
+#define WL_CLM_PP                  0x8000000u /**< Flag for Punctured bandwidth allowed */
 
 typedef enum sup_auth_status {
 	/* Basic supplicant authentication states */
@@ -3148,6 +3152,8 @@ enum wlc_capext_coex_subfeature_bitpos {
 	WLC_CAPEXT_COEX_BITPOS_BTC_WIFI_PROT	= 2,
 	WLC_CAPEXT_COEX_BITPOS_RC1		= 3,
 	WLC_CAPEXT_COEX_BITPOS_SIB		= 5,
+	WLC_CAPEXT_COEX_BITPOS_BT2G		= 7,
+	WLC_CAPEXT_COEX_BITPOS_BT5G		= 8,
 	WLC_CAPEXT_COEX_BITPOS_MAX
 };
 
@@ -3349,6 +3355,11 @@ enum wlc_capext_feature_bitpos {
 	WLC_CAPEXT_FEATURE_BITPOS_SCCA			= 130,
 	WLC_CAPEXT_FEATURE_BITPOS_SC_6G_HE		= 131,
 	WLC_CAPEXT_FEATURE_BITPOS_SPMI_SCAN_FWD		= 132,
+	WLC_CAPEXT_FEATURE_BITPOS_OWE_AP		= 133,
+	WLC_CAPEXT_FEATURE_BITPOS_EDS			= 134,
+	WLC_CAPEXT_FEATURE_BITPOS_PLATCFG		= 135,
+	WLC_CAPEXT_FEATURE_BITPOS_ANTGAIN6G		= 136,
+	WLC_CAPEXT_FEATURE_BITPOS_MONITOR_MULTI		= 137,
 
 	WLC_CAPEXT_FEATURE_BITPOS_MAX
 };
