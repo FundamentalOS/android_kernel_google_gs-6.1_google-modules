@@ -1210,7 +1210,8 @@ wl_cfgp2p_escan(struct bcm_cfg80211 *cfg, struct net_device *dev, u16 active_sca
 
 	ret = wldev_iovar_setbuf_bsscfg(pri_dev, "p2p_scan",
 		memblk, memsize, cfg->ioctl_buf, WLC_IOCTL_MAXLEN, bssidx, &cfg->ioctl_buf_sync);
-	WL_INFORM(("P2P_SEARCH sync ID: %d, bssidx: %d\n", sync_id, bssidx));
+	WL_INFORM(("P2P_SEARCH sync ID:%d bssidx:%d trigger:%d\n",
+			sync_id, bssidx, p2p_scan_purpose));
 	if (ret == BCME_OK) {
 		wl_set_p2p_status(cfg, SCANNING);
 	}
@@ -1232,15 +1233,21 @@ wl_cfgp2p_act_frm_search(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	u32 chan_cnt = 0;
 	u16 *default_chan_list = NULL;
 	p2p_scan_purpose_t p2p_scan_purpose = P2P_SCAN_AFX_PEER_NORMAL;
-	if (!p2p_is_on(cfg) || ndev == NULL || bssidx == WL_INVALID)
-		return -EINVAL;
+
 	WL_TRACE_HW4((" Enter\n"));
-	if (bssidx == wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_PRIMARY))
+	if (!p2p_is_on(cfg) || ndev == NULL || bssidx == WL_INVALID) {
+		return -EINVAL;
+	}
+
+	if (bssidx == wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_PRIMARY)) {
 		bssidx = wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE);
-	if (channel)
+	}
+
+	if (channel) {
 		chan_cnt = AF_PEER_SEARCH_CNT;
-	else
+	} else {
 		chan_cnt = SOCIAL_CHAN_CNT;
+	}
 
 	if (cfg->afx_hdl->pending_tx_act_frm && cfg->afx_hdl->is_active) {
 		wl_action_frame_v1_t *action_frame;
@@ -1280,9 +1287,12 @@ wl_cfgp2p_act_frm_search(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			WL_CHANSPEC_BW_20, WL_CHANSPEC_BAND_2G);
 #endif /* WL_BW320MHZ */
 	}
+
+	mutex_lock(&cfg->scan_sync);
 	ret = wl_cfgp2p_escan(cfg, ndev, true, chan_cnt,
 		default_chan_list, WL_P2P_DISC_ST_SEARCH,
 		WL_SCAN_ACTION_START, bssidx, NULL, p2p_scan_purpose);
+	mutex_unlock(&cfg->scan_sync);
 	MFREE(cfg->osh, default_chan_list, chan_cnt * sizeof(*default_chan_list));
 exit:
 	return ret;
@@ -2996,6 +3006,8 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	u16 p2p_iftype;
 	int dhd_mode;
 	struct net_device *new_ndev = NULL;
+	long time_to_wait = MAX_WAIT_TIME;
+	unsigned long start_wait_time;
 	struct wiphy *wiphy = bcmcfg_to_wiphy(cfg);
 	struct ether_addr *p2p_addr;
 
@@ -3065,11 +3077,30 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	}
 
 	/* Wait for WLC_E_IF event with IF_ADD opcode */
-	timeout = wait_event_interruptible_timeout(cfg->netif_change_event,
-		((wl_get_p2p_status(cfg, IF_ADDING) == false) &&
-		(cfg->if_event_info.valid)),
-		msecs_to_jiffies(MAX_WAIT_TIME));
-	if (timeout > 0 && !wl_get_p2p_status(cfg, IF_ADDING) && cfg->if_event_info.valid) {
+	while (TRUE) {
+		start_wait_time = get_jiffies_64();
+		timeout = wait_event_interruptible_timeout(cfg->netif_change_event,
+			((wl_get_p2p_status(cfg, IF_ADDING) == false) &&
+			(cfg->if_event_info.valid)),
+			msecs_to_jiffies(time_to_wait));
+		if (timeout == -ERESTARTSYS) {
+			WL_ERR(("waitqueue was interrupted by a signal\n"));
+			time_to_wait -= jiffies_to_msecs(get_jiffies_64() - start_wait_time);
+			if (time_to_wait <= 0) {
+				WL_ERR(("Timed out. time_to_wait:%ld, timeout:%ld\n",
+					time_to_wait, timeout));
+				goto fail;
+			}
+		} else if (timeout <= 0) {
+			WL_ERR(("ADD_IF event, didn't come. timeout:%ld\n", time_to_wait));
+			goto fail;
+		} else {
+			/* wait event interrupt, break and process */
+			break;
+		}
+	}
+
+	if (!wl_get_p2p_status(cfg, IF_ADDING) && cfg->if_event_info.valid) {
 		wl_if_event_info *event = &cfg->if_event_info;
 		new_ndev = wl_cfg80211_post_ifcreate(bcmcfg_to_prmry_ndev(cfg), event,
 			event->mac, cfg->p2p->vir_ifname, false);
@@ -3102,9 +3133,13 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) */
 
 			return new_ndev->ieee80211_ptr;
+	} else {
+		WL_ERR(("iface_creation wrong state. p2p_status:%d event_valid:%d\n",
+			wl_get_p2p_status(cfg, IF_ADDING), cfg->if_event_info.valid));
 	}
 
 fail:
+	WL_ERR(("virtual iface creation failed\n"));
 	return NULL;
 }
 

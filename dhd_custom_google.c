@@ -871,15 +871,14 @@ uint32 dhd_cpufreq_boost = false;
 module_param(dhd_cpufreq_boost, uint, 0660);
 
 #define DHD_CPUFREQ_LITTLE      0u
-#define DHD_CPUFREQ_BIG         4u
-#define DHD_LITTLE_CORE_PERF_FREQ   1849000u
-#define DHD_MID_CORE_PERF_FREQ      2450000u
-#define DHD_BIG_CORE_PERF_FREQ      3015000u
 
 enum core_idx {
 	LITTLE = 0,
-	MID = 1,
-	BIG = 2,
+	MID,
+#ifdef DHD_CPUFREQ_MID2
+	MID2,
+#endif
+	BIG,
 	CORE_IDX_MAX
 };
 
@@ -891,12 +890,15 @@ typedef struct _dhd_host_cpufreq {
 
 static dhd_host_cpufreq dhd_host_cpufreq_tbl [] =
 {
-	/* Little Core, 0-3 */
+	/* Little Core, */
 	{DHD_CPUFREQ_LITTLE, 0, DHD_LITTLE_CORE_PERF_FREQ},
-	/* Big Core, 4-7 */
-	{DHD_CPUFREQ_BIG, 0, DHD_MID_CORE_PERF_FREQ},
-	/* Bigger Core, 8-11 */
-	{DHD_CPUFREQ_BIGGER, 0, DHD_BIG_CORE_PERF_FREQ}
+	/* Mid Core, */
+	{DHD_CPUFREQ_MID, 0, DHD_MID_CORE_PERF_FREQ},
+#ifdef DHD_CPUFREQ_MID2
+	{DHD_CPUFREQ_MID2, 0, DHD_MID_CORE_PERF_FREQ},
+#endif
+	/* Big Core  */
+	{DHD_CPUFREQ_BIG, 0, DHD_BIG_CORE_PERF_FREQ}
 };
 
 /*
@@ -1102,6 +1104,12 @@ static void dhd_plat_reset_trx_pktcount(void)
 	tx_pkt_delta = 0;
 	rx_pkt_delta = 0;
 }
+
+static bool is_mid_traffic(void)
+{
+	return  (((tx_pkt_delta < PKT_COUNT_HIGH) && (tx_pkt_delta > PKT_COUNT_MID)) ||
+	     ((rx_pkt_delta < PKT_COUNT_HIGH) && (rx_pkt_delta > PKT_COUNT_MID)));
+}
 #endif /* DHD_HOST_CPUFREQ_BOOST */
 
 void dhd_plat_tx_pktcount(void *plat_info, uint cnt)
@@ -1177,12 +1185,6 @@ static bool is_high_traffic(void)
 	return ((tx_pkt_delta > PKT_COUNT_HIGH)||(rx_pkt_delta > PKT_COUNT_HIGH));
 }
 
-static bool is_mid_traffic(void)
-{
-	return  (((tx_pkt_delta < PKT_COUNT_HIGH) && (tx_pkt_delta > PKT_COUNT_MID)) ||
-	     ((rx_pkt_delta < PKT_COUNT_HIGH) && (rx_pkt_delta > PKT_COUNT_MID)));
-}
-
 static bool is_low_traffic(void)
 {
 	return ((tx_pkt_delta < PKT_COUNT_LOW)&&(rx_pkt_delta < PKT_COUNT_LOW));
@@ -1204,6 +1206,11 @@ static void dhd_plat_reset_trx_pktcount(void)
 {
 	return;
 }
+
+static bool is_mid_traffic(void)
+{
+	return false;
+}
 #endif /* DHD_HOST_CPUFREQ_BOOST */
 
 void dhd_plat_tx_pktcount(void *plat_info, uint cnt)
@@ -1219,11 +1226,6 @@ void dhd_plat_rx_pktcount(void *plat_info, uint cnt)
 static bool is_high_traffic(void)
 {
 	return (resched_streak_max >= RESCHED_STREAK_MAX_HIGH);
-}
-
-static bool is_mid_traffic(void)
-{
-	return false;
 }
 
 static bool is_low_traffic(void)
@@ -1275,7 +1277,11 @@ irq_affinity_hysteresis_control(struct pci_dev *pdev,
 	if (is_mid_traffic()) {
 		if (!is_irq_on_big_core && !dhd_is_cpufreq_boosted()) {
 			if (dhd_cpufreq_boost) {
+#ifdef DHD_CPUFREQ_MID2
+				dhd_set_cpufreq(MID2);
+#else
 				dhd_set_cpufreq(MID);
+#endif
 			}
 		} else if (is_irq_on_big_core && !has_less_recent_affinity_update) {
 			err = set_affinity(pdev->irq, cpumask_of(IRQ_AFFINITY_SMALL_CORE));
@@ -1287,7 +1293,11 @@ irq_affinity_hysteresis_control(struct pci_dev *pdev,
 					dhd_restore_cpufreq();
 				}
 				if (dhd_cpufreq_boost) {
+#ifdef DHD_CPUFREQ_MID2
+					dhd_set_cpufreq(MID2);
+#else
 					dhd_set_cpufreq(MID);
+#endif
 				}
 			}
 		}
@@ -1295,7 +1305,10 @@ irq_affinity_hysteresis_control(struct pci_dev *pdev,
 #endif /* DHD_HOST_CPUFREQ_BOOST */
 
 	if (is_plat_pcie_resume ||
-		(is_low_traffic() && dhd_is_cpufreq_boosted() &&
+		(is_low_traffic() &&
+#ifdef DHD_HOST_CPUFREQ_BOOST
+		dhd_is_cpufreq_boosted() &&
+#endif /* DHD_HOST_CPUFREQ_BOOST */
 		!has_less_recent_affinity_update)) {
 		err = 0;
 		if (is_plat_pcie_resume || is_irq_on_big_core) {
@@ -1512,7 +1525,9 @@ int dhd_plat_pcie_resume(void *plat_info)
 	int ret = 0;
 	ret = _pcie_pm_resume(pcie_ch_num);
 	is_plat_pcie_resume = TRUE;
+#if defined(DHD_HOST_CPUFREQ_BOOST)
 	dhd_plat_reset_trx_pktcount();
+#endif /* DHD_HOST_CPUFREQ_BOOST */
 	return ret;
 }
 
