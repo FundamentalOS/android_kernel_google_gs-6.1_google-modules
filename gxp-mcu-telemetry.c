@@ -8,7 +8,6 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 
-#include <gcip/gcip-config.h>
 #include <gcip/gcip-telemetry.h>
 
 #include "gxp-internal.h"
@@ -94,10 +93,10 @@ free_log_mem:
 
 void gxp_mcu_telemetry_exit(struct gxp_mcu *mcu)
 {
-	gxp_mcu_mem_free_data(mcu, &mcu->telemetry.trace_mem);
 	gcip_telemetry_exit(&mcu->telemetry.trace);
-	gxp_mcu_mem_free_data(mcu, &mcu->telemetry.log_mem);
+	gxp_mcu_mem_free_data(mcu, &mcu->telemetry.trace_mem);
 	gcip_telemetry_exit(&mcu->telemetry.log);
+	gxp_mcu_mem_free_data(mcu, &mcu->telemetry.log_mem);
 }
 
 void gxp_mcu_telemetry_irq_handler(struct gxp_mcu *mcu)
@@ -159,23 +158,12 @@ struct telemetry_vma_data {
 
 static void telemetry_vma_open(struct vm_area_struct *vma)
 {
-	struct telemetry_vma_data *vma_data =
-		(struct telemetry_vma_data *)vma->vm_private_data;
-	struct gcip_telemetry *tel = vma_data->tel;
-
-	WARN_ON_ONCE(!refcount_inc_not_zero(&vma_data->ref_count));
-	gcip_telemetry_inc_mmap_count(tel, 1);
+	gxp_mcu_telemetry_vma_get(vma);
 }
 
 static void telemetry_vma_close(struct vm_area_struct *vma)
 {
-	struct telemetry_vma_data *vma_data =
-		(struct telemetry_vma_data *)vma->vm_private_data;
-	struct gcip_telemetry *tel = vma_data->tel;
-
-	gcip_telemetry_inc_mmap_count(tel, -1);
-	if (refcount_dec_and_test(&vma_data->ref_count))
-		kfree(vma_data);
+	gxp_mcu_telemetry_vma_put(vma);
 }
 
 static const struct vm_operations_struct telemetry_vma_ops = {
@@ -206,11 +194,7 @@ static int telemetry_mmap_buffer(void *args)
 	refcount_set(&vma_data->ref_count, 1);
 
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
-#if GCIP_HAS_VMA_FLAGS_API
 	vm_flags_set(vma, VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP);
-#else
-	vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP;
-#endif
 	vma->vm_pgoff = 0;
 
 	if (mem->size > vma->vm_end - vma->vm_start) {
@@ -246,4 +230,23 @@ int gxp_mcu_telemetry_mmap_buffer(struct gxp_mcu *mcu,
 	return gcip_telemetry_mmap_buffer(select_telemetry(&mcu->telemetry,
 							   type),
 					  telemetry_mmap_buffer, &args);
+}
+
+void gxp_mcu_telemetry_vma_get(struct vm_area_struct *vma)
+{
+	struct telemetry_vma_data *vma_data = (struct telemetry_vma_data *)vma->vm_private_data;
+	struct gcip_telemetry *tel = vma_data->tel;
+
+	WARN_ON_ONCE(!refcount_inc_not_zero(&vma_data->ref_count));
+	gcip_telemetry_inc_mmap_count(tel, 1);
+}
+
+void gxp_mcu_telemetry_vma_put(struct vm_area_struct *vma)
+{
+	struct telemetry_vma_data *vma_data = (struct telemetry_vma_data *)vma->vm_private_data;
+	struct gcip_telemetry *tel = vma_data->tel;
+
+	gcip_telemetry_inc_mmap_count(tel, -1);
+	if (refcount_dec_and_test(&vma_data->ref_count))
+		kfree(vma_data);
 }

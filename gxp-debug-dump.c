@@ -54,6 +54,7 @@
  */
 #define CORE_FIRMWARE_RW_STRIDE 0x200000 /* 2 MB */
 #define CORE_FIRMWARE_RW_ADDR(x) (0xFA400000 + CORE_FIRMWARE_RW_STRIDE * x)
+#define VD_PRIVATE_VIRT_ADDR 0xFAC00000
 
 #define DEBUGFS_COREDUMP "coredump"
 
@@ -514,32 +515,28 @@ out:
 }
 
 /**
- * gxp_map_fw_rw_section() - Maps the fw rw section address and size to be
- *                           sent to sscd module for taking the dump.
+ * gxp_map_ns_image_config_section() - Maps the ns image config section address and size to be
+ *                                     sent to sscd module for taking the dump.
  * @gxp: The GXP device.
  * @vd: vd of the crashed client.
+ * @daddr: device address of the ns image config region.
  * @core_id: physical core_id of crashed core.
  * @virt_core_id: virtual core_id of crashed core.
  * @seg_idx: Pointer to a index that is keeping track of
  *           gxp->debug_dump_mgr->segs[] array.
- *
- * This function parses the ns_regions of the given vd to find
- * fw_rw_section details.
  *
  * Return:
  * * 0 - Successfully mapped fw_rw_section data.
  * * -EOPNOTSUPP - Operation not supported for invalid image config.
  * * -ENXIO - No IOVA found for the fw_rw_section.
  */
-static int gxp_map_fw_rw_section(struct gxp_dev *gxp,
-				 struct gxp_virtual_device *vd,
-				 uint32_t core_id, uint32_t virt_core_id,
-				 int *seg_idx)
+static int gxp_map_ns_image_config_section(struct gxp_dev *gxp, struct gxp_virtual_device *vd,
+					   dma_addr_t daddr, uint32_t core_id,
+					   uint32_t virt_core_id, int *seg_idx)
 {
 	size_t idx;
 	struct sg_table *sgt;
 	struct gxp_debug_dump_manager *mgr = gxp->debug_dump_mgr;
-	dma_addr_t fw_rw_section_daddr = CORE_FIRMWARE_RW_ADDR(virt_core_id);
 	const size_t n_reg = ARRAY_SIZE(vd->ns_regions);
 
 	for (idx = 0; idx < n_reg; idx++) {
@@ -547,7 +544,7 @@ static int gxp_map_fw_rw_section(struct gxp_dev *gxp,
 		if (!sgt)
 			break;
 
-		if (fw_rw_section_daddr != vd->ns_regions[idx].daddr)
+		if (daddr != vd->ns_regions[idx].daddr)
 			continue;
 
 		return gxp_add_seg(
@@ -556,8 +553,8 @@ static int gxp_map_fw_rw_section(struct gxp_dev *gxp,
 				gxp->fw_loader_mgr->core_img_cfg.ns_iommu_mappings[idx]));
 	}
 	dev_err(gxp->dev,
-		"fw_rw_section mapping for core %u at iova %pad does not exist",
-		core_id, &fw_rw_section_daddr);
+		"ns_image_config_section mapping for core %u at iova %pad does not exist",
+		core_id, &daddr);
 	return -ENXIO;
 }
 
@@ -587,13 +584,14 @@ void gxp_debug_dump_invalidate_segments(struct gxp_dev *gxp, uint32_t core_id)
 	for (i = 0; i < GXP_NUM_COMMON_SEGMENTS; i++)
 		common_dump->seg_header[i].valid = 0;
 
-	for (i = 0; i < GXP_NUM_CORE_SEGMENTS; i++)
+	for (i = 0; i < GXP_MAX_NUM_CORE_SEGMENTS; i++)
 		core_dump_header->seg_header[i].valid = 0;
 
 	for (i = 0; i < GXP_NUM_BUFFER_MAPPINGS; i++)
 		core_dump_header->core_header.user_bufs[i].size = 0;
 
 	core_dump_header->core_header.dump_available = 0;
+	core_dump_header->core_header.num_dumped_segments = 0;
 }
 
 void gxp_debug_dump_send_forced_debug_dump_request(struct gxp_dev *gxp,
@@ -647,6 +645,10 @@ static int gxp_handle_debug_dump(struct gxp_dev *gxp,
 	char sscd_msg[SSCD_MSG_LENGTH];
 	void *user_buf_vaddrs[GXP_NUM_BUFFER_MAPPINGS];
 	int user_buf_cnt;
+	/* Count of segments dumped by core. */
+	uint32_t gxp_core_dumped_segments;
+	/* Count of segments dumped from DRAM. */
+	uint32_t gxp_dram_dumped_segments;
 
 	/* Core */
 	if (!core_header->dump_available) {
@@ -665,7 +667,6 @@ static int gxp_handle_debug_dump(struct gxp_dev *gxp,
 		data_addr += common_dump->seg_header[i].size;
 	}
 
-	/* Core Header */
 	ret = gxp_add_seg(mgr, core_id, &seg_idx, core_header, sizeof(struct gxp_core_header));
 	if (ret)
 		goto out_add_seg;
@@ -674,7 +675,17 @@ static int gxp_handle_debug_dump(struct gxp_dev *gxp,
 		&core_dump->dump_data[core_id * core_header->core_dump_size /
 				      sizeof(u32)];
 
-	for (i = 0; i < GXP_NUM_CORE_SEGMENTS - 1; i++) {
+	gxp_core_dumped_segments = core_header->num_dumped_segments;
+	/* For backward compatibility when `num_dumped_segments` is not populated by the core. */
+	if (gxp_core_dumped_segments == 0)
+		gxp_core_dumped_segments = GXP_CORE_SEGMENT_COMPAT_COUNT;
+	if (gxp_core_dumped_segments > GXP_NUM_DRAM_DUMPED_SEGMENT_SHIFT) {
+		dev_err(gxp->dev, "Excess segments dumped from the core(%u>%u).\n",
+			gxp_core_dumped_segments, GXP_NUM_DRAM_DUMPED_SEGMENT_SHIFT);
+		goto out;
+	}
+
+	for (i = 0; i < gxp_core_dumped_segments; i++) {
 		u64 size = core_dump_header->seg_header[i].valid ?
 				   core_dump_header->seg_header[i].size :
 				   0;
@@ -703,9 +714,35 @@ static int gxp_handle_debug_dump(struct gxp_dev *gxp,
 		goto out_add_seg;
 
 	/* fw rw section */
-	ret = gxp_map_fw_rw_section(gxp, vd, core_id, virt_core, &seg_idx);
+	ret = gxp_map_ns_image_config_section(gxp, vd, CORE_FIRMWARE_RW_ADDR(virt_core), core_id,
+					      virt_core, &seg_idx);
 	if (ret)
 		goto out_add_seg;
+
+	/* fw vd section */
+	ret = gxp_map_ns_image_config_section(gxp, vd, VD_PRIVATE_VIRT_ADDR, core_id, virt_core,
+					      &seg_idx);
+	if (ret)
+		goto out_add_seg;
+
+	/* core config region */
+	ret = gxp_add_seg(mgr, core_id, &seg_idx, vd->core_cfg.vaddr, vd->core_cfg.size);
+	if (ret)
+		goto out_add_seg;
+
+	/* vd config region */
+	ret = gxp_add_seg(mgr, core_id, &seg_idx, vd->vd_cfg.vaddr, vd->vd_cfg.size);
+	if (ret)
+		goto out_add_seg;
+
+	/*
+	 * Segments dumped from the dram after the core segments are added.
+	 * Calculated by removing the core segments, common segments and core header from the
+	 * seg_idx.
+	 */
+	gxp_dram_dumped_segments = seg_idx - gxp_core_dumped_segments - GXP_NUM_COMMON_SEGMENTS - 1;
+	core_header->num_dumped_segments |= gxp_dram_dumped_segments
+					    << (GXP_NUM_DRAM_DUMPED_SEGMENT_SHIFT);
 
 	/* User Buffers */
 	user_buf_cnt = gxp_user_buffers_vmap(gxp, vd, core_header, user_buf_vaddrs);
