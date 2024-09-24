@@ -386,6 +386,21 @@ struct nvt_ts_data {
 #endif // SPI_FLASH
 	uint8_t mp_tvcl_mode;
 	uint8_t mp_ibias_mode;
+	union {
+	struct {
+		u32 selftest_failed_short : 1;
+		u32 selftest_failed_open : 1;
+		u32 selftest_failed_fw_raw : 1;
+		u32 selftest_failed_fw_cc : 1;
+		u32 selftest_failed_noise : 1;
+		u32 selftest_failed_pen_raw : 1;
+		u32 selftest_failed_pen_noise : 1;
+		u32 selftest_failed_pen_detect : 1;
+	};
+	u32 selftest_failed_result;
+	};
+	unsigned long selftest_defect_x_line;
+	unsigned long selftest_defect_y_line;
 };
 
 #if NVT_TOUCH_PROC
@@ -528,5 +543,5 @@ void nvt_set_heatmap_host_cmd(struct nvt_ts_data *ts, bool force_update);
 extern struct workqueue_struct *nvt_fwu_wq;
 extern int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode);
 extern int32_t nvt_selftest(void);
-extern int32_t sysfs_show_selftest(char *buf);
+extern int32_t nvt_print_selftest_result(char *buf, int size);
 #endif /* _LINUX_NVT_TOUCH_H */
