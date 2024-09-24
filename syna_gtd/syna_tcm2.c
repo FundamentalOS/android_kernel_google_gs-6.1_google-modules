@@ -89,7 +89,6 @@ static unsigned char custom_touch_format[] = {
 #define RESET_ON_RESUME_DELAY_MS (100)
 #endif
 
-#define FW_UPDATE_DELAY_MS(erase, write) ((erase << 16) | write)
 
 /*
  * @section: POWER_ALIVE_AT_SUSPEND
@@ -2552,7 +2551,7 @@ static void syna_dev_reflash_startup_work(struct work_struct *work)
 	retval = syna_tcm_do_fw_update(tcm_dev,
 			fw_image,
 			fw_image_size,
-			FW_UPDATE_DELAY_MS(200, 20),
+			RESP_IN_ATTN,
 			tcm->force_reflash);
 #endif
 	/* Restore DMA mode */
