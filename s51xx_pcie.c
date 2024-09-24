@@ -164,9 +164,9 @@ void first_save_s51xx_status(struct pci_dev *pdev)
 	}
 
 	pci_save_state(pdev);
-	s51xx_pcie->pci_saved_configs = pci_store_saved_state(pdev);
-	if (s51xx_pcie->pci_saved_configs == NULL)
-		mif_err("MSI-DBG: s51xx pcie.pci_saved_configs is NULL(s51xx config NOT saved)\n");
+	s51xx_pcie->first_pci_saved_configs = pci_store_saved_state(pdev);
+	if (s51xx_pcie->first_pci_saved_configs == NULL)
+		mif_err("MSI-DBG: s51xx pcie.first_pci_saved_configs is NULL(s51xx config NOT saved)\n");
 	else
 		mif_info("first s51xx config status save: done\n");
 }
@@ -226,10 +226,17 @@ void s51xx_pcie_restore_state(struct pci_dev *pdev, bool boot_on,
 	if (pci_set_power_state(pdev, PCI_D0))
 		mif_err("Can't set D0 state!!!!\n");
 
-	if (!s51xx_pcie->pci_saved_configs)
+	if (!s51xx_pcie->pci_saved_configs &&
+			!s51xx_pcie->first_pci_saved_configs)
 		dev_err(&pdev->dev, "[%s] s51xx pcie saved configs is NULL\n", __func__);
 
-	pci_load_saved_state(pdev, s51xx_pcie->pci_saved_configs);
+	if (boot_on || !s51xx_pcie->pci_saved_configs) {
+		/* On reset, restore from the first saved config */
+		pci_load_saved_state(pdev, s51xx_pcie->first_pci_saved_configs);
+	} else {
+		/* Restore from running config */
+		pci_load_saved_state(pdev, s51xx_pcie->pci_saved_configs);
+	}
 	pci_restore_state(pdev);
 
 	/* move chk_ep_conf function after setting BME(Bus Master Enable)
@@ -355,6 +362,9 @@ static void s51xx_pcie_event_cb(pcie_notify_t *noti)
 			pcie_dump_all_status(mc->pcie_ch_num);
 			s5100_force_crash_exit_ext(CRASH_REASON_PCIE_CPL_TIMEOUT_ERROR);
 		}
+	} else if (event & EXYNOS_PCIE_EVENT_LINKDOWN_RECOVERY_FAIL) {
+		mif_err("Link Down recovery fail force crash !!!\n");
+		s5100_force_crash_exit_ext(CRASH_REASON_PCIE_LINKDOWN_RECOVERY_FAILURE);
 	}
 }
 
@@ -454,9 +464,9 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
 	if (s51xx_pcie->doorbell_addr == NULL)
 		mif_err("Can't ioremap doorbell address!!!\n");
 
-	mif_info("Register PCIE notification LINKDOWN and CPL_TIMEOUT events...\n");
+	mif_info("Register PCIE notification LINKDOWN, CPL_TIMEOUT and LINKDOWN_RECOVERY_FAIL events...\n");
 	s51xx_pcie->pcie_event.events =
-		EXYNOS_PCIE_EVENT_LINKDOWN | EXYNOS_PCIE_EVENT_CPL_TIMEOUT;
+		EXYNOS_PCIE_EVENT_LINKDOWN | EXYNOS_PCIE_EVENT_CPL_TIMEOUT | EXYNOS_PCIE_EVENT_LINKDOWN_RECOVERY_FAIL;
 	s51xx_pcie->pcie_event.user = pdev;
 	s51xx_pcie->pcie_event.mode = EXYNOS_PCIE_TRIGGER_CALLBACK;
 	s51xx_pcie->pcie_event.callback = s51xx_pcie_event_cb;
