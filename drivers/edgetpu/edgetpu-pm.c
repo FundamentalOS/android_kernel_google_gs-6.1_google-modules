@@ -38,6 +38,13 @@
 #define POLL_BLOCK_OFF_DELAY_US_MAX 200
 #define POLL_BLOCK_OFF_MAX_DELAY_COUNT 20
 
+enum edgetpu_pwr_state edgetpu_active_states[EDGETPU_NUM_STATES] = {
+	TPU_ACTIVE_MIN, TPU_ACTIVE_ULTRA_LOW, TPU_ACTIVE_VERY_LOW, TPU_ACTIVE_SUB_LOW,
+	TPU_ACTIVE_LOW, TPU_ACTIVE_MEDIUM,    TPU_ACTIVE_NOM,
+};
+
+uint32_t *edgetpu_states_display = edgetpu_active_states;
+
 static bool edgetpu_always_on(void)
 {
 	return IS_ENABLED(CONFIG_EDGETPU_TEST) || EDGETPU_FEATURE_ALWAYS_ON;
@@ -74,14 +81,12 @@ static int mobile_pwr_update_freq_limits_locked(struct edgetpu_dev *etdev)
 		etdev->pm->max_freq = 0;
 		return -EINVAL;
 	default:
-		dev_err(etdev->dev, "Fw rejected frequency limits command with KCI err %d", ret);
 		return -EIO;
 	}
 }
 
-int edgetpu_pm_set_freq_limits(struct edgetpu_dev *etdev, u32 *min_freq, u32 *max_freq)
+static int mobile_pwr_set_freq_limit(struct edgetpu_dev *etdev, u32 val, u32 *limit_to_set)
 {
-	bool limits_updated = false;
 	int ret = 0;
 
 	/*
@@ -94,19 +99,14 @@ int edgetpu_pm_set_freq_limits(struct edgetpu_dev *etdev, u32 *min_freq, u32 *ma
 	edgetpu_pm_lock(etdev);
 	mutex_lock(&etdev->pm->freq_limits_lock);
 
-	if (min_freq && *min_freq != etdev->pm->min_freq) {
-		etdev->pm->min_freq = *min_freq;
-		limits_updated = true;
-	}
+	if (val == *limit_to_set)
+		goto unlock;
 
-	if (max_freq && *max_freq != etdev->pm->max_freq) {
-		etdev->pm->max_freq = *max_freq;
-		limits_updated = true;
-	}
-
-	if (limits_updated && (edgetpu_always_on() || !edgetpu_soc_pm_is_block_off(etdev)))
+	*limit_to_set = val;
+	if (edgetpu_always_on() || !edgetpu_poll_block_off(etdev))
 		ret = mobile_pwr_update_freq_limits_locked(etdev);
 
+unlock:
 	mutex_unlock(&etdev->pm->freq_limits_lock);
 	edgetpu_pm_unlock(etdev);
 	return ret;
@@ -119,8 +119,7 @@ static int mobile_pwr_state_set_locked(struct edgetpu_dev *etdev, u64 val)
 
 	dev_dbg(dev, "Power state to %llu\n", val);
 
-	if (val > EDGETPU_OFF_STATE &&
-	    (edgetpu_always_on() || !edgetpu_soc_pm_is_block_off(etdev))) {
+	if (val > TPU_OFF && (edgetpu_always_on() || !edgetpu_poll_block_off(etdev))) {
 		ret = pm_runtime_get_sync(dev);
 		if (ret) {
 			pm_runtime_put_noidle(dev);
@@ -131,8 +130,7 @@ static int mobile_pwr_state_set_locked(struct edgetpu_dev *etdev, u64 val)
 
 	/* TODO(b/308903519): Implement set rate code. */
 
-	if (val == EDGETPU_OFF_STATE &&
-	    (edgetpu_always_on() || !edgetpu_soc_pm_is_block_off(etdev))) {
+	if (val == TPU_OFF && (edgetpu_always_on() || !edgetpu_poll_block_off(etdev))) {
 		ret = pm_runtime_put_sync(dev);
 		if (ret) {
 			dev_err(dev, "%s: pm_runtime_put_sync returned %d\n", __func__, ret);
@@ -218,7 +216,6 @@ DEFINE_DEBUGFS_ATTRIBUTE(fops_tpu_pwr_policy, mobile_pwr_policy_get, mobile_pwr_
 static int mobile_pwr_min_freq_set(void *data, u64 val)
 {
 	struct edgetpu_dev *etdev = (typeof(etdev))data;
-	u32 min_freq;
 
 	if (val > UINT_MAX) {
 		dev_err(etdev->dev, "Requested debugfs min freq %llu must be <= %u (UINT_MAX)\n",
@@ -226,9 +223,7 @@ static int mobile_pwr_min_freq_set(void *data, u64 val)
 		return -EINVAL;
 	}
 
-	min_freq = (u32)val;
-
-	return edgetpu_pm_set_freq_limits(etdev, &min_freq, NULL);
+	return mobile_pwr_set_freq_limit(etdev, (u32)val, &etdev->pm->min_freq);
 }
 
 static int mobile_pwr_min_freq_get(void *data, u64 *val)
@@ -247,7 +242,6 @@ DEFINE_DEBUGFS_ATTRIBUTE(fops_tpu_pwr_min_freq, mobile_pwr_min_freq_get, mobile_
 static int mobile_pwr_max_freq_set(void *data, u64 val)
 {
 	struct edgetpu_dev *etdev = (typeof(etdev))data;
-	u32 max_freq;
 
 	if (val > UINT_MAX) {
 		dev_err(etdev->dev, "Requested debugfs max freq %llu must be <= %u (UINT_MAX)\n",
@@ -255,9 +249,7 @@ static int mobile_pwr_max_freq_set(void *data, u64 val)
 		return -EINVAL;
 	}
 
-	max_freq = (u32)val;
-
-	return edgetpu_pm_set_freq_limits(etdev, NULL, &max_freq);
+	return mobile_pwr_set_freq_limit(etdev, (u32)val, &etdev->pm->max_freq);
 }
 
 static int mobile_pwr_max_freq_get(void *data, u64 *val)
@@ -293,11 +285,8 @@ static int mobile_power_up(void *data)
 				break;
 			usleep_range(BLOCK_DOWN_MIN_DELAY_US, BLOCK_DOWN_MAX_DELAY_US);
 		} while (++times < BLOCK_DOWN_RETRY_TIMES);
-		if (times >= BLOCK_DOWN_RETRY_TIMES && !edgetpu_poll_block_off(etdev)) {
-			etdev_err(etdev, "power up failed: device not in correct power state");
-			edgetpu_soc_pm_dump_block_state(etdev);
+		if (times >= BLOCK_DOWN_RETRY_TIMES && !edgetpu_poll_block_off(etdev))
 			return -EAGAIN;
-		}
 	}
 
 	etdev_info(etdev, "Powering up\n");
@@ -387,14 +376,8 @@ static void mobile_firmware_down(struct edgetpu_dev *etdev)
 	if (!edgetpu_always_on())
 		ret = edgetpu_kci_shutdown(etdev->etkci);
 
-	if (!ret)
-		return;
-
-	etdev_warn(etdev, "firmware shutdown failed (%d), resetting", ret);
-	edgetpu_firmware_watchdog_restart(etdev, true);
-	ret = edgetpu_kci_shutdown(etdev->etkci);
 	if (ret)
-		etdev_warn(etdev, "firmware shutdown retry failed (%d)", ret);
+		etdev_warn(etdev, "firmware shutdown failed: %d", ret);
 }
 
 static int mobile_power_down(void *data)
@@ -407,7 +390,7 @@ static int mobile_power_down(void *data)
 
 	edgetpu_sw_wdt_stop(etdev);
 
-	if (!edgetpu_always_on() && edgetpu_soc_pm_is_block_off(etdev)) {
+	if (!edgetpu_always_on() && edgetpu_poll_block_off(etdev)) {
 		etdev_dbg(etdev, "Device already off, skipping shutdown\n");
 		return 0;
 	}
@@ -533,7 +516,7 @@ int edgetpu_pm_create(struct edgetpu_dev *etdev)
 		return -ENOMEM;
 
 	mutex_init(&etdev->pm->policy_lock);
-	etdev->pm->curr_policy = etdev->max_active_state;
+	etdev->pm->curr_policy = TPU_POLICY_MAX;
 	etdev->pm->gpm = gcip_pm_create(&args);
 	if (IS_ERR(etdev->pm->gpm)) {
 		ret = PTR_ERR(etdev->pm->gpm);

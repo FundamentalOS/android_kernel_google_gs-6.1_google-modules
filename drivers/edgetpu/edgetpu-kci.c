@@ -21,7 +21,6 @@
 #include <gcip/gcip-telemetry.h>
 #include <gcip/gcip-usage-stats.h>
 
-#include "edgetpu-config.h"
 #include "edgetpu-debug.h"
 #include "edgetpu-firmware.h"
 #include "edgetpu-internal.h"
@@ -44,7 +43,7 @@
 
 #define KCI_TIMEOUT EDGETPU_KCI_TIMEOUT
 
-#elif IS_ENABLED(CONFIG_EDGETPU_TEST) && !IS_ENABLED(CONFIG_DEBUG_KMEMLEAK)
+#elif IS_ENABLED(CONFIG_EDGETPU_TEST)
 /* fake-firmware could respond in a short time */
 #define KCI_TIMEOUT	(200)
 #else
@@ -175,11 +174,9 @@ static void edgetpu_reverse_kci_handle_response(struct gcip_kci *kci,
 	case GCIP_RKCI_JOB_LOCKUP:
 		edgetpu_handle_job_lockup(etdev, resp->retval);
 		break;
-#if EDGETPU_HAS_FW_DEBUG
 	case GCIP_RKCI_DEBUG_ASYNC_RESP:
 		edgetpu_fw_debug_resp_ready(etdev, resp->retval);
 		break;
-#endif
 	default:
 		etdev_warn(etdev, "Unrecognized RKCI request: %#x\n", resp->code);
 	}
@@ -791,7 +788,6 @@ int edgetpu_kci_fault_injection(struct gcip_fault_inject *injection)
 					      sizeof(injection->opaque));
 }
 
-#if EDGETPU_HAS_FW_DEBUG
 int edgetpu_kci_fw_debug_cmd(struct edgetpu_dev *etdev, dma_addr_t daddr, size_t count)
 {
 	struct gcip_kci_command_element cmd = {
@@ -807,16 +803,3 @@ int edgetpu_kci_fw_debug_cmd(struct edgetpu_dev *etdev, dma_addr_t daddr, size_t
 		edgetpu_fw_debug_resp_ready(etdev, resp.retval);
 	return ret;
 }
-
-int edgetpu_kci_fw_debug_reset(struct edgetpu_dev *etdev)
-{
-	struct gcip_kci_command_element cmd = {
-		.code = GCIP_KCI_CODE_DEBUG_RESET,
-	};
-	struct gcip_kci_response_element resp;
-	int ret;
-
-	ret = gcip_kci_send_cmd_return_resp(etdev->etkci->kci, &cmd, &resp);
-	return ret;
-}
-#endif /* EDGETPU_HAS_FW_DEBUG */

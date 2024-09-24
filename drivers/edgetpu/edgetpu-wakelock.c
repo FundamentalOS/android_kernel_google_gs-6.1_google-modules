@@ -14,6 +14,7 @@
 #include <linux/time64.h>
 #include <linux/timekeeping.h>
 
+#include "edgetpu-config.h"
 #include "edgetpu-internal.h"
 #include "edgetpu-wakelock.h"
 

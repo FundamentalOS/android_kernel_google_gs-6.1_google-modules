@@ -328,17 +328,12 @@ void edgetpu_group_mappings_show(struct edgetpu_device_group *group,
  * If @out_fence is not NULL, then the fence will be signaled when the response for this command
  * arrives. If the command is canceled or times out, then @out_fence will be errored.
  *
- * @release_callback will be called, with @release_data as an argument, immediately before the sent
- * command's response is released, regardless of whether any in-fences prevent the command from
- * being sent. If this function returns an error, @release_callback will NOT be called.
- *
  * Returns zero on success or a negative errno on error.
  */
 int edgetpu_device_group_send_vii_command(struct edgetpu_device_group *group, void *cmd,
 					  struct gcip_fence_array *in_fence_array,
 					  struct gcip_fence_array *out_fence_array,
-					  struct edgetpu_ikv_additional_info *additional_info,
-					  void (*release_callback)(void *), void *release_data);
+					  struct edgetpu_ikv_additional_info *additional_info);
 
 /*
  * Pops the oldest received VII response sent to `group`, and copies it to `resp`
@@ -469,13 +464,5 @@ int edgetpu_device_group_track_fence_task(struct edgetpu_device_group *group,
  */
 void edgetpu_device_group_untrack_fence_task(struct edgetpu_device_group *group,
 					     struct task_struct *task);
-
-/*
- * Handle IOMMU fault: check client mappings for valid IOVA, log status.
- * Always returns a negative error code to tell caller to propceed with page fault error
- * processing for now.
- * TODO(b/264449079): Fault in page if appropriate, tell caller to retry TPU access.
- */
-int edgetpu_device_group_handle_fault(struct edgetpu_dev *etdev, u64 iova, uint pasid);
 
 #endif /* __EDGETPU_DEVICE_GROUP_H__ */
