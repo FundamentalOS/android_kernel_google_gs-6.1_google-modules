@@ -30,21 +30,13 @@
 #endif
 
 #define GXP_NUM_COMMON_SEGMENTS 2
-/*
- * Maximum number of segments to be dumped from core side.
- * TODO(b/362165250): [SW]Increase GXP_NUM_SEGMENTS to add dump segments from core side.
- * GXP_MAX_NUM_CORE_SEGMENTS gives the maximum possible segments that can be dumped.
- */
-#define GXP_MAX_NUM_CORE_SEGMENTS 8
-/* The count of core segments dumped by initial versions of firmware. */
-#define GXP_CORE_SEGMENT_COMPAT_COUNT 7
-#define GXP_NUM_DRAM_DUMPED_SEGMENT_SHIFT 16
-/* FW RO, FW RW, VD Private, Core Config, VD Config sections */
-#define GXP_NUM_CORE_DATA_SEGMENTS 5
+#define GXP_NUM_CORE_SEGMENTS 8
+/* 1 segment for RO and 1 for RW */
+#define GXP_NUM_CORE_DATA_SEGMENTS 2
 #define GXP_NUM_BUFFER_MAPPINGS 32
 #define GXP_SEG_HEADER_NAME_LENGTH 32
-#define GXP_NUM_SEGMENTS_PER_CORE                                                           \
-	(GXP_NUM_COMMON_SEGMENTS + GXP_MAX_NUM_CORE_SEGMENTS + GXP_NUM_CORE_DATA_SEGMENTS + \
+#define GXP_NUM_SEGMENTS_PER_CORE                                                       \
+	(GXP_NUM_COMMON_SEGMENTS + GXP_NUM_CORE_SEGMENTS + GXP_NUM_CORE_DATA_SEGMENTS + \
 	 GXP_NUM_BUFFER_MAPPINGS)
 
 /*
@@ -78,6 +70,17 @@
 
 /* Only one segment i.e. MCU log buffer needs to be dumped during the MCU crash. */
 #define GXP_NUM_MCU_TELEMETRY_SEGMENTS 1
+
+/*
+ * For debug dump, the kernel driver header file version must be the same as
+ * the firmware header file version. In other words,
+ * GXP_DEBUG_DUMP_HEADER_VERSION must be the same value as the value of
+ * kGxpDebugDumpHeaderVersion in firmware.
+ * Note: This needs to be updated when there are updates to gxp_core_dump and
+ * gxp_core_dump_header (or anything within the struct that may cause a mismatch
+ * with the firmware version of the debug dump header file).
+ */
+#define GXP_DEBUG_DUMP_HEADER_VERSION 0
 
 struct gxp_timer_registers {
 	u32 comparator;
@@ -164,11 +167,7 @@ struct gxp_core_header {
 	u32 core_id; /* Aurora core ID */
 	u32 dump_available; /* Dump data is available for core*/
 	u32 dump_req_reason; /* Code indicating reason for debug dump request */
-	/*
-	 * Least significant 16 bits hold the count of segments dumped by core and most significant
-	 * 16 bits hold the count of segments dumped by the KD.
-	 */
-	u32 num_dumped_segments;
+	u32 header_version; /* Header file version */
 	u32 fw_version; /* Firmware version */
 	u32 core_dump_size; /* Size of core dump */
 	struct gxp_user_buffer user_bufs[GXP_NUM_BUFFER_MAPPINGS];
@@ -182,7 +181,7 @@ struct gxp_seg_header {
 
 struct gxp_core_dump_header {
 	struct gxp_core_header core_header;
-	struct gxp_seg_header seg_header[GXP_MAX_NUM_CORE_SEGMENTS];
+	struct gxp_seg_header seg_header[GXP_NUM_CORE_SEGMENTS];
 };
 
 struct gxp_common_dump_data {

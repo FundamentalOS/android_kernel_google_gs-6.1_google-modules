@@ -290,15 +290,10 @@ static void gcip_mailbox_handle_response(struct gcip_mailbox *mailbox, void *res
  * Returns the pointer of fetched response elements.
  * @total_ptr will be the number of elements fetched.
  *
- * If @trylock is true, the function will return right away if the lock is held by others which
- * means that the response queue is being consumed by other threads. Otherwise, it will use the
- * normal lock to guarantee that all responses have been handled when the function returns.
- *
  * Returns -ENOMEM if failed on memory allocation.
  * Returns NULL if the response queue is empty or there is another worker fetching responses.
  */
-static void *gcip_mailbox_fetch_responses(struct gcip_mailbox *mailbox, u32 *total_ptr,
-					  bool trylock)
+static void *gcip_mailbox_fetch_responses(struct gcip_mailbox *mailbox, u32 *total_ptr)
 {
 	u32 head;
 	u32 tail;
@@ -314,7 +309,7 @@ static void *gcip_mailbox_fetch_responses(struct gcip_mailbox *mailbox, u32 *tot
 	bool atomic = false;
 
 	/* The block is off or someone is working on consuming - we can leave early. */
-	if (IS_BLOCK_OFF() || !ACQUIRE_RESP_QUEUE_LOCK(trylock, &atomic))
+	if (IS_BLOCK_OFF() || !ACQUIRE_RESP_QUEUE_LOCK(true, &atomic))
 		goto out;
 
 	head = GET_RESP_QUEUE_HEAD();
@@ -560,14 +555,14 @@ void gcip_mailbox_release(struct gcip_mailbox *mailbox)
 	gcip_mailbox_set_data(mailbox, NULL);
 }
 
-static void gcip_mailbox_do_consume_responses(struct gcip_mailbox *mailbox, bool trylock)
+void gcip_mailbox_consume_responses_work(struct gcip_mailbox *mailbox)
 {
 	void *responses;
 	u32 i;
 	u32 count = 0;
 
 	/* Fetches responses and bumps resp_queue head. */
-	responses = gcip_mailbox_fetch_responses(mailbox, &count, trylock);
+	responses = gcip_mailbox_fetch_responses(mailbox, &count);
 	if (count == 0)
 		return;
 	if (IS_ERR(responses)) {
@@ -581,16 +576,6 @@ static void gcip_mailbox_do_consume_responses(struct gcip_mailbox *mailbox, bool
 	/* Responses handled, wake up threads that are waiting for a response. */
 	wake_up(&mailbox->wait_list_waitq);
 	kfree(responses);
-}
-
-void gcip_mailbox_consume_responses_work(struct gcip_mailbox *mailbox)
-{
-	gcip_mailbox_do_consume_responses(mailbox, true);
-}
-
-void gcip_mailbox_consume_responses(struct gcip_mailbox *mailbox)
-{
-	gcip_mailbox_do_consume_responses(mailbox, false);
 }
 
 int gcip_mailbox_send_cmd(struct gcip_mailbox *mailbox, void *cmd, void *resp,
