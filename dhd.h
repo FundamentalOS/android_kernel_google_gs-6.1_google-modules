@@ -2856,9 +2856,6 @@ extern void dhd_set_cpucore(dhd_pub_t *dhd, int set);
 #define MAX_CONSECUTIVE_MFG_HANG_COUNT 2
 #endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
 
-#if defined(KEEP_ALIVE)
-extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
-#endif /* KEEP_ALIVE */
 
 #if defined(DHD_FW_COREDUMP)
 #if defined(linux) || defined(LINUX)
@@ -3156,10 +3153,6 @@ int dhd_bus_get_fw_mode(dhd_pub_t *dhdp);
 #else
 static INLINE int dhd_bus_get_fw_mode(dhd_pub_t *dhdp) { return 0; }
 #endif /* __linux__ */
-
-#if defined(KEEP_ALIVE)
-extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
-#endif /* KEEP_ALIVE */
 
 /* linux is defined for DHD EFI builds also,
 * since its cross-compiled for EFI from linux.

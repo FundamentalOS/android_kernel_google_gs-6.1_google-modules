@@ -8995,6 +8995,9 @@ wl_cfgvif_bssid_match_found(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 	wl_mlo_link_t *link = NULL;
 	u8 curbssid[ETH_ALEN] = {0};
 	unsigned long flags;
+#ifdef WL_MLO
+	u8 *peer_mld_addr = NULL;
+#endif /* WL_MLO */
 
 	if (BCME_OK != wl_get_connected_bssid(cfg, wdev->netdev, curbssid)) {
 		WL_ERR(("bssid not found\n"));
@@ -9005,36 +9008,40 @@ wl_cfgvif_bssid_match_found(struct bcm_cfg80211 *cfg, struct wireless_dev *wdev,
 
 	/* Event handler would map it to the MLD wdev already. so fetch it again and modify */
 	netinfo = _wl_get_netinfo_by_wdev(cfg, wdev);
-	if (!netinfo) {
-		/* Couldn't find netinfo corresponding to mld dev */
-		WL_ERR(("mld interface not found\n"));
-		goto exit;
-	}
-
-	if (netinfo->mlinfo.num_links) {
+	if (netinfo && netinfo->mlinfo.num_links) {
 		/* ML case */
 		for (i = 0; i < MAX_MLO_LINK; i++) {
 			link = &netinfo->mlinfo.links[i];
 			if (link &&
 				!memcmp(link->peer_link_addr, mac_addr, ETHER_ADDR_LEN)) {
-				WL_DBG(("matching bssid found for ifidx:%d bsscfgidx:%d\n",
+				WL_DBG_MEM(("matching bssid found for ifidx:%d bsscfgidx:%d\n",
 					link->if_idx, link->cfg_idx));
 				found = TRUE;
 				break;
 			}
 		}
 	}
+	WL_CFG_NET_LIST_SYNC_UNLOCK(&cfg->net_list_sync, flags);
+
+#ifdef WL_MLO
+	if (found == FALSE) {
+		/* check peer mld address */
+		peer_mld_addr = wl_read_prof(cfg, wdev_to_ndev(wdev), WL_PROF_PEER_MLD_ADDR);
+		if (!memcmp(peer_mld_addr, mac_addr, ETHER_ADDR_LEN)) {
+			found = TRUE;
+			WL_DBG_MEM(("matching peer mld address found\n"));
+		}
+	}
+#endif /* WL_MLO */
 
 	if (found == FALSE) {
 		/* legacy bssid */
 		if (!memcmp(curbssid, mac_addr, ETHER_ADDR_LEN)) {
 			found = TRUE;
-			WL_DBG(("matching bssid found\n"));
+			WL_DBG_MEM(("matching bssid found\n"));
 		}
 	}
 
-exit:
-	WL_CFG_NET_LIST_SYNC_UNLOCK(&cfg->net_list_sync, flags);
 	return found;
 }
 
@@ -9256,3 +9263,64 @@ wl_cfgvif_is_scc_valid(chanspec_t sta_chanspec, chanspec_t chspec, wl_chan_info_
 	}
 	return FALSE;
 }
+
+#if defined(KEEP_ALIVE) && defined(OEM_ANDROID)
+s32
+wl_cfgvif_apply_default_keep_alive(struct net_device *ndev, struct bcm_cfg80211 *cfg)
+{
+	const char *str;
+	wl_mkeep_alive_pkt_v2_t mkeep_alive_pkt;
+	wl_mkeep_alive_pkt_v2_t *mkeep_alive_pktp = NULL;
+	u16 buf_len = 0;
+	u8 str_len = 0;
+	int res = BCME_ERROR;
+	u8 buf[WLC_IOCTL_SMLEN] = {0};
+	u16 pbuf_len = WLC_IOCTL_SMLEN;
+	u8 offset_len = OFFSETOF(wl_mkeep_alive_pkt_v2_t, data);
+
+	/*
+	 * The mkeep_alive packet is for STA interface only; if the bss is configured as AP,
+	 * dongle shall reject a mkeep_alive request.
+	 */
+	if (!IS_STA_IFACE(ndev_to_wdev(ndev))) {
+		return res;
+	}
+
+	/* Request the specified ID */
+	bzero(&mkeep_alive_pkt, sizeof(wl_mkeep_alive_pkt_v2_t));
+	str = "mkeep_alive";
+	str_len = strlen(str);
+	buf_len = str_len + 1;
+	strlcpy(buf, str, buf_len);
+	pbuf_len -= buf_len;
+
+	if (sizeof(wl_mkeep_alive_pkt_v2_t) + buf_len > WLC_IOCTL_SMLEN) {
+		WL_ERR(("buf size issue\n"));
+		res = -EINVAL;
+		goto exit;
+	}
+	mkeep_alive_pktp = (wl_mkeep_alive_pkt_v2_t *) (buf + buf_len);
+	mkeep_alive_pkt.period_msec = CUSTOM_KEEP_ALIVE_SETTING;
+	mkeep_alive_pkt.version = htod16(WL_MKEEP_ALIVE_VERSION_2);
+	mkeep_alive_pkt.length = htod16(offset_len);
+
+	/* use id 0 for null data packet */
+	mkeep_alive_pkt.keep_alive_id = 0;
+	mkeep_alive_pkt.len_bytes = 0;
+	mkeep_alive_pkt.retry_cnt = 0;
+
+	if (memcpy_s((char *)mkeep_alive_pktp, pbuf_len,
+			&mkeep_alive_pkt, WL_MKEEP_ALIVE_FIXED_LEN)) {
+		res = -EINVAL;
+		goto exit;
+	}
+
+	buf_len += OFFSETOF(wl_mkeep_alive_pkt_v2_t, data);
+
+	res = wldev_ioctl_set(ndev, WLC_SET_VAR, buf, buf_len);
+	WL_INFORM_MEM(("default keepliave config %s. err:%d\n",
+		res ? "failed" : "succeeded", res));
+exit:
+	return res;
+}
+#endif /* KEEP_ALIVE && OEM_ANDROID */
