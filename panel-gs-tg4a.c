@@ -431,7 +431,7 @@ static void tg4a_update_lhbm_hist_config(struct gs_panel *ctx, struct drm_atomic
 	}
 
 	mode = &pmode->mode;
-	gs_panel_update_lhbm_hist_data_helper(ctx, state, true, d, r);
+	gs_panel_update_lhbm_hist_data_helper(ctx, state, true, GS_HIST_ROI_CIRCLE, d, r);
 	ctl->hist_roi_configured = true;
 }
 
@@ -1042,7 +1042,7 @@ static const u16 VFP = 10, VSA = 6, VBP = 10;
 
 #define TG4A_DSC {\
 	.enabled = true,\
-	.dsc_count = 1,\
+	.dsc_count = 2,\
 	.cfg = &pps_config,\
 }
 

@@ -18,6 +18,9 @@
 #define MIPI_DSI_FREQ_MBPS_DEFAULT 1102
 #define MIPI_DSI_FREQ_MBPS_ALTERNATIVE 1000
 
+#define IRC_OFF_LHBM_EFFECTIVE_DELAY_FRAMES 3
+#define NORMAL_LHBM_EFFECTIVE_DELAY_FRAMES 2
+
 #define WIDTH_MM 64
 #define HEIGHT_MM 145
 
@@ -47,6 +50,7 @@ enum tg4c_lhbm_brt_overdrive_group {
 	LHBM_OVERDRIVE_GRP_6_NIT,
 	LHBM_OVERDRIVE_GRP_50_NIT,
 	LHBM_OVERDRIVE_GRP_300_NIT,
+	LHBM_OVERDRIVE_GRP_IRC_OFF,
 	LHBM_OVERDRIVE_GRP_MAX
 };
 
@@ -59,6 +63,7 @@ struct tg4c_lhbm_ctl {
 	bool overdrived;
 	/** @hist_roi_configured: whether LHBM histogram configuration is done */
 	bool hist_roi_configured;
+	enum gs_drm_connector_lhbm_hist_roi_type hist_roi_type;
 };
 
 
@@ -461,43 +466,131 @@ static u32 _convert_dbv_to_nits(struct device *dev, u32 dbv)
 	return 0;
 }
 
+static const int dbv_band[] = {
+	3629, 3735, 3810, 3890, 3939
+};
+
+static const int gray_band[] = {
+	0, 25, 75, 125, 170, 215
+};
+
+static const int dbv_gray_coef[ARRAY_SIZE(dbv_band)][ARRAY_SIZE(gray_band)] = {
+	{95, 97, 97, 99, 100, 101},
+	{95, 97, 99, 100, 101, 103},
+	{95, 97, 99, 100, 101, 103},
+	{95, 97, 99, 100, 101, 103},
+	{95, 97, 99, 100, 101, 103}
+};
+
+static int tg4c_get_local_hbm_brightness_coef(struct device *dev, u32 dbv, u32 gray) {
+	int i;
+	int dbv_grp = 0;
+	int gray_grp = 0;
+
+	for (i = 0; i < ARRAY_SIZE(dbv_band); i++) {
+		if (dbv < dbv_band[i]) break;
+		dbv_grp = i;
+	}
+
+	for(i = 0; i < ARRAY_SIZE(gray_band); i++) {
+		if (gray < gray_band[i]) break;
+		gray_grp = i;
+	}
+
+	dev_dbg(dev, "dbv_grp=%d, gray_grp=%d, coef=%d/100",
+			dbv_grp, gray_grp, dbv_gray_coef[dbv_grp][gray_grp]);
+	return dbv_gray_coef[dbv_grp][gray_grp];
+}
+
+static void _update_lhbm_brightness_irc_off(struct gs_panel *ctx, int coef) {
+	struct tg4c_panel *spanel = to_spanel(ctx);
+	struct device *dev = ctx->dev;
+
+	int ch = 0;
+	enum tg4c_lhbm_brt_group group;
+	for (group= 0; group < LHBM_BRT_GRP_MAX ; group++) {
+		u8 *p_norm = spanel->lhbm_ctl.brt_normal[group];
+		u8 *p_over = spanel->lhbm_ctl.brt_overdrive[LHBM_OVERDRIVE_GRP_IRC_OFF][group];
+		int val;
+		for (ch = 0; ch < LHBM_BRT_MAX; ch++) {
+			int p = ch * 2;
+
+			val = (p_norm[p] << 8) | p_norm[p + 1];
+			val = mult_frac(val, coef, 100);
+			p_over[p] = (val & 0xFF00) >> 8;
+			p_over[p + 1] = val & 0x00FF;
+		}
+	}
+
+	for (group = 0; group < LHBM_BRT_GRP_MAX; group++)
+		dev_dbg(dev, "normal lhbm brightness[%d]: %*ph\n",
+			group, LHBM_BRT_LEN, spanel->lhbm_ctl.brt_normal[group]);
+
+	for (group = 0; group < LHBM_BRT_GRP_MAX; group++)
+		dev_dbg(dev, "irc off lhbm brightness[%d]: %*ph\n",
+			group, LHBM_BRT_LEN, spanel->lhbm_ctl.brt_overdrive[LHBM_OVERDRIVE_GRP_IRC_OFF][group]);
+}
+
+static enum tg4c_lhbm_brt_overdrive_group tg4c_get_local_hbm_brightness_grp(struct gs_panel *ctx) {
+	enum tg4c_lhbm_brt_overdrive_group group = LHBM_OVERDRIVE_GRP_MAX;
+	struct device *dev = ctx->dev;
+	u32 gray = ctx->gs_connector->lhbm_gray_level;
+	u32 dbv = gs_panel_get_brightness(ctx);
+	u32 normal_dbv_max = ctx->desc->brightness_desc->brt_capability->normal.level.max;
+	u32 luma = 0;
+
+	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode)) {
+		int coef = tg4c_get_local_hbm_brightness_coef(dev, dbv, gray);
+
+		_update_lhbm_brightness_irc_off(ctx, coef);
+		group = LHBM_OVERDRIVE_GRP_IRC_OFF;
+	} else if (gray < 15) {
+		group = LHBM_OVERDRIVE_GRP_0_NIT;
+	} else {
+		if (dbv <= normal_dbv_max)
+			luma = _convert_dbv_to_nits(dev, dbv);
+		else
+			luma = panel_calc_linear_luminance(dbv, 645, -1256);
+
+		dev_dbg(dev, "lhbm overdrive | %d dbv = %d nits(255 gray)", dbv, luma);
+		luma = panel_calc_gamma_2_2_luminance(gray, 255, luma);
+
+		if (luma < 6)
+			group = LHBM_OVERDRIVE_GRP_6_NIT;
+		else if (luma < 50)
+			group = LHBM_OVERDRIVE_GRP_50_NIT;
+		else if (luma < 300)
+			group = LHBM_OVERDRIVE_GRP_300_NIT;
+		else
+			group = LHBM_OVERDRIVE_GRP_MAX;
+	}
+
+	if (group == LHBM_OVERDRIVE_GRP_IRC_OFF) {
+		dev_info(dev, "lhbm overdrive | gray=%u dbv=%u grp=%d\n", gray, dbv, group);
+	} else {
+		dev_info(dev, "lhbm overdrive | gray=%u dbv=%u luma=%u grp=%d\n", gray, dbv, luma, group);
+	}
+	return group;
+}
+
 static void tg4c_set_local_hbm_brightness(struct gs_panel *ctx, bool is_first_stage)
 {
 	struct tg4c_panel *spanel = to_spanel(ctx);
 	struct device *dev = ctx->dev;
 	struct tg4c_lhbm_ctl *ctl = &spanel->lhbm_ctl;
 	u8 (*brt)[LHBM_BRT_GRP_MAX][LHBM_BRT_LEN];
+
 	enum tg4c_lhbm_brt_overdrive_group group = LHBM_OVERDRIVE_GRP_MAX;
-
 	dev_info(ctx->dev, "set LHBM brightness at %s stage\n", is_first_stage ? "1st" : "2nd");
+	PANEL_ATRACE_BEGIN(__func__);
 	if (is_first_stage) {
-		u32 gray = ctx->gs_connector->lhbm_gray_level;
-		u32 dbv = gs_panel_get_brightness(ctx);
-		u32 normal_dbv_max = ctx->desc->brightness_desc->brt_capability->normal.level.max;
-		u32 luma = 0;
-
-		if (gray < 15) {
-			group = LHBM_OVERDRIVE_GRP_0_NIT;
-		} else {
-			if (dbv <= normal_dbv_max)
-				luma = _convert_dbv_to_nits(dev, dbv);
-			else
-				luma = panel_calc_linear_luminance(dbv, 645, -1256);
-
-			dev_dbg(dev, "%s: %d dbv = %d nits(255 gray)", __func__, dbv, luma);
-			luma = panel_calc_gamma_2_2_luminance(gray, 255, luma);
-
-			if (luma < 6)
-				group = LHBM_OVERDRIVE_GRP_6_NIT;
-			else if (luma < 50)
-				group = LHBM_OVERDRIVE_GRP_50_NIT;
-			else if (luma < 300)
-				group = LHBM_OVERDRIVE_GRP_300_NIT;
-			else
-				group = LHBM_OVERDRIVE_GRP_MAX;
+		group = tg4c_get_local_hbm_brightness_grp(ctx);
+	} else {
+		if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode)) {
+			dev_info(dev, "lhbm overdrive | irc off, no action\n");
+			PANEL_ATRACE_END(__func__);
+			return;
 		}
-		dev_dbg(dev, "check LHBM overdrive condition | gray=%u dbv=%u luma=%u grp=%d\n",
-			gray, dbv, luma, group);
 	}
 
 	if (group < LHBM_OVERDRIVE_GRP_MAX) {
@@ -507,10 +600,11 @@ static void tg4c_set_local_hbm_brightness(struct gs_panel *ctx, bool is_first_st
 		brt = &(ctl->brt_normal);
 		ctl->overdrived = false;
 	}
-	dev_dbg(dev, "set %s brightness: [%d]\n", ctl->overdrived ? "overdrive" : "normal",
-		ctl->overdrived ? group : -1);
+	dev_dbg(dev, "lhbm overdrive | set %s brightness: [%d]\n",
+		ctl->overdrived ? "overdrive" : "normal", ctl->overdrived ? group : -1);
 
 	_write_local_hbm_brightness(dev, brt);
+	PANEL_ATRACE_END(__func__);
 }
 
 #define LHBM_GAMMASET1 3628
@@ -688,6 +782,14 @@ static int tg4c_disable(struct drm_panel *panel)
 	return 0;
 }
 
+static u32 tg4c_get_local_hbm_mode_effective_delay_frames(struct gs_panel *ctx) {
+	if (GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode)) {
+		return IRC_OFF_LHBM_EFFECTIVE_DELAY_FRAMES;
+	} else {
+		return NORMAL_LHBM_EFFECTIVE_DELAY_FRAMES;
+	}
+}
+
 static void tg4c_update_lhbm_hist_config(struct gs_panel *ctx, struct drm_atomic_state *state)
 {
 	struct tg4c_panel *spanel = to_spanel(ctx);
@@ -696,8 +798,10 @@ static void tg4c_update_lhbm_hist_config(struct gs_panel *ctx, struct drm_atomic
 	const struct drm_display_mode *mode;
 	/* lhbm center below the center of AA: 540, radius: 100 */
 	const int d = 540, r = 100;
+	enum gs_drm_connector_lhbm_hist_roi_type new_hist_roi_type =
+			(GS_IS_HBM_ON_IRC_OFF(ctx->hbm_mode)) ? GS_HIST_ROI_FULL_SCREEN : GS_HIST_ROI_CIRCLE;
 
-	if (ctl->hist_roi_configured)
+	if (ctl->hist_roi_configured && new_hist_roi_type == ctl->hist_roi_type)
 		return;
 
 	if (!pmode) {
@@ -705,7 +809,17 @@ static void tg4c_update_lhbm_hist_config(struct gs_panel *ctx, struct drm_atomic
 		return;
 	}
 	mode = &pmode->mode;
-	gs_panel_update_lhbm_hist_data_helper(ctx, state, true, d, r);
+	if (new_hist_roi_type == GS_HIST_ROI_FULL_SCREEN) {
+		// IRC OFF - Full screen
+		gs_panel_update_lhbm_hist_data_helper(ctx, state, true, GS_HIST_ROI_FULL_SCREEN, d, r);
+		dev_info(ctx->dev, "set roi: full screen");
+
+	} else {
+		// IRC ON - LHBM circle
+		gs_panel_update_lhbm_hist_data_helper(ctx, state, true, GS_HIST_ROI_CIRCLE, d, r);
+		dev_info(ctx->dev, "set roi: lhbm circle");
+	}
+	ctl->hist_roi_type = new_hist_roi_type;
 	ctl->hist_roi_configured = true;
 }
 
@@ -902,7 +1016,7 @@ done:
 }
 
 static const struct gs_display_underrun_param underrun_param = {
-	.te_idle_us = 2510,
+	.te_idle_us = 1000,
 	.te_var = 1,
 };
 
@@ -1212,6 +1326,8 @@ static const struct gs_panel_funcs tg4c_gs_funcs = {
 	.atomic_check = tg4c_atomic_check,
 	.pre_update_ffc = tg4c_pre_update_ffc,
 	.update_ffc = tg4c_update_ffc,
+	.get_local_hbm_mode_effective_delay_frames =
+		tg4c_get_local_hbm_mode_effective_delay_frames,
 };
 
 static const struct gs_brightness_configuration tg4c_btr_configs[] = {
