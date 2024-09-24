@@ -2381,14 +2381,7 @@ dhd_dump(dhd_pub_t *dhdp, char *buf, int buflen)
 	            dhdp->iswl, dhdp->drv_version, MAC2STRDBG(&dhdp->mac));
 	bcm_bprintf(strbuf, "pub.bcmerror %d tickcnt %u\n", dhdp->bcmerror, dhdp->tickcnt);
 
-	/* if init failure, no need to collect interface stats since
-	 * interface would not be available for tx/rx data traffic
-	 */
-	if (dhdp->up && dhdp->memdump_type != DUMP_TYPE_DONGLE_INIT_FAILURE) {
-		dhd_dump_txrx_stats(dhdp, strbuf);
-	} else {
-		DHD_PRINT(("%s: skip tx rx stats\n", __func__));
-	}
+	dhd_dump_txrx_stats(dhdp, strbuf);
 
 #ifdef DMAMAP_STATS
 	/* Add DMA MAP info */
