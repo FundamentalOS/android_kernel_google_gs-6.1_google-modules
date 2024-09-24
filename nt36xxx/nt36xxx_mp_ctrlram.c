@@ -1726,6 +1726,23 @@ void print_selftest_result(uint8_t ker_pf, struct seq_file *m, int32_t TestResul
 	show_print(ker_pf, m, "\n");
 }
 
+static void nvt_check_defect_line(uint8_t result[], uint8_t x_ch, uint8_t y_ch)
+{
+	int32_t i, j;
+	int32_t iArrayIndex = 0;
+
+	for (j = 0; j < y_ch; j++) {
+		for (i = 0; i < x_ch; i++) {
+			iArrayIndex = j * x_ch + i;
+			if (result[iArrayIndex]) {
+				set_bit(i, &ts->selftest_defect_x_line);
+				set_bit(j, &ts->selftest_defect_y_line);
+				NVT_LOGI("(%d,%d) defect!\n", i, j);
+			}
+		}
+	}
+}
+
 void show_selftest(uint8_t ker_pf_data, uint8_t ker_pf_result, struct seq_file *m)
 {
 	show_print(ker_pf_data, m, "\n***** Selftest Data *****\n");
@@ -1914,9 +1931,35 @@ void show_selftest(uint8_t ker_pf_data, uint8_t ker_pf_result, struct seq_file *
 
 	// to prevent c_show_test entering multiple times
 	nvt_mp_test_result_printed = 1;
+
+	/* Google Defect X/Y line result */
+	if (ts->selftest_failed_result) {
+		if (ts->selftest_failed_short)
+			nvt_check_defect_line(RecordResult_Short, X_Channel, Y_Channel);
+		if (ts->selftest_failed_open)
+			nvt_check_defect_line(RecordResult_Open, X_Channel, Y_Channel);
+		if (ts->selftest_failed_fw_raw)
+			nvt_check_defect_line(RecordResult_FW_Rawdata, X_Channel, Y_Channel);
+		if (ts->selftest_failed_fw_cc)
+			nvt_check_defect_line(RecordResult_FW_CC, X_Channel, Y_Channel);
+		if (ts->selftest_failed_noise) {
+			if (TestResult_FW_DiffMax < 0) {
+				nvt_check_defect_line(RecordResult_FW_DiffMax,
+					X_Channel, Y_Channel);
+			}
+			if (TestResult_FW_DiffMin < 0) {
+				nvt_check_defect_line(RecordResult_FW_DiffMin,
+					X_Channel, Y_Channel);
+			}
+			if (TestResult_FW_DiffP2P < 0) {
+				nvt_check_defect_line(RecordResult_FW_DiffP2P,
+					X_Channel, Y_Channel);
+			}
+		}
+	}
 }
 
-int32_t sysfs_show_selftest(char *buf)
+int32_t nvt_print_selftest_result(char *buf, int size)
 {
 	uint16_t ret = 0;
 
@@ -1925,26 +1968,26 @@ int32_t sysfs_show_selftest(char *buf)
 	// kernel print data and result
 	show_selftest(false, true, NULL);
 	// print the result into buf
-	ret += sysfs_emit_at(buf, ret, "\n===== Test Result =====\n");
-	ret += sysfs_emit_at(buf, ret, "FW Version: %d\n", fw_ver);
-	ret += sysfs_emit_at(buf, ret, "\n");
-	ret += sysfs_emit_at(buf, ret, "Short Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "\n===== Test Result =====\n");
+	ret += scnprintf(buf + ret, size - ret, "FW Version: %d\n", fw_ver);
+	ret += scnprintf(buf + ret, size - ret, "\n");
+	ret += scnprintf(buf + ret, size - ret, "Short Test %s\n",
 		TestResult_Short ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "Open Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "Open Test %s\n",
 		TestResult_Open ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "FW Rawdata Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "FW Rawdata Test %s\n",
 		TestResult_FW_Rawdata ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "FW CC Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "FW CC Test %s\n",
 		TestResult_FW_CC ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "Noise Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "Noise Test %s\n",
 		TestResult_Noise ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "Pen FW Rawdata Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "Pen FW Rawdata Test %s\n",
 		TestResult_Pen_FW_Raw ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "Pen Noise Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "Pen Noise Test %s\n",
 		TestResult_Pen_Noise ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "Pen Detect Test %s\n",
+	ret += scnprintf(buf + ret, size - ret, "Pen Detect Test %s\n",
 		TestResult_Pen_Rx_Max ? "FAIL!" : "PASS!");
-	ret += sysfs_emit_at(buf, ret, "\n");
+	ret += scnprintf(buf + ret, size - ret, "\n");
 
 	NVT_LOGD("--\n");
 	return ret;
@@ -2024,6 +2067,9 @@ int32_t nvt_selftest(void)
 	struct device_node *np = ts->client->dev.of_node;
 	unsigned char mpcriteria[32] = {0};	//novatek-mp-criteria-default
 
+	ts->selftest_failed_result = 0;
+	ts->selftest_defect_x_line = 0;
+	ts->selftest_defect_y_line = 0;
 	TestResult_Short = 0;
 	TestResult_Open = 0;
 	TestResult_FW_Rawdata = 0;
@@ -2059,13 +2105,20 @@ int32_t nvt_selftest(void)
 		return -ERESTARTSYS;
 	}
 
+	ts->selftest_in_process = true;
 	nvt_mp_test_result_printed = 0;
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
-#if !SPI_FLASH
+
+#if SPI_FLASH
+	nvt_clear_fw_reset_state();
+	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN))
+		NVT_LOGE("FW is not ready for self-test!\n");
+#else
 	//---Download MP FW---
 	nvt_update_firmware(get_mp_fw_name(), 1);
 #endif // !SPI_FLASH
@@ -2097,6 +2150,7 @@ int32_t nvt_selftest(void)
 #endif // !SPI_FLASH
 			mutex_unlock(&ts->lock);
 			NVT_ERR("mp parse device tree failed!\n");
+			ts->selftest_in_process = false;
 			return -EINVAL;
 		}
 	} else {
@@ -2153,6 +2207,8 @@ int32_t nvt_selftest(void)
 						X_Channel, Y_Channel,
 						PS_Config_Lmt_FW_Rawdata_P,
 						PS_Config_Lmt_FW_Rawdata_N);
+		if (TestResult_FW_Rawdata < 0)
+			ts->selftest_failed_fw_raw = true;
 	}
 
 	if (nvt_read_CC(RawData_FW_CC) != 0) {
@@ -2161,6 +2217,8 @@ int32_t nvt_selftest(void)
 		TestResult_FW_CC = RawDataTest_SinglePoint_Sub(RawData_FW_CC,
 				   RecordResult_FW_CC, X_Channel, Y_Channel,
 				   PS_Config_Lmt_FW_CC_P, PS_Config_Lmt_FW_CC_N);
+		if (TestResult_FW_CC < 0)
+			ts->selftest_failed_fw_cc = true;
 	}
 
 	if (ts->pen_support) {
@@ -2190,6 +2248,9 @@ int32_t nvt_selftest(void)
 				TestResult_Pen_FW_Raw = -1;
 			else
 				TestResult_Pen_FW_Raw = 0;
+
+			if (TestResult_Pen_FW_Raw < 0)
+				ts->selftest_failed_pen_raw = true;
 		}
 	} /* if (ts->pen_support) */
 
@@ -2239,6 +2300,9 @@ int32_t nvt_selftest(void)
 			TestResult_Noise = -1;
 		else
 			TestResult_Noise = 0;
+
+		if (TestResult_Noise < 0)
+			ts->selftest_failed_noise = true;
 
 		if (ts->pen_support) {
 			TestResult_PenTipX_DiffMax = RawDataTest_SinglePoint_Sub(
@@ -2330,6 +2394,9 @@ int32_t nvt_selftest(void)
 					PEN_RX_MAX_X_LEN, PEN_RX_MAX_Y_LEN,
 					PS_Config_Lmt_Pen_Rx_Max_P, PS_Config_Lmt_Pen_Rx_Max_N);
 
+			if (TestResult_Pen_Rx_Max < 0)
+				ts->selftest_failed_pen_detect = true;
+
 			if (TestResult_PenTipX_DiffP2P == -1)
 				NVT_ERR("[Pen P2P] TipX Test Fail\n");
 			if (TestResult_PenTipY_DiffP2P == -1)
@@ -2354,6 +2421,10 @@ int32_t nvt_selftest(void)
 				TestResult_Pen_Noise = -1;
 			else
 				TestResult_Pen_Noise = 0;
+
+			if (TestResult_Pen_Noise < 0)
+				ts->selftest_failed_pen_noise = true;
+
 		} /* if (ts->pen_support) */
 	}
 
@@ -2365,6 +2436,8 @@ int32_t nvt_selftest(void)
 		TestResult_Short = RawDataTest_SinglePoint_Sub(RawData_Short,
 				   RecordResult_Short, X_Channel, Y_Channel,
 				   PS_Config_Lmt_Short_Rawdata_P, PS_Config_Lmt_Short_Rawdata_N);
+		if (TestResult_Short < 0)
+			ts->selftest_failed_short = true;
 	}
 
 	//---Open Test---
@@ -2375,6 +2448,8 @@ int32_t nvt_selftest(void)
 		TestResult_Open = RawDataTest_SinglePoint_Sub(RawData_Open,
 				  RecordResult_Open, X_Channel, Y_Channel,
 				  PS_Config_Lmt_Open_Rawdata_P, PS_Config_Lmt_Open_Rawdata_N);
+		if (TestResult_Open < 0)
+			ts->selftest_failed_open = true;
 	}
 
 	show_fw_history = false;
@@ -2385,9 +2460,13 @@ failed_out:
 		nvt_read_fw_history(ts->mmap->MMAP_HISTORY_EVENT1);
 	}
 
+	ts->selftest_in_process = false;
 #if SPI_FLASH
 	//---Reset IC---
+	nvt_clear_fw_reset_state();
 	nvt_bootloader_reset();
+	if (nvt_check_fw_reset_state(RESET_STATE_NORMAL_RUN))
+		NVT_LOGE("FW is not ready after self-test done!\n");
 #else
 	//---Download Normal FW---
 	nvt_update_firmware(get_fw_name(), 1);

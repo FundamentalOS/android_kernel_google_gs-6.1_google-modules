@@ -397,8 +397,10 @@ static int32_t nvt_bin_header_parser(const u8 *fwdata, size_t fwsize)
 		}
 
 		info_sec_num = info_sec_num + 1; //next header section
+#if defined(CONFIG_SOC_GOOGLE)
 		if (nvt_ts_check_tid(ts, tid_nt36523n))
 			spi_dma_div_cnt_val = fwdata[0x29] & 0x01;
+#endif
 	} else {
 		pos = 0x30;	// info section start at 0x30 offset
 		while (pos < end) {
@@ -1069,9 +1071,10 @@ static int32_t nvt_download_firmware_hw_crc(uint8_t full)
 		/* Start to write firmware process */
 		if (cascade_2nd_header_info) {
 			/* for cascade */
+#if defined(CONFIG_SOC_GOOGLE)
 			if (nvt_ts_check_tid(ts, tid_nt36523n) && spi_dma_div_cnt_val)
 				nvt_spi_dma_setup();
-
+#endif
 			nvt_tx_auto_copy_mode();
 
 			ret = nvt_write_firmware(fw_entry->data, fw_entry->size, full);
