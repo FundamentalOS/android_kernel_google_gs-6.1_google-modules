@@ -431,7 +431,7 @@ static void tg4a_update_lhbm_hist_config(struct gs_panel *ctx, struct drm_atomic
 	}
 
 	mode = &pmode->mode;
-	gs_panel_update_lhbm_hist_data_helper(ctx, state, true, GS_HIST_ROI_CIRCLE, d, r);
+	gs_panel_update_lhbm_hist_data_helper(ctx, state, true, d, r);
 	ctl->hist_roi_configured = true;
 }
 
