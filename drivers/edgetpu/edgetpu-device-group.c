@@ -12,7 +12,6 @@
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
 #include <linux/eventfd.h>
-#include <linux/iommu.h>
 #include <linux/kconfig.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
@@ -178,8 +177,10 @@ int edgetpu_group_set_eventfd(struct edgetpu_device_group *group, uint event_id,
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
 
-	if (event_id >= EDGETPU_EVENT_COUNT)
+	if (event_id >= EDGETPU_EVENT_COUNT) {
+		eventfd_ctx_put(ctx);
 		return -EINVAL;
+	}
 
 	write_lock_irqsave(&group->events.lock, flags);
 	if (group->events.eventfds[event_id])
@@ -334,14 +335,15 @@ static void edgetpu_device_group_release(struct edgetpu_device_group *group)
 	lockdep_assert_held(&group->lock);
 
 	edgetpu_group_clear_events(group);
-	edgetpu_group_clear_pending_commands(group);
-	edgetpu_group_clear_responses(group);
 	if (is_finalized_or_errored(group)) {
+		edgetpu_group_clear_pending_commands(group);
 		edgetpu_device_group_kci_leave(group);
 		/*
-		 * Mappings clear should be performed after had a handshake with
-		 * the firmware.
+		 * Mappings and responses cannot be cleared until the device_group has been closed
+		 * via KCI. This ensures firmware will not attempt to access any resoucres freed by
+		 * the command's `release_callback` or memory which has been unmapped.
 		 */
+		edgetpu_group_clear_responses(group);
 		edgetpu_mappings_clear_group(group);
 		edgetpu_mailbox_external_disable_free_locked(group);
 		edgetpu_mailbox_remove_vii(&group->vii);
@@ -382,6 +384,10 @@ static int edgetpu_dev_add_group(struct edgetpu_dev *etdev,
 			vcid_pool &= ~(BIT(EDGETPU_VCID_EXTRA_PARTITION) |
 				       BIT(EDGETPU_VCID_EXTRA_PARTITION_HIGH));
 		if (!vcid_pool) {
+			etdev_err(etdev, "%s client slot unavailable (%u active groups)\n",
+				  group->mbox_attr.partition_type_high == EDGETPU_PARTITION_EXTRA ||
+				  group->mbox_attr.partition_type == EDGETPU_PARTITION_EXTRA ?
+				  "extra" : "normal", etdev->n_groups);
 			ret = -EBUSY;
 			goto error_unlock;
 		}
@@ -682,7 +688,7 @@ static void edgetpu_host_map_show(struct edgetpu_mapping *map,
 
 		seq_printf(s, "  %pad %lu %s %#llx %pap\n", &dma_addr,
 			   DIV_ROUND_UP(sg_dma_len(sg), PAGE_SIZE),
-			   edgetpu_dma_dir_rw_s(map->gcip_mapping->orig_dir),
+			   edgetpu_dma_dir_rw_s(map->gcip_mapping->dir),
 			   map->host_address + cur_offset, &phys_addr);
 		cur_offset += sg_dma_len(sg);
 	}
@@ -980,7 +986,8 @@ void edgetpu_group_mappings_show(struct edgetpu_device_group *group,
 int edgetpu_device_group_send_vii_command(struct edgetpu_device_group *group, void *cmd,
 					  struct gcip_fence_array *in_fence_array,
 					  struct gcip_fence_array *out_fence_array,
-					  struct edgetpu_ikv_additional_info *additional_info)
+					  struct edgetpu_ikv_additional_info *additional_info,
+					  void (*release_callback)(void *), void *release_data)
 {
 	struct edgetpu_dev *etdev = group->etdev;
 	struct edgetpu_iommu_domain *etdomain;
@@ -1011,10 +1018,11 @@ int edgetpu_device_group_send_vii_command(struct edgetpu_device_group *group, vo
 		goto unlock_group;
 	}
 
-	edgetpu_vii_command_set_client_id(cmd, etdomain->pasid);
+	edgetpu_vii_command_set_client_id(etdev, cmd, etdomain->pasid);
 	ret = edgetpu_ikv_send_cmd(etdev->etikv, cmd, &group->pending_ikv_resps,
 				   &group->ready_ikv_resps, &group->ikv_resp_lock, group,
-				   in_fence_array, out_fence_array, additional_info);
+				   in_fence_array, out_fence_array, additional_info,
+				   release_callback, release_data);
 	/* Refund credit if command failed to send. */
 	if (ret)
 		atomic_inc(&group->available_vii_credits);
@@ -1051,7 +1059,7 @@ int edgetpu_device_group_get_vii_response(struct edgetpu_device_group *group, vo
 
 	spin_unlock_irqrestore(&group->ikv_resp_lock, flags);
 
-	memcpy(resp, ikv_resp->resp, edgetpu_vii_response_packet_size());
+	memcpy(resp, ikv_resp->resp, edgetpu_vii_response_packet_size(group->etdev));
 	/* This will also free `ikv_resp` */
 	gcip_mailbox_release_awaiter(ikv_resp->awaiter);
 
@@ -1435,4 +1443,62 @@ void edgetpu_device_group_untrack_fence_task(struct edgetpu_device_group *group,
 
 out:
 	spin_unlock_irqrestore(&group->pending_cmd_tasks_lock, flags);
+}
+
+/*
+ * Return the group with pasid @pasid for device @etdev, with a reference held on the group, or
+ * NULL if no group with that pasid is found.
+ */
+static struct edgetpu_device_group *get_group_by_pasid(struct edgetpu_dev *etdev, uint pasid)
+{
+	struct edgetpu_device_group *group = NULL;
+	struct edgetpu_device_group *tgroup;
+	struct edgetpu_list_group *g;
+
+	if (pasid == IOMMU_PASID_INVALID || !pasid)
+		return NULL;
+
+	mutex_lock(&etdev->groups_lock);
+	etdev_for_each_group(etdev, g, tgroup) {
+		if (tgroup->etdomain && tgroup->etdomain->pasid == pasid) {
+			group = edgetpu_device_group_get(tgroup);
+			break;
+		}
+	}
+	mutex_unlock(&etdev->groups_lock);
+	return group;
+}
+
+/*
+ * Currently always returns a negative error to indicate caller should proceed with fault error
+ * processing.
+ */
+int edgetpu_device_group_handle_fault(struct edgetpu_dev *etdev, u64 iova, uint pasid)
+{
+	struct edgetpu_device_group *group;
+	struct edgetpu_mapping *map;
+
+	group = get_group_by_pasid(etdev, pasid);
+	if (!group) {
+		etdev_dbg(etdev, "fault iova=%#llx pasid=%u group not found\n", iova, pasid);
+		return -EIO;
+	}
+
+	edgetpu_mapping_lock(&group->host_mappings);
+	map = edgetpu_mapping_find_iova_range(&group->host_mappings, iova);
+	if (!map) {
+		if (EDGETPU_REPORT_PAGE_FAULT_ERRORS)
+			etdev_warn(etdev, "fault iova=%#llx pasid=%u not mapped\n", iova, pasid);
+		else
+			etdev_dbg(etdev, "fault iova=%#llx pasid=%u not mapped\n", iova, pasid);
+		edgetpu_mapping_unlock(&group->host_mappings);
+		edgetpu_device_group_put(group);
+		return -EIO;
+	}
+
+	etdev_warn(etdev, "fault iova=%#llx pasid=%u mapped %s\n", iova, pasid,
+		   edgetpu_dma_dir_rw_s(map->gcip_mapping->dir));
+	edgetpu_mapping_unlock(&group->host_mappings);
+	edgetpu_device_group_put(group);
+	return -EIO;
 }
