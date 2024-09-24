@@ -1734,7 +1734,7 @@ dhd_rtt_set_cfg(dhd_pub_t *dhd, rtt_config_params_t *params)
 	memcpy(rtt_status->rtt_config.target_info,
 		params->target_info, TARGET_INFO_SIZE(params->rtt_target_cnt));
 	rtt_status->status = RTT_STARTED;
-	DHD_CONS_ONLY(("dhd_rtt_set_cfg: RTT Started, target_cnt = %d\n", params->rtt_target_cnt));
+	DHD_RTT_MEM(("dhd_rtt_set_cfg: RTT Started, target_cnt = %d\n", params->rtt_target_cnt));
 
 	/* This is the starting Directed RTT index */
 	rtt_status->start_idx = dhd_rtt_set_next_target_idx(dhd, 0);
@@ -3499,15 +3499,15 @@ dhd_rtt_convert_results_to_host_v2(rtt_result_t *rtt_result, const uint8 *p_data
 	bcm_ether_ntoa((&(p_data_info->peer)), eabuf);
 
 	if ((proxd_status != BCME_OK) || (p_data_info->num_meas == 0)) {
-		DHD_CONS_ONLY(("Target(%s), state=%d(%s), status=%d(%s), "
-			"ota %d, rtt %d, flags %x\n",
+		DHD_RTT_ERR((">\tTarget(%s) session state=%d(%s), status=%d(%s) "
+			"num_meas_ota %d num_valid_rtt %d result_flags %x\n",
 			eabuf, session_state,
 			ftm_session_state_value_to_logstr(session_state),
 			proxd_status, ftm_status_value_to_logstr(proxd_status),
 			p_data_info->num_meas, p_data_info->num_valid_rtt,
 			p_data_info->flags));
 	} else {
-		DHD_CONS_ONLY(("Target(%s), state=%d(%s), status=%d(%s)\n",
+		DHD_RTT((">\tTarget(%s) session state=%d(%s), status=%d(%s)\n",
 		eabuf, session_state,
 		ftm_session_state_value_to_logstr(session_state),
 		proxd_status, ftm_status_value_to_logstr(proxd_status)));
