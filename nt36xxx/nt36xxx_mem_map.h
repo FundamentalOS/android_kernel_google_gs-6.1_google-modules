@@ -100,7 +100,6 @@ struct nvt_ts_mem_map {
 	uint32_t SPI_DMA_VAL_ADDR;
 #endif // !SPI_FLASH
 	uint32_t EB_INFO_ADDR;
-	uint32_t HID_PEN_INFO_ADDR;
 };
 
 struct nvt_ts_hw_info {
@@ -109,7 +108,6 @@ struct nvt_ts_hw_info {
 #if !SPI_FLASH
 static const struct nvt_ts_mem_map NT36523_memory_map = {
 	.EVENT_BUF_ADDR           = 0x2FE00,
-	.HID_PEN_INFO_ADDR        = 0x2FE9E,
 	.EB_INFO_ADDR             = 0x2B32A,
 	.RAW_PIPE0_ADDR           = 0x30FA0,
 	.RAW_PIPE1_ADDR           = 0x30FA0,
@@ -167,7 +165,6 @@ static const struct nvt_ts_mem_map NT36523_memory_map = {
 
 static const struct nvt_ts_mem_map NT36523N_memory_map = {
 	.EVENT_BUF_ADDR           = 0x2FD00,
-	.HID_PEN_INFO_ADDR        = 0x2FD9E,
 	.EB_INFO_ADDR             = 0x2B32A,
 	.RAW_PIPE0_ADDR           = 0x30FA0,
 	.RAW_PIPE1_ADDR           = 0x30FA0,

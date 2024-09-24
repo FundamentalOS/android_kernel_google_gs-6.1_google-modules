@@ -21,6 +21,7 @@
 
 #define HID_DIAGNOSTIC_RETURN_SIZE	3
 #define DIAGNOSTIC_HOST_CMD		0x74
+#define HID_PEN_INFO_ADDR		0x2FE9E
 #define MAX_SPI_BUF_SIZE		10
 
 int32_t nvt_get_usi_data_diag(uint8_t *beacon, uint8_t *response)
@@ -58,8 +59,8 @@ int32_t nvt_get_usi_data_diag(uint8_t *beacon, uint8_t *response)
 		return -EAGAIN;
 	}
 	mutex_lock(&ts->lock);
-	nvt_set_page(ts->mmap->HID_PEN_INFO_ADDR);
-	spi_buf[0] = ts->mmap->HID_PEN_INFO_ADDR & (0x7F);
+	nvt_set_page(HID_PEN_INFO_ADDR);
+	spi_buf[0] = HID_PEN_INFO_ADDR & (0x7F);
 	CTP_SPI_READ(ts->client, spi_buf, HID_DIAGNOSTIC_RETURN_SIZE + 1);
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
 	mutex_unlock(&ts->lock);
