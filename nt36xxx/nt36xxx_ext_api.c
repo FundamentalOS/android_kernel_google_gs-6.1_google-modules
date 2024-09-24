@@ -2087,14 +2087,13 @@ static ssize_t nvt_selftest_show(struct device *dev,
 
 	NVT_LOGD("++\n");
 
-	ret = nvt_selftest();
-	if (ret) {
+	if (nvt_selftest()) {
 		NVT_LOGE("abort(ret %d)!\n", ret);
 		ret = sysfs_emit(buf, "selftest abort!\n");
 		return ret;
 	}
 
-	ret = nvt_print_selftest_result(buf, PAGE_SIZE);
+	ret = sysfs_show_selftest(buf);
 
 	NVT_LOGD("--\n");
 	return ret;
