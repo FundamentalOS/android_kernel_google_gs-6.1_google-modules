@@ -6664,7 +6664,6 @@ int wl_chspec_chandef(chanspec_t chanspec,
 			chan_type = NL80211_CHAN_HT20;
 			break;
 		case WL_CHANSPEC_BW_40:
-#ifdef WL_FORCE_40BW_CHANDEF
 		{
 			if (CHSPEC_SB_UPPER(chanspec)) {
 				channel += CH_10MHZ_APART;
@@ -6673,11 +6672,6 @@ int wl_chspec_chandef(chanspec_t chanspec,
 			}
 		}
 			chan_type = NL80211_CHAN_HT40PLUS;
-#else
-			/* Use 20MHz BW for chandef */
-			channel = wf_chspec_primary20_chan(chanspec);
-			chan_type = NL80211_CHAN_HT20;
-#endif
 			break;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
@@ -9429,7 +9423,7 @@ wl_cfgvif_update_assoc_fail_status(struct bcm_cfg80211 *cfg, struct net_device *
 	s32 reason = ntoh32(e->reason);
 	s32 auth_type = ntoh32(e->auth_type);
 	struct wl_security *sec = wl_read_prof(cfg, ndev, WL_PROF_SEC);
-	s32 assoc_status = 0;
+	s32 assoc_status = WLAN_STATUS_UNSPECIFIED_FAILURE;
 	s32 timeout_reason = 0;
 
 	if (!sec || (status == WLC_E_STATUS_SUCCESS)) {
@@ -9473,13 +9467,10 @@ wl_cfgvif_update_assoc_fail_status(struct bcm_cfg80211 *cfg, struct net_device *
 			break;
 	}
 
-	if (assoc_status) {
-		WL_INFORM_MEM(("cache assoc_status: event:%d"
-			"status:%d reason:%d\n", event, status, reason));
-		sec->cfg80211_assoc_status = assoc_status;
-		sec->cfg80211_timeout = timeout_reason;
-	}
-
+	WL_DBG_MEM(("caching assoc_status: event %d"
+		"assoc_status %d to_reason %d\n", event, status, reason));
+	sec->cfg80211_assoc_status = assoc_status;
+	sec->cfg80211_timeout = timeout_reason;
 	return 0;
 }
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)) */

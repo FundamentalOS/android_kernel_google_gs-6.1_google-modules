@@ -3133,15 +3133,6 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 			dhdp->db7_trap.fw_db7w_trap) {
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 			dhdpcie_fw_trap(dhdp->bus);
-			/*
-			 * Since MSI might be missed in down path,
-			 * and if trap_data is 0, re-read trap_data before giving up
-			 */
-			if (dhdp->dongle_trap_data == 0) {
-				dhdp->dongle_trap_data = dhd_prot_process_trapbuf(dhdp);
-				DHD_PRINT(("%s: D2H_MSI miss retry: fw_db7w_trap_received:%d\n",
-					__FUNCTION__, dhdp->db7_trap.fw_db7w_trap_received));
-			}
 			if (!dhdp->db7_trap.fw_db7w_trap_received) {
 				char buf[512];
 				struct bcmstrbuf b;

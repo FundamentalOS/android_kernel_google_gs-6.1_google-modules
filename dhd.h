@@ -654,7 +654,6 @@ typedef enum dhd_dongledump_status {
 #endif /* DHD_FILE_DUMP_EVENT && DHD_FW_COREDUMP */
 
 enum dhd_dongledump_type {
-	DUMP_TYPE_CLEAR				= 0,
 	DUMP_TYPE_RESUMED_ON_TIMEOUT		= 1,
 	DUMP_TYPE_D3_ACK_TIMEOUT		= 2,
 	DUMP_TYPE_DONGLE_TRAP			= 3,
@@ -4121,7 +4120,7 @@ int dhd_get_download_buffer(dhd_pub_t	*dhd, char *file_path, download_type_t com
 void dhd_free_download_buffer(dhd_pub_t	*dhd, void *buffer, int length);
 
 int dhd_download_blob(dhd_pub_t *dhd, unsigned char *buf,
-	uint32 len, char *iovar, int ifidx);
+		uint32 len, char *iovar);
 
 int dhd_download_blob_cached(dhd_pub_t *dhd, char *file_path,
 	uint32 len, char *iovar);
