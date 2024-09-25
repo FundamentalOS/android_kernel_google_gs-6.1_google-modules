@@ -24,6 +24,8 @@
 #define GXP_TIME_DELAY_FACTOR 100
 #elif IS_ENABLED(CONFIG_GXP_IP_ZEBU)
 #define GXP_TIME_DELAY_FACTOR 500
+#elif IS_ENABLED(CONFIG_GXP_TEST) && IS_ENABLED(CONFIG_DEBUG_KMEMLEAK)
+#define GXP_TIME_DELAY_FACTOR 5
 #else
 #define GXP_TIME_DELAY_FACTOR 1
 #endif
@@ -72,8 +74,7 @@
  * 1. Unit testing, or
  * 2. Production on Android (to exclude vanilla Linux for bringup) but not GEM5.
  */
-#define HAS_TPU_EXT ((IS_ENABLED(CONFIG_GXP_TEST) || GCIP_IS_GKI) &&		\
-		    !IS_ENABLED(CONFIG_GXP_GEM5) &&				\
+#define HAS_TPU_EXT (!IS_ENABLED(CONFIG_GXP_GEM5) &&				\
 		    !IS_ENABLED(CONFIG_GXP_IP_ZEBU) &&				\
 		    !IS_ENABLED(CONFIG_GXP_ZEBU))
 

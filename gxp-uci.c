@@ -1049,10 +1049,10 @@ int gxp_uci_cmd_work_create_and_schedule(struct dma_fence *fence, struct gxp_cli
 
 	/*
 	 * If @ret is -ENOENT, it means that @fence is already signaled so the callback was
-	 * not registered to the fence. We don't have to treat it as an error and can run
-	 * the work directly.
+	 * not registered to the fence. If it is signaled without error, we don't have to treat it
+	 * as an error and can run the work directly.
 	 */
-	if (ret == -ENOENT)
+	if (ret == -ENOENT && dma_fence_get_status(fence) == 1)
 		goto send_cmd;
 
 	return ret;
