@@ -1634,6 +1634,8 @@ static irqreturn_t nvt_ts_isr(int irq, void *handle)
 	struct nvt_ts_data *ts = (struct nvt_ts_data *)handle;
 
 	ts->timestamp = ktime_get();
+	pm_wakeup_event(&ts->client->dev, MSEC_PER_SEC);
+
 	return IRQ_WAKE_THREAD;
 }
 
@@ -2722,6 +2724,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	NVT_LOGD("end\n");
 
 	nvt_irq_enable(true);
+	ret = enable_irq_wake(ts->client->irq);
+	if (ret)
+		NVT_ERR("enable_irq_wake() failed! ret=%d\n", ret);
 
 	ts->probe_done = true;
 	return 0;
@@ -3064,7 +3069,6 @@ int nvt_ts_suspend(struct device *dev)
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0x13;
 		CTP_SPI_WRITE(ts->client, buf, 2);
-		enable_irq_wake(ts->client->irq);
 		NVT_LOG("Gesture mode enabled.\n");
 	} else {
 		//---write command to enter "deep sleep mode"---
