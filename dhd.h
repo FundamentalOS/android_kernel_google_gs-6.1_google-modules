@@ -692,7 +692,14 @@ enum dhd_dongledump_type {
 	DUMP_TYPE_NO_DB7_ACK			= 35,
 	DUMP_TYPE_DONGLE_TRAP_DURING_WIFI_ONOFF	= 36,
 	DUMP_TYPE_ESCAN_SYNCID_MISMATCH		= 37,
-	DUMP_TYPE_COREDUMP_BY_USER		= 38
+	DUMP_TYPE_COREDUMP_BY_USER		= 38,
+	DUMP_TYPE_WL_BP_DOWN			= 39,
+	DUMP_TYPE_COMMON_BP_DOWN		= 40,
+	DUMP_TYPE_COEXCPU_BP_DOWN		= 41,
+	DUMP_TYPE_STA_ASSOC_TIMEOUT		= 42,
+	DUMP_TYPE_STA_4WAY_HS_TIMEOUT		= 43,
+	DUMP_TYPE_STA_ROAM_TIMEOUT		= 44,
+	DUMP_TYPE_SAR_CONF_NOTFOUND		= 45
 };
 
 enum dhd_hang_reason {
@@ -2898,10 +2905,6 @@ extern void dhd_set_cpucore(dhd_pub_t *dhd, int set);
 #define MAX_CONSECUTIVE_MFG_HANG_COUNT 2
 #endif /* DHD_DETECT_CONSECUTIVE_MFG_HANG */
 
-#if defined(KEEP_ALIVE)
-extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
-#endif /* KEEP_ALIVE */
-
 #if defined(DHD_FW_COREDUMP)
 #if defined(linux) || defined(LINUX)
 extern bool dhd_memdump_is_scheduled(dhd_pub_t *dhdp);
@@ -3198,10 +3201,6 @@ int dhd_bus_get_fw_mode(dhd_pub_t *dhdp);
 #else
 static INLINE int dhd_bus_get_fw_mode(dhd_pub_t *dhdp) { return 0; }
 #endif /* __linux__ */
-
-#if defined(KEEP_ALIVE)
-extern int dhd_keep_alive_onoff(dhd_pub_t *dhd);
-#endif /* KEEP_ALIVE */
 
 /* linux is defined for DHD EFI builds also,
 * since its cross-compiled for EFI from linux.

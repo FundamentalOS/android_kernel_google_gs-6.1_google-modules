@@ -151,7 +151,7 @@ struct wlc_swdiv_stats_v2 {
 typedef struct {
 	uint16	version;	/**< see definition of WL_CNT_T_VERSION */
 	uint16	datalen;	/**< length of data including all paddings. */
-	uint8   data [];	/**< variable length payload:
+	uint8   data[];		/**< variable length payload:
 				 * 1 or more bcm_xtlv_t type of tuples.
 				 * each tuple is padded to multiple of 4 bytes.
 				 * 'datalen' field of this structure includes all paddings.
@@ -3656,8 +3656,8 @@ typedef struct wl_pwr_bcntrim_stats {
 	uint8  slice_idx;		/* on which slice STA is associated */
 	uint16 PAD;			/* padding */
 	uint32 slice_beacon_seen;	/* number of beacons seen on the Infra
-		                         * interface on this slice
-		                         */
+					 * interface on this slice
+					 */
 	uint32 slice_beacon_trimmed;	/* number beacons actually trimmed on this slice */
 	uint32 total_beacon_seen;	/* total number of beacons seen on the Infra interface */
 	uint32 total_beacon_trimmed;	/* total beacons actually trimmed */
@@ -6152,7 +6152,7 @@ typedef struct ecounters_suspend {
 typedef struct wl_stats_report {
 	uint16	version;	/**< see version definitions above */
 	uint16	length;		/**< length of data including all paddings. */
-	uint8   data [];	/**< variable length payload:
+	uint8   data[];		/**< variable length payload:
 				 * 1 or more bcm_xtlv_t type of tuples.
 				 * each tuple is padded to multiple of 4 bytes.
 				 * 'length' field of this structure includes all paddings.
@@ -6320,8 +6320,7 @@ typedef struct wlc_ltecoex_stats {
 /* Per channel ecounters. Repurpose existing structure definitions */
 #ifdef WLC_CHAN_ECNTR_TEST
 #define WL_CHAN_PERIODIC_CNTRS_VER_1 1
-typedef struct wlc_chan_periodic_cntr
-{
+typedef struct wlc_chan_periodic_cntr {
 	uint16 version;
 	uint16 PAD;
 	uint32	rxstrt;
@@ -6349,8 +6348,7 @@ enum wl_chan_stats_xtlv {
 
 /* WL_CHAN_STATS_XTLV_CHANSPEC_CONTAINER above carries payload below */
 #define WL_CHANCNTR_HDR_VER_1	(1u)
-typedef struct wlc_chan_cntr_hdr_v1
-{
+typedef struct wlc_chan_cntr_hdr_v1 {
 	uint16 version;		/* Already in use. So keep it */
 	uint16 PAD;
 	chanspec_t chanspec;	/* Dont add any fields above this */

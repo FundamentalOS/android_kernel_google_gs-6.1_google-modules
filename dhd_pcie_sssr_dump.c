@@ -1641,12 +1641,12 @@ dhdpcie_sssr_dump(dhd_pub_t *dhd)
 	}
 #endif /* DHD_SSSR_DUMP_BEFORE_SR */
 
-	/* Read Min and Max resource mask */
-	dhd_sbreg_op(dhd, dhd->sssr_reg_info->rev5.pmu_regs.base_regs.pmu_max_res_mask,
-		&old_max_resmask, TRUE);
-	dhd_sbreg_op(dhd, dhd->sssr_reg_info->rev5.pmu_regs.base_regs.pmu_min_res_mask,
-		&min_resmask, TRUE);
 	if (dhd->sssr_reg_info->rev2.version >= SSSR_REG_INFO_VER_5) {
+		/* Read Min and Max resource mask */
+		dhd_sbreg_op(dhd, dhd->sssr_reg_info->rev5.pmu_regs.base_regs.pmu_max_res_mask,
+			&old_max_resmask, TRUE);
+		dhd_sbreg_op(dhd, dhd->sssr_reg_info->rev5.pmu_regs.base_regs.pmu_min_res_mask,
+			&min_resmask, TRUE);
 		dhdpcie_arm_clear_clk_req(dhd);
 		dhdpcie_saqm_clear_clk_req(dhd);
 		dhdpcie_pcie_send_ltrsleep(dhd);
