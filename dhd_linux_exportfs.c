@@ -2405,41 +2405,6 @@ static struct dhd_attr dhd_attr_control_he_enab=
 __ATTR(control_he_enab, 0660, show_control_he_enab, set_control_he_enab);
 #endif /* CUSTOM_CONTROL_HE_ENAB */
 
-#if defined(WLAN_ACCEL_BOOT)
-static ssize_t
-show_wl_accel_force_reg_on(struct dhd_info *dhd, char *buf)
-{
-	ssize_t ret = 0;
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return ret;
-	}
-
-	ret = scnprintf(buf, PAGE_SIZE - 1, "%d\n", dhd->wl_accel_force_reg_on);
-	return ret;
-}
-
-static ssize_t
-set_wl_accel_force_reg_on(struct dhd_info *dhd, const char *buf, size_t count)
-{
-	uint32 val;
-
-	if (!dhd) {
-		DHD_ERROR(("%s: dhd is NULL\n", __FUNCTION__));
-		return count;
-	}
-
-	val = bcm_atoi(buf);
-
-	dhd->wl_accel_force_reg_on = val ? 1 : 0;
-	DHD_PRINT(("%s: wl_accel_force_reg_on: %d\n", __FUNCTION__, dhd->wl_accel_force_reg_on));
-	return count;
-}
-
-static struct dhd_attr dhd_attr_wl_accel_force_reg_on=
-__ATTR(wl_accel_force_reg_on, 0660, show_wl_accel_force_reg_on, set_wl_accel_force_reg_on);
-#endif /* WLAN_ACCEL_BOOT */
-
 #ifdef DHD_AGGR_WI
 #define DHD_SYSFS_AGGR_WI_ENAB_FILE_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 extern uint aggr_wi_enab;
@@ -2943,9 +2908,6 @@ static struct attribute *default_file_attrs[] = {
 #if defined(CUSTOM_CONTROL_HE_ENAB)
 	&dhd_attr_control_he_enab.attr,
 #endif /* CUSTOM_CONTROL_HE_ENAB */
-#if defined(WLAN_ACCEL_BOOT)
-	&dhd_attr_wl_accel_force_reg_on.attr,
-#endif /* WLAN_ACCEL_BOOT */
 #ifdef PWRSTATS_SYSFS
 	&dhd_attr_pwrstats_path.attr,
 #endif /* PWRSTATS_SYSFS */

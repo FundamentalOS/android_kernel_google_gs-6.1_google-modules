@@ -5082,8 +5082,9 @@ wl_show_host_event(dhd_pub_t *dhd_pub, wl_event_msg_t *event, void *event_data,
 		DHD_EVENT(("\n"));
 		break;
 	case WLC_E_PRUNE:
-		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d\n",
-		           event_name, (int)status, (int)reason, ifidx, bsscfgidx));
+		DHD_EVENT(("MACEVENT: %s, status %d, reason %d ifidx %d cfgidx %d "
+			"val 0x%x "MACDBG"\n", event_name, (int)status, (int)reason, ifidx,
+			bsscfgidx, (int)auth_type, MAC2STRDBG(event->addr.octet)));
 #ifdef REPORT_FATAL_TIMEOUTS
 		OSL_ATOMIC_SET(dhd_pub->osh, &dhd_pub->psk_sup_rcvd, TRUE);
 		dhd_clear_join_error(dhd_pub, WLC_WPA_MASK);
@@ -7710,47 +7711,6 @@ bool dhd_support_sta_mode(dhd_pub_t *dhd)
 		return TRUE;
 }
 
-#if defined(KEEP_ALIVE)
-int dhd_keep_alive_onoff(dhd_pub_t *dhd)
-{
-	char				buf[32] = {0};
-	const char			*str;
-	wl_mkeep_alive_pkt_v1_t	mkeep_alive_pkt = {0, 0, 0, 0, 0, {0}};
-	wl_mkeep_alive_pkt_v1_t	*mkeep_alive_pktp;
-	int					buf_len;
-	int					str_len;
-	int res					= -1;
-
-	if (!dhd_support_sta_mode(dhd))
-		return res;
-
-	DHD_TRACE(("%s execution\n", __FUNCTION__));
-
-	str = "mkeep_alive";
-	str_len = strlen(str);
-	strlcpy(buf, str, sizeof(buf));
-	mkeep_alive_pktp = (wl_mkeep_alive_pkt_v1_t *) (buf + str_len + 1);
-	mkeep_alive_pkt.period_msec = CUSTOM_KEEP_ALIVE_SETTING;
-	buf_len = str_len + 1;
-	mkeep_alive_pkt.version = htod16(WL_MKEEP_ALIVE_VERSION_1);
-	mkeep_alive_pkt.length = htod16(WL_MKEEP_ALIVE_FIXED_LEN);
-	/* Setup keep alive zero for null packet generation */
-	mkeep_alive_pkt.keep_alive_id = 0;
-	mkeep_alive_pkt.len_bytes = 0;
-	buf_len += WL_MKEEP_ALIVE_FIXED_LEN;
-	bzero(mkeep_alive_pkt.data, sizeof(mkeep_alive_pkt.data));
-	/* Keep-alive attributes are set in local	variable (mkeep_alive_pkt), and
-	 * then memcpy'ed into buffer (mkeep_alive_pktp) since there is no
-	 * guarantee that the buffer is properly aligned.
-	 */
-	memcpy((char *)mkeep_alive_pktp, &mkeep_alive_pkt, WL_MKEEP_ALIVE_FIXED_LEN);
-
-	res = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, buf, buf_len, TRUE, 0);
-
-	return res;
-}
-#endif /* defined(KEEP_ALIVE) */
-
 #if defined(OEM_ANDROID)
 #define	CSCAN_TLV_TYPE_SSID_IE	'S'
 /*
@@ -8637,7 +8597,7 @@ dhd_apply_default_txcap(dhd_pub_t  *dhd, char *txcappath)
 	if ((len > 0) && (len < MAX_TXCAP_BUF_SIZE) && memblock) {
 		/* Found blob file. Download the file */
 		DHD_TRACE(("txcap file download from %s \n", txcap_blob_path));
-		err = dhd_download_blob(dhd, (unsigned char*)memblock, len, "txcapload", 0);
+		err = dhd_download_blob(dhd, (unsigned char *)memblock, len, "txcapload", 0);
 		if (err) {
 			DHD_ERROR(("%s: TXCAP download failed err=%d\n", __FUNCTION__, err));
 			/* Retrieve clmload_status and print */
@@ -8807,7 +8767,7 @@ dhd_apply_default_clm(dhd_pub_t *dhd, char *clm_path)
 
 		/* Found blob file. Download the file */
 		DHD_TRACE(("clm file download from %s \n", clm_blob_path));
-		err = dhd_download_blob(dhd, (unsigned char*)memblock, len, "clmload", 0);
+		err = dhd_download_blob(dhd, (unsigned char *)memblock, len, "clmload", 0);
 		if (err) {
 			DHD_ERROR(("%s: CLM download failed err=%d\n", __FUNCTION__, err));
 			/* Retrieve clmload_status and print */
@@ -12024,6 +11984,18 @@ dhd_convert_hang_reason_to_str(uint32 reason, char *buf, size_t buf_len)
 			break;
 		case DUMP_TYPE_NO_DB7_ACK:
 			type_str = "NO_DB7_ACK";
+			break;
+		case DUMP_TYPE_STA_ASSOC_TIMEOUT:
+			type_str = "STA_ASSOC_TIMEOUT";
+			break;
+		case DUMP_TYPE_STA_4WAY_HS_TIMEOUT:
+			type_str = "STA_4WAY_HS_TIMEOUT";
+			break;
+		case DUMP_TYPE_STA_ROAM_TIMEOUT:
+			type_str = "STA_ROAM_TIMEOUT";
+			break;
+		case DUMP_TYPE_SAR_CONF_NOTFOUND:
+			type_str = "SAR_CONF_NOTFOUND";
 			break;
 		default:
 			type_str = "Unknown_type";

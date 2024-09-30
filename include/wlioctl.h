@@ -4163,14 +4163,14 @@ typedef struct wl_ops_status_v1 {
 	uint32  mybss_cnt;		/* number of times mybss ops trigger */
 	uint32  obss_cnt;		/* number of times obss ops trigger */
 	uint32  miss_dur_cnt;		/* number of times ops couldn't happen
-		                         * due to insufficient duration
-		                         */
+					 * due to insufficient duration
+					 */
 	uint32  miss_premt_cnt;		/* number of times ops couldn't happen due
-		                         * to not meeting Phy preemption thresh
-		                         */
+					 * to not meeting Phy preemption thresh
+					 */
 	uint32  max_dur_cnt;		/* number of times ops did not trigger due to
-		                         * frames exceeding max sleep duration
-		                         */
+					 * frames exceeding max sleep duration
+					 */
 	uint32	wake_cnt;		/* number of ops miss due to wake reason */
 	uint32	bcn_wait_cnt;		/* number of ops miss due to waiting for bcn */
 } wl_ops_status_v1_t;
@@ -6363,8 +6363,8 @@ typedef enum wl_pkt_filter_type {
 
 /** Secured WOWL packet was encrypted, need decrypted before check filter match */
 typedef struct wl_pkt_decrypter {
-	uint8* (*dec_cb)(void* dec_ctx, const void *sdu, int sending);
-	void*  dec_ctx;
+	uint8 *(*dec_cb)(void *dec_ctx, const void *sdu, int sending);
+	void *dec_ctx;
 } wl_pkt_decrypter_t;
 
 /**

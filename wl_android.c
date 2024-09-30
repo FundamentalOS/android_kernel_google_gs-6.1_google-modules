@@ -1198,16 +1198,16 @@ static char* wl_android_get_band_str(u16 band)
 {
 	switch (band) {
 #ifdef WL_6G_BAND
-		case WLC_BAND_6G:
-			return "6G";
+	case WLC_BAND_6G:
+		return "6G";
 #endif /* WL_6G_BAND */
-		case WLC_BAND_5G:
-			return "5G";
-		case WLC_BAND_2G:
-			return "2G";
-		default:
-			WL_ERR(("Unkown band: %d \n", band));
-			return "Unknown band";
+	case WLC_BAND_5G:
+		return "5G";
+	case WLC_BAND_2G:
+		return "2G";
+	default:
+		WL_ERR(("Unkown band: %d \n", band));
+		return "Unknown band";
 	}
 }
 
@@ -1767,31 +1767,31 @@ wl_android_get_band(struct net_device *dev, char *command, int total_len)
 
 	/* Changed Band types to Band Definition */
 	switch (band) {
-		case WLC_BAND_AUTO:
+	case WLC_BAND_AUTO:
 #ifdef WL_6G_BAND
-			if (cfg->band_6g_supported) {
-				band_def = BAND_DEF_2G5G6G;
-				break;
-			}
+		if (cfg->band_6g_supported) {
+			band_def = BAND_DEF_2G5G6G;
+			break;
+		}
 #endif /* WL_6G_BAND */
-			band_def = BAND_DEF_2G5G;
-			break;
-		case WLC_BAND_2G:
-			band_def = BAND_DEF_2G;
-			break;
-		case WLC_BAND_5G:
+		band_def = BAND_DEF_2G5G;
+		break;
+	case WLC_BAND_2G:
+		band_def = BAND_DEF_2G;
+		break;
+	case WLC_BAND_5G:
 #ifdef WL_6G_BAND
-		case WLC_BAND_6G:
-			if (cfg->band_6g_supported) {
-				band_def = BAND_DEF_5G6G;
-				break;
-			}
-#endif /* WL_6G_BAND */
-			band_def = BAND_DEF_5G;
+	case WLC_BAND_6G:
+		if (cfg->band_6g_supported) {
+			band_def = BAND_DEF_5G6G;
 			break;
-		default:
-			WL_ERR(("Unkown band: %d\n", band));
-			return BCME_ERROR;
+		}
+#endif /* WL_6G_BAND */
+		band_def = BAND_DEF_5G;
+		break;
+	default:
+		WL_ERR(("Unkown band: %d\n", band));
+		return BCME_ERROR;
 	}
 
 	bytes_written = snprintf(command, total_len, "Band %d", band_def);
@@ -1807,30 +1807,30 @@ wl_android_set_band(struct net_device *dev, char *command)
 
 	/* Changed Band Definition to Band types */
 	switch (band_def) {
-		case BAND_DEF_2G:
-			band = WLC_BAND_2G;
-			break;
+	case BAND_DEF_2G:
+		band = WLC_BAND_2G;
+		break;
 #ifndef WL_6G_BAND
-		case BAND_DEF_2G5G:
-			band = WLC_BAND_AUTO;
-			break;
-		case BAND_DEF_5G:
-			band = WLC_BAND_5G;
-			break;
+	case BAND_DEF_2G5G:
+		band = WLC_BAND_AUTO;
+		break;
+	case BAND_DEF_5G:
+		band = WLC_BAND_5G;
+		break;
 #else
-		case BAND_DEF_2G5G6G:
-			band = WLC_BAND_AUTO;
-			break;
-		case BAND_DEF_5G6G:
-			band = WLC_BAND_5G;
-			break;
-		/* Can't set only 5GHz or 6GHz band on 6GHz supported device. */
-		case BAND_DEF_6G:
-		case BAND_DEF_2G6G:
+	case BAND_DEF_2G5G6G:
+		band = WLC_BAND_AUTO;
+		break;
+	case BAND_DEF_5G6G:
+		band = WLC_BAND_5G;
+		break;
+	/* Can't set only 5GHz or 6GHz band on 6GHz supported device. */
+	case BAND_DEF_6G:
+	case BAND_DEF_2G6G:
 #endif /* !WL_6G_BAND */
-		default:
-			WL_ERR(("Unsupported band definition: %d\n", band_def));
-			return BCME_ERROR;
+	default:
+		WL_ERR(("Unsupported band definition: %d\n", band_def));
+		return BCME_ERROR;
 	}
 
 #ifdef WL_HOST_BAND_MGMT
@@ -1903,60 +1903,60 @@ wl_android_get_rssi_roam_threshold(struct net_device *dev, char *data, char *com
 		}
 
 		switch (roam_prof_ver) {
-			case WL_ROAM_PROF_VER_1:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v2.roam_prof[i].channel_usage == 0) {
-						roam_threshold[0] = rp.v2.roam_prof[i].roam_trigger;
-						break;
-					}
+		case WL_ROAM_PROF_VER_1:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v2.roam_prof[i].channel_usage == 0) {
+					roam_threshold[0] = rp.v2.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_2:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v3.roam_prof[i].channel_usage == 0) {
-						roam_threshold[0] = rp.v3.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_2:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v3.roam_prof[i].channel_usage == 0) {
+					roam_threshold[0] = rp.v3.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_3:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v4.roam_prof[i].channel_usage == 0) {
-						roam_threshold[0] = rp.v4.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_3:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v4.roam_prof[i].channel_usage == 0) {
+					roam_threshold[0] = rp.v4.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_4:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v4.roam_prof[i].channel_usage == 0) {
-						roam_threshold[0] = rp.v4.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_4:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v4.roam_prof[i].channel_usage == 0) {
+					roam_threshold[0] = rp.v4.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_5:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v6.roam_prof[i].channel_usage == 0) {
-						roam_threshold[0] = rp.v6.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_5:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v6.roam_prof[i].channel_usage == 0) {
+					roam_threshold[0] = rp.v6.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
+		}
+		break;
 
-			default:
-				WL_ERR(("bad version = %d \n", roam_prof_ver));
-				return BCME_VERSION;
+		default:
+			WL_ERR(("bad version = %d \n", roam_prof_ver));
+			return BCME_VERSION;
 		}
 		if (roam_threshold[0] == 0) {
 			WL_ERR(("rssi roam threshold was not set properly\n"));
@@ -2034,60 +2034,60 @@ wl_android_get_roam_trigger(struct net_device *dev, char *command, int total_len
 			return -EINVAL;
 		}
 		switch (roam_prof_ver) {
-			case WL_ROAM_PROF_VER_1:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v2.roam_prof[i].channel_usage == 0) {
-						roam_trigger[0] = rp.v2.roam_prof[i].roam_trigger;
-						break;
-					}
+		case WL_ROAM_PROF_VER_1:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v2.roam_prof[i].channel_usage == 0) {
+					roam_trigger[0] = rp.v2.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_2:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v3.roam_prof[i].channel_usage == 0) {
-						roam_trigger[0] = rp.v3.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_2:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v3.roam_prof[i].channel_usage == 0) {
+					roam_trigger[0] = rp.v3.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_3:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v4.roam_prof[i].channel_usage == 0) {
-						roam_trigger[0] = rp.v4.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_3:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v4.roam_prof[i].channel_usage == 0) {
+					roam_trigger[0] = rp.v4.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_4:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v4.roam_prof[i].channel_usage == 0) {
-						roam_trigger[0] = rp.v4.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_4:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v4.roam_prof[i].channel_usage == 0) {
+					roam_trigger[0] = rp.v4.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
-			case WL_ROAM_PROF_VER_5:
-			{
-				for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
-					if (rp.v6.roam_prof[i].channel_usage == 0) {
-						roam_trigger[0] = rp.v6.roam_prof[i].roam_trigger;
-						break;
-					}
+		}
+		break;
+		case WL_ROAM_PROF_VER_5:
+		{
+			for (i = 0; i < WL_MAX_ROAM_PROF_BRACKETS; i++) {
+				if (rp.v6.roam_prof[i].channel_usage == 0) {
+					roam_trigger[0] = rp.v6.roam_prof[i].roam_trigger;
+					break;
 				}
 			}
-			break;
+		}
+		break;
 
-			default:
-				WL_ERR(("bad version = %d \n", roam_prof_ver));
-				return BCME_VERSION;
+		default:
+			WL_ERR(("bad version = %d \n", roam_prof_ver));
+			return BCME_VERSION;
 		}
 #endif /* WBTEXT */
 		if (roam_trigger[0] == 0) {
@@ -6979,40 +6979,40 @@ wl_android_mbo_non_pref_chan_parse_cbfn(void *ctx, const uint8 *data, uint16 typ
 		return -EINVAL;
 	}
 	switch (type) {
-		case WL_MBO_XTLV_OPCLASS:
-		{
-			bytes_written = snprintf(command, total_len, "%u:", *data);
-			WL_ERR(("wr %u %u\n", bytes_written, *data));
-			command += bytes_written;
-			cmd_info->bytes_written += bytes_written;
-		}
-		break;
-		case WL_MBO_XTLV_CHAN:
-		{
-			bytes_written = snprintf(command, total_len, "%u:", *data);
-			WL_ERR(("wr %u\n", bytes_written));
-			command += bytes_written;
-			cmd_info->bytes_written += bytes_written;
-		}
-		break;
-		case WL_MBO_XTLV_PREFERENCE:
-		{
-			bytes_written = snprintf(command, total_len, "%u:", *data);
-			WL_ERR(("wr %u\n", bytes_written));
-			command += bytes_written;
-			cmd_info->bytes_written += bytes_written;
-		}
-		break;
-		case WL_MBO_XTLV_REASON_CODE:
-		{
-			bytes_written = snprintf(command, total_len, "%u ", *data);
-			WL_ERR(("wr %u\n", bytes_written));
-			command += bytes_written;
-			cmd_info->bytes_written += bytes_written;
-		}
-		break;
-		default:
-			WL_ERR(("%s: Unknown tlv %u\n", __FUNCTION__, type));
+	case WL_MBO_XTLV_OPCLASS:
+	{
+		bytes_written = snprintf(command, total_len, "%u:", *data);
+		WL_ERR(("wr %u %u\n", bytes_written, *data));
+		command += bytes_written;
+		cmd_info->bytes_written += bytes_written;
+	}
+	break;
+	case WL_MBO_XTLV_CHAN:
+	{
+		bytes_written = snprintf(command, total_len, "%u:", *data);
+		WL_ERR(("wr %u\n", bytes_written));
+		command += bytes_written;
+		cmd_info->bytes_written += bytes_written;
+	}
+	break;
+	case WL_MBO_XTLV_PREFERENCE:
+	{
+		bytes_written = snprintf(command, total_len, "%u:", *data);
+		WL_ERR(("wr %u\n", bytes_written));
+		command += bytes_written;
+		cmd_info->bytes_written += bytes_written;
+	}
+	break;
+	case WL_MBO_XTLV_REASON_CODE:
+	{
+		bytes_written = snprintf(command, total_len, "%u ", *data);
+		WL_ERR(("wr %u\n", bytes_written));
+		command += bytes_written;
+		cmd_info->bytes_written += bytes_written;
+	}
+	break;
+	default:
+		WL_ERR(("%s: Unknown tlv %u\n", __FUNCTION__, type));
 	}
 	WL_DBG(("Total bytes written %u\n", cmd_info->bytes_written));
 	return BCME_OK;
@@ -7669,32 +7669,32 @@ wl_cfg80211_get_acs_band(int band)
 {
 	chanspec_band_t acs_band = WLC_ACS_BAND_INVALID;
 	switch (band) {
-		case WLC_BAND_AUTO:
-			WL_DBG(("ACS full channel scan \n"));
-			/* Restricting band to 2G in case of hw_mode any */
-			acs_band = WL_CHANSPEC_BAND_2G;
-			break;
+	case WLC_BAND_AUTO:
+		WL_DBG(("ACS full channel scan \n"));
+		/* Restricting band to 2G in case of hw_mode any */
+		acs_band = WL_CHANSPEC_BAND_2G;
+		break;
 #ifdef WL_6G_BAND
-		case WLC_BAND_6G:
-			WL_DBG(("ACS 6G band scan \n"));
-			acs_band = WL_CHANSPEC_BAND_6G;
-			break;
+	case WLC_BAND_6G:
+		WL_DBG(("ACS 6G band scan \n"));
+		acs_band = WL_CHANSPEC_BAND_6G;
+		break;
 #endif /* WL_6G_BAND */
-		case WLC_BAND_5G:
-			WL_DBG(("ACS 5G band scan \n"));
-			acs_band = WL_CHANSPEC_BAND_5G;
-			break;
-		case WLC_BAND_2G:
-			/*
-			 * If channel argument is not provided/ argument 20 is provided,
-			 * Restrict channel to 2GHz, 20MHz BW, No SB
-			 */
-			WL_DBG(("ACS 2G band scan \n"));
-			acs_band = WL_CHANSPEC_BAND_2G;
-			break;
-		default:
-			WL_ERR(("ACS: No band chosen\n"));
-			break;
+	case WLC_BAND_5G:
+		WL_DBG(("ACS 5G band scan \n"));
+		acs_band = WL_CHANSPEC_BAND_5G;
+		break;
+	case WLC_BAND_2G:
+		/*
+		 * If channel argument is not provided/ argument 20 is provided,
+		 * Restrict channel to 2GHz, 20MHz BW, No SB
+		 */
+		WL_DBG(("ACS 2G band scan \n"));
+		acs_band = WL_CHANSPEC_BAND_2G;
+		break;
+	default:
+		WL_ERR(("ACS: No band chosen\n"));
+		break;
 	}
 	WL_DBG(("%s: ACS: band = %d, acs_band = 0x%x\n", __FUNCTION__, band, acs_band));
 	return acs_band;
@@ -7816,69 +7816,69 @@ wl_android_set_auto_channel(struct net_device *dev, const char* cmd_str,
 
 	if ((sta_band != WLC_ACS_BAND_INVALID) && sta_chanspec && (band != WLC_BAND_INVALID)) {
 		switch (sta_band) {
-			case (WL_CHANSPEC_BAND_5G): {
-				if ((IS_5G_APCS_CHANNEL(sta_channel)) &&
-					(band == WLC_BAND_5G || band == WLC_BAND_AUTO)) {
-					/* SCC is allowed only for DEF_5G Channel */
-					channel = sta_channel;
-					acs_band = sta_band;
-				} else {
-					channel = APCS_DEFAULT_2G_CH;
-					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_2G);
-				}
-				break;
-			}
-#ifdef WL_6G_BAND
-			case (WL_CHANSPEC_BAND_6G):
-			{
-				if ((CHSPEC_IS_6G_PSC((chanspec_t)sta_chanspec)) &&
-					(band == WLC_BAND_6G || band == WLC_BAND_AUTO)) {
-					/* scc */
-					channel = sta_channel;
-					acs_band = sta_band;
-				} else {
-					WL_INFORM_MEM(("Fall back to 2g default\n"));
-					channel = APCS_DEFAULT_2G_CH;
-					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_2G);
-				}
-				break;
-			}
-#endif /* WL_6G_BAND */
-			case (WL_CHANSPEC_BAND_2G): {
-#ifdef WL_6G_BAND
-				if (band == WLC_BAND_6G) {
-					channel = APCS_DEFAULT_6G_CH;
-					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_6G);
-				} else
-#endif /* WL_6G_BAND */
-				if (band == WLC_BAND_5G) {
-					channel = APCS_DEFAULT_5G_CH;
-					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_5G);
-				} else if (band == WLC_BAND_AUTO) {
-#ifdef WL_6G_BAND
-					if (cfg->band_6g_supported) {
-						channel = APCS_DEFAULT_6G_CH;
-						acs_band = wl_cfg80211_get_acs_band(WLC_BAND_6G);
-					} else {
-						channel = APCS_DEFAULT_5G_CH;
-						acs_band = wl_cfg80211_get_acs_band(WLC_BAND_5G);
-					}
-#else
-					channel = APCS_DEFAULT_5G_CH;
-					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_5G);
-#endif	/* WL_6G_BAND */
-				} else {
-					/* scc */
-					channel = sta_channel;
-					acs_band = sta_band;
-				}
-				break;
-			}
-			default:
-				/* Intentional fall through to use same sta channel for softap */
+		case (WL_CHANSPEC_BAND_5G): {
+			if ((IS_5G_APCS_CHANNEL(sta_channel)) &&
+				(band == WLC_BAND_5G || band == WLC_BAND_AUTO)) {
+				/* SCC is allowed only for DEF_5G Channel */
 				channel = sta_channel;
 				acs_band = sta_band;
-				break;
+			} else {
+				channel = APCS_DEFAULT_2G_CH;
+				acs_band = wl_cfg80211_get_acs_band(WLC_BAND_2G);
+			}
+			break;
+		}
+#ifdef WL_6G_BAND
+		case (WL_CHANSPEC_BAND_6G):
+		{
+			if ((CHSPEC_IS_6G_PSC((chanspec_t)sta_chanspec)) &&
+				(band == WLC_BAND_6G || band == WLC_BAND_AUTO)) {
+				/* scc */
+				channel = sta_channel;
+				acs_band = sta_band;
+			} else {
+				WL_INFORM_MEM(("Fall back to 2g default\n"));
+				channel = APCS_DEFAULT_2G_CH;
+				acs_band = wl_cfg80211_get_acs_band(WLC_BAND_2G);
+			}
+			break;
+		}
+#endif /* WL_6G_BAND */
+		case (WL_CHANSPEC_BAND_2G): {
+#ifdef WL_6G_BAND
+			if (band == WLC_BAND_6G) {
+				channel = APCS_DEFAULT_6G_CH;
+				acs_band = wl_cfg80211_get_acs_band(WLC_BAND_6G);
+			} else
+#endif /* WL_6G_BAND */
+			if (band == WLC_BAND_5G) {
+				channel = APCS_DEFAULT_5G_CH;
+				acs_band = wl_cfg80211_get_acs_band(WLC_BAND_5G);
+			} else if (band == WLC_BAND_AUTO) {
+#ifdef WL_6G_BAND
+				if (cfg->band_6g_supported) {
+					channel = APCS_DEFAULT_6G_CH;
+					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_6G);
+				} else {
+					channel = APCS_DEFAULT_5G_CH;
+					acs_band = wl_cfg80211_get_acs_band(WLC_BAND_5G);
+				}
+#else
+				channel = APCS_DEFAULT_5G_CH;
+				acs_band = wl_cfg80211_get_acs_band(WLC_BAND_5G);
+#endif	/* WL_6G_BAND */
+			} else {
+				/* scc */
+				channel = sta_channel;
+				acs_band = sta_band;
+			}
+			break;
+		}
+		default:
+			/* Intentional fall through to use same sta channel for softap */
+			channel = sta_channel;
+			acs_band = sta_band;
+			break;
 		}
 		goto done2;
 	}
@@ -12404,21 +12404,21 @@ wl_nan_ranging_bw(struct net_device *net, int bw, char *command)
 	}
 
 	switch (bw) {
-		case NAN_RANGING_5G_BW20:
-			WL_ERR(("NAN_RANGING 5G/BW20\n"));
-			param.band = WLC_BAND_5G;
-			param.bw_cap = 0x1;
-			break;
-		case NAN_RANGING_5G_BW40:
-			WL_ERR(("NAN_RANGING 5G/BW40\n"));
-			param.band = WLC_BAND_5G;
-			param.bw_cap = 0x3;
-			break;
-		case NAN_RANGING_5G_BW80:
-			WL_ERR(("NAN_RANGING 5G/BW80\n"));
-			param.band = WLC_BAND_5G;
-			param.bw_cap = 0x7;
-			break;
+	case NAN_RANGING_5G_BW20:
+		WL_ERR(("NAN_RANGING 5G/BW20\n"));
+		param.band = WLC_BAND_5G;
+		param.bw_cap = 0x1;
+		break;
+	case NAN_RANGING_5G_BW40:
+		WL_ERR(("NAN_RANGING 5G/BW40\n"));
+		param.band = WLC_BAND_5G;
+		param.bw_cap = 0x3;
+		break;
+	case NAN_RANGING_5G_BW80:
+		WL_ERR(("NAN_RANGING 5G/BW80\n"));
+		param.band = WLC_BAND_5G;
+		param.bw_cap = 0x7;
+		break;
 	}
 
 	err = wldev_ioctl_set(net, WLC_DOWN, &val, sizeof(s32));
@@ -14928,19 +14928,19 @@ s32 wl_event_to_bcm_event(u16 event_type)
 	u16 event = -1;
 
 	switch (event_type) {
-		case WLC_E_SERVICE_FOUND:
-			event = BCM_E_SVC_FOUND;
-			break;
-		case WLC_E_P2PO_ADD_DEVICE:
-			event = BCM_E_DEV_FOUND;
-			break;
-		case WLC_E_P2PO_DEL_DEVICE:
-			event = BCM_E_DEV_LOST;
-			break;
+	case WLC_E_SERVICE_FOUND:
+		event = BCM_E_SVC_FOUND;
+		break;
+	case WLC_E_P2PO_ADD_DEVICE:
+		event = BCM_E_DEV_FOUND;
+		break;
+	case WLC_E_P2PO_DEL_DEVICE:
+		event = BCM_E_DEV_LOST;
+		break;
 	/* Above events are supported from BCM Supp ver 47 Onwards */
 
-		default:
-			WL_ERR(("Event not supported\n"));
+	default:
+		WL_ERR(("Event not supported\n"));
 	}
 
 	return event;
