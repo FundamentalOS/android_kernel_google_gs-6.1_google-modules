@@ -1449,7 +1449,7 @@ static ssize_t nvt_dttw_mode_store(struct device *dev, struct device_attribute *
 
 	NVT_LOGD("++\n");
 
-	if (kstrtou8(buf, 10, &mode) || !ts->bTouchIsAwake)
+	if (kstrtou8(buf, 10, &mode))
 		return -EINVAL;
 
 	if (mutex_lock_interruptible(&ts->lock))
