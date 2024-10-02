@@ -53,6 +53,8 @@
 #define EXTERNAL_DEBUG_OS_LOCK_OSLK BIT(5)
 #define EXTERNAL_DEBUG_OS_LOCK_DLK BIT(6)
 
+static DEFINE_MUTEX(edgetpu_debug_regs_lock);
+
 #if EDGETPU_HAS_FW_DEBUG
 /* Handle FW response data available. */
 void edgetpu_fw_debug_resp_ready(struct edgetpu_dev *etdev, u32 data_len)
@@ -225,30 +227,28 @@ static void edgetpu_fw_debug_exit(struct edgetpu_dev *etdev)
 }
 #endif /* EDGETPU_HAS_FW_DEBUG */
 
-void edgetpu_debug_dump_cpu_regs(struct edgetpu_dev *etdev)
+static bool dump_one_cpu(struct edgetpu_dev *etdev, uint core, uint external_debug_base)
 {
 	u32 val;
-
-	/* Acquires the PM count to ensure the TPU block and control cluster are powered. */
-	if (edgetpu_pm_get_if_powered(etdev, false)) {
-		dev_info(etdev->dev, "Device off. Skip CPU registers dump.");
-		return;
-	}
+	bool ret = false;
 
 	/* Non-secure invasive debug is disabled on fused devices. */
-	val = edgetpu_dev_read_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_AUTHSTATUS);
+	val = edgetpu_dev_read_32_sync(etdev, external_debug_base +
+				       EDGETPU_REG_EXTERNAL_DEBUG_AUTHSTATUS);
 	if ((val & EXTERNAL_DEBUG_NS_INVASIVE_MASK) != EXTERNAL_DEBUG_NS_INVASIVE_ENABLE) {
 		dev_info(etdev->dev, "Fused device. Skip CPU registers dump.");
-		goto err_pm_put;
+		return false;
 	}
 
 	/* Unlocks external debug lock. */
-	edgetpu_dev_write_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_LOCK_ACCESS,
+	edgetpu_dev_write_32_sync(etdev, external_debug_base +
+				  EDGETPU_REG_EXTERNAL_DEBUG_LOCK_ACCESS,
 				  EXTERNAL_DEBUG_UNLOCK_KEY);
-	val = edgetpu_dev_read_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_LOCK_STATUS);
+	val = edgetpu_dev_read_32_sync(etdev, external_debug_base +
+				       EDGETPU_REG_EXTERNAL_DEBUG_LOCK_STATUS);
 	if (val & EXTERNAL_DEBUG_LOCK_SLK) {
-		dev_err(etdev->dev, "Fail to unlock external debug lock.");
-		goto err_pm_put;
+		dev_err(etdev->dev, "Fail to unlock external debug lock core %u.", core);
+		return false;
 	}
 
 	/*
@@ -258,35 +258,63 @@ void edgetpu_debug_dump_cpu_regs(struct edgetpu_dev *etdev)
 	 *   2. OS is double locked.
 	 *   3. external debug processor is in reset state.
 	 */
-	val = edgetpu_dev_read_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_PROCESSOR_STATUS);
+	val = edgetpu_dev_read_32_sync(etdev, external_debug_base +
+				       EDGETPU_REG_EXTERNAL_DEBUG_PROCESSOR_STATUS);
 	if (!(val & EXTERNAL_DEBUG_OS_LOCK_UP) || (val & EXTERNAL_DEBUG_OS_LOCK_DLK) ||
 	    (val & EXTERNAL_DEBUG_OS_LOCK_R)) {
-		dev_err(etdev->dev, "External debug OS lock status unknown. Processor status: %#x",
-			val);
+		dev_err(etdev->dev,
+			"External debug OS lock status unknown core %u. Processor status: %#x",
+			core, val);
 		goto err_external_debug_lock;
 	}
 
 	/* Unlocks OS lock. */
-	edgetpu_dev_write_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_OS_LOCK_ACCESS,
+	edgetpu_dev_write_32_sync(etdev, external_debug_base +
+				  EDGETPU_REG_EXTERNAL_DEBUG_OS_LOCK_ACCESS,
 				  EXTERNAL_DEBUG_OS_UNLOCK_KEY);
-	val = edgetpu_dev_read_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_PROCESSOR_STATUS);
+	val = edgetpu_dev_read_32_sync(etdev, external_debug_base +
+				       EDGETPU_REG_EXTERNAL_DEBUG_PROCESSOR_STATUS);
 	if (val & EXTERNAL_DEBUG_OS_LOCK_OSLK) {
-		dev_err(etdev->dev, "Fail to unlock external debug OS lock.");
+		dev_err(etdev->dev, "Fail to unlock external debug OS lock core %u.", core);
 		goto err_external_debug_lock;
 	}
 
 	/* Reads external debug registers. */
-	val = edgetpu_dev_read_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_PROGRAM_COUNTER);
-	dev_info(etdev->dev, "External debug program counter: %#x", val);
+	val = edgetpu_dev_read_32_sync(etdev, external_debug_base +
+				       EDGETPU_REG_EXTERNAL_DEBUG_PROGRAM_COUNTER);
+	dev_info(etdev->dev, "Core %u program counter: %#x", core, val);
 
 	/* Locks OS lock. */
-	edgetpu_dev_write_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_OS_LOCK_ACCESS,
+	edgetpu_dev_write_32_sync(etdev, external_debug_base +
+				  EDGETPU_REG_EXTERNAL_DEBUG_OS_LOCK_ACCESS,
 				  EXTERNAL_DEBUG_OS_LOCK_KEY);
+	ret = true;
 err_external_debug_lock:
 	/* Locks external debug lock. */
-	edgetpu_dev_write_32_sync(etdev, EDGETPU_REG_EXTERNAL_DEBUG_LOCK_ACCESS,
+	edgetpu_dev_write_32_sync(etdev, external_debug_base +
+				  EDGETPU_REG_EXTERNAL_DEBUG_LOCK_ACCESS,
 				  EXTERNAL_DEBUG_LOCK_KEY);
-err_pm_put:
+	return ret;
+}
+
+void edgetpu_debug_dump_cpu_regs(struct edgetpu_dev *etdev)
+{
+	/* Acquires the PM count to ensure the TPU block and control cluster are powered. */
+	if (edgetpu_pm_get_if_powered(etdev, false)) {
+		dev_info(etdev->dev, "Device off. Skip CPU registers dump.");
+		return;
+	}
+
+	mutex_lock(&edgetpu_debug_regs_lock);
+	if (!dump_one_cpu(etdev, 0, EDGETPU_REG_EXTERNAL_DEBUG_0_BASE))
+		goto err_unlock;
+
+#if EDGETPU_NUM_CORES > 1
+	dump_one_cpu(etdev, 1, EDGETPU_REG_EXTERNAL_DEBUG_1_BASE);
+#endif /* EDGETPU_NUM_CORES > 1 */
+
+err_unlock:
+	mutex_unlock(&edgetpu_debug_regs_lock);
 	edgetpu_pm_put(etdev);
 }
 

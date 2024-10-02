@@ -255,13 +255,13 @@ int edgetpu_kci_init(struct edgetpu_mailbox_manager *mgr, struct edgetpu_kci *et
 		etkci->kci = devm_kzalloc(mgr->etdev->dev, sizeof(*etkci->kci), GFP_KERNEL);
 		if (!etkci->kci) {
 			ret = -ENOMEM;
-			goto err_mailbox_remove;
+			goto err_free_mailbox;
 		}
 	}
 
 	ret = edgetpu_kci_alloc_queue(mgr->etdev, mailbox, GCIP_MAILBOX_CMD_QUEUE, cmd_queue_mem);
 	if (ret)
-		goto err_mailbox_remove;
+		goto err_free_mailbox;
 
 	etdev_dbg(mgr->etdev, "%s: cmdq kva=%pK dma=%pad", __func__, cmd_queue_mem->vaddr,
 		  &cmd_queue_mem->dma_addr);
@@ -291,9 +291,8 @@ err_free_resp_queue:
 	edgetpu_kci_free_queue(mgr->etdev, resp_queue_mem);
 err_free_cmd_queue:
 	edgetpu_kci_free_queue(mgr->etdev, cmd_queue_mem);
-err_mailbox_remove:
-	edgetpu_mailbox_remove(mgr, mailbox);
-
+err_free_mailbox:
+	kfree(mailbox);
 	return ret;
 }
 
