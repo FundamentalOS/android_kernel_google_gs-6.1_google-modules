@@ -1686,7 +1686,6 @@ static int gxp_mmap(struct file *file, struct vm_area_struct *vma)
 
 static const struct file_operations gxp_fops = {
 	.owner = THIS_MODULE,
-	.llseek = no_llseek,
 	.mmap = gxp_mmap,
 	.open = gxp_open,
 	.release = gxp_release,
@@ -1883,11 +1882,7 @@ static __init int gxp_fs_init(void)
 {
 	int ret;
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0)
 	gxp_class = class_create(THIS_MODULE, GXP_NAME);
-#else
-	gxp_class = class_create(GXP_NAME);
-#endif
 	if (IS_ERR(gxp_class)) {
 		pr_err(GXP_NAME " error creating gxp class: %ld\n",
 		       PTR_ERR(gxp_class));

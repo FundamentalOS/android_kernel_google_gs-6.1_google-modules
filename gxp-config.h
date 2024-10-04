@@ -62,8 +62,8 @@
 #define GXP_ENABLE_DEBUG_DUMP 1
 #endif
 
-#ifndef GXP_LPM_IN_AON
-#define GXP_LPM_IN_AON 0
+#ifndef GXP_AUTO_PSM
+#define GXP_AUTO_PSM 0
 #endif
 
 #define GXP_DEBUG_DUMP_IOVA_BASE (0xF5000000)
