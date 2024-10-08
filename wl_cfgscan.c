@@ -6767,7 +6767,6 @@ wl_convert_freqlist_to_chspeclist(struct bcm_cfg80211 *cfg,
 	u32 *p_chspec_list = NULL;
 	char chanspec_str[CHANSPEC_STR_LEN];
 	u32 chan_info;
-	u16 channel_2g;
 #ifdef WL_CELLULAR_CHAN_AVOID
 	int safe_chspec_cnt = 0;
 	u32 *safe_chspeclist = NULL;
@@ -6935,28 +6934,17 @@ success:
 		p_chspec_list = chspeclist;
 	}
 
-	if (!wf_chspec_valid(parameter->scc_chspec)) {
-		for (i = 0; i < freq_list_len; i++) {
-			if ((parameter->freq_bands & CHSPEC_TO_WLC_BAND(p_chspec_list[i])) == 0) {
-				WL_DBG(("Skipping no matched band channel(0x%x).\n",
-					p_chspec_list[i]));
-				continue;
-			}
-
-			/* Limit 2G channels to 1, 6, 11 */
-			if (CHSPEC_IS2G(p_chspec_list[i])) {
-				channel_2g =  wf_chspec_ctlchan((chanspec_t)p_chspec_list[i]);
-				if (!(IS_P2P_SOCIAL_CHANNEL(channel_2g))) {
-					WL_DBG(("Skipping 2G channel %d\n", channel_2g));
-					continue;
-				}
-			}
-
-			wf_chspec_ntoa(p_chspec_list[i], chanspec_str);
-			WL_INFORM_MEM(("ACS : %s (0x%x)\n", chanspec_str, p_chspec_list[i]));
-			wl_cfgscan_acs_parse_parameter(cfg, req_len, pList,
-				p_chspec_list[i], parameter);
+	for (i = 0; i < freq_list_len; i++) {
+		if ((parameter->freq_bands & CHSPEC_TO_WLC_BAND(p_chspec_list[i])) == 0) {
+			WL_DBG(("Skipping no matched band channel(0x%x).\n",
+				p_chspec_list[i]));
+			continue;
 		}
+
+		wf_chspec_ntoa(p_chspec_list[i], chanspec_str);
+		WL_INFORM_MEM(("ACS : %s (0x%x)\n", chanspec_str, p_chspec_list[i]));
+		wl_cfgscan_acs_parse_parameter(cfg, req_len, pList,
+			p_chspec_list[i], parameter);
 	}
 
 exit:
@@ -7149,6 +7137,14 @@ wl_cfgscan_acs(struct wiphy *wiphy,
 				break;
 			}
 		}
+
+		if (req_len <= 0) {
+			ret = BCME_BADARG;
+			WL_ERR(("%s: *Error, Freq conversion resulted in (%d) no of frequencies\n",
+				__FUNCTION__, req_len));
+			break;
+		}
+
 		WL_TRACE(("%s: list_len=%d after freq_list\n", __FUNCTION__, req_len));
 
 		pReq->count = req_len;
