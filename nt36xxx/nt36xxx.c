@@ -3138,8 +3138,7 @@ int nvt_ts_resume(struct device *dev)
 		nvt_check_fw_reset_state(RESET_STATE_REK);
 	}
 
-	if (ts->wkg_option == WAKEUP_GESTURE_OFF)
-		nvt_irq_enable(true);
+	nvt_irq_enable(true);
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
