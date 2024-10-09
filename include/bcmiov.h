@@ -171,7 +171,7 @@ struct bcm_iov_batch_buf {
 	uint16 version;
 	uint8 count;
 	uint8 is_set;   /* obsolete */
-	struct bcm_iov_batch_subcmd cmds[0];
+	struct bcm_iov_batch_subcmd cmds[];
 };
 
 /* Non-Batched commands will have the following memory layout

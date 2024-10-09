@@ -1223,7 +1223,7 @@ struct beacon_proberesp {
 	__le64 timestamp;
 	__le16 beacon_int;
 	__le16 capab_info;
-	u8 variable[0];
+	u8 variable[];
 } __attribute__ ((packed));
 
 /* driver configuration */
@@ -1378,6 +1378,7 @@ typedef struct wl_mlo_link {
 	u8 link_addr[ETH_ALEN];
 	u8 peer_link_addr[ETH_ALEN];
 	chanspec_t chspec;
+	u8 link_power_state;
 } wl_mlo_link_t;
 
 typedef struct wl_mlo_link_info {
@@ -1458,6 +1459,7 @@ struct net_info {
 	u8 *qos_up_table;
 	bool reg_update_reqd;
 	bool td_policy_set;
+	u32 min_connect_idx;
 	bool aggressive_roam;
 };
 
@@ -2041,7 +2043,6 @@ typedef struct wl_event_idx {
 	u32 enqd;
 	u32 in_progress;
 	u32 event_type;
-	u32 min_connect_idx;
 } wl_event_idx_t;
 
 typedef struct {
@@ -2450,6 +2451,7 @@ struct bcm_cfg80211 {
 	u8 *chan_info_list;
 	u32 dyn_chan_policy;
 	bool bcnprot_ap;
+	bool p2p_cleanup;
 };
 
 typedef struct wl_multink_config {
@@ -3842,7 +3844,7 @@ extern u32 wl_log_level;
 extern u32 wl_cfg80211_debug_data_dump(struct net_device *dev, u8 *buf, u32 buf_len);
 extern s32 wl_cfg80211_iface_state_ops(struct wireless_dev *wdev, wl_interface_state_t state,
 	wl_iftype_t wl_iftype, u16 wl_mode);
-extern chanspec_t wl_cfg80211_get_shared_freq(struct wiphy *wiphy);
+extern chanspec_t wl_cfg80211_get_shared_freq(struct wiphy *wiphy, wl_iftype_t wl_iftype);
 #ifdef SUPPORT_SET_CAC
 extern void wl_cfg80211_set_cac(struct bcm_cfg80211 *cfg, int enable);
 #endif /* SUPPORT_SET_CAC */

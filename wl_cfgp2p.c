@@ -460,13 +460,13 @@ wl_cfgp2p_ifadd(struct bcm_cfg80211 *cfg, struct ether_addr *mac, u8 if_type,
 	struct net_device *ndev = bcmcfg_to_prmry_ndev(cfg);
 
 	ifreq.type = if_type;
-	ifreq.chspec = chspec;
+	ifreq.chspec = wf_chspec_ctlchspec(chspec);
 	memcpy(ifreq.addr.octet, mac->octet, sizeof(ifreq.addr.octet));
 
-	CFGP2P_ERR(("---cfg p2p_ifadd "MACDBG" %s %u\n",
+	CFGP2P_ERR(("---cfg p2p_ifadd "MACDBG" %s channel:%u chspec:0x%x\n",
 		MAC2STRDBG(ifreq.addr.octet),
 		(if_type == WL_P2P_IF_GO) ? "go" : "client",
-	        (chspec & WL_CHANSPEC_CHAN_MASK) >> WL_CHANSPEC_CHAN_SHIFT));
+		wf_chspec_ctlchan((chanspec_t)chspec), ifreq.chspec));
 
 	err = wldev_iovar_setbuf(ndev, "p2p_ifadd", &ifreq, sizeof(ifreq),
 		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
@@ -2764,15 +2764,19 @@ wl_cfgp2p_add_p2p_disc_if(struct bcm_cfg80211 *cfg)
 		wl_probe_wdev_all(cfg);
 #ifdef EXPLICIT_DISCIF_CLEANUP
 		/*
-		 * CUSTOMER_HW4 design doesn't delete the p2p discovery
-		 * interface on ifconfig wlan0 down context which comes
-		 * without a preceeding NL80211_CMD_DEL_INTERFACE for p2p
-		 * discovery. But during supplicant crash the DEL_IFACE
-		 * command will not happen and will cause a left over iface
-		 * even after ifconfig wlan0 down. So delete the iface
-		 * first and then indicate the HANG event
+		 * It is seen that sometimes framework doesn't delete the
+		 * p2p discovery interface on wifi off/disable/supp crash and
+		 * if a discovery interface is found during add_p2p_disc, attempt
+		 * to clean up by removing the discovery I/F. But this context
+		 * already holds rtnl_lock + if_sync. so the clean up function
+		 * should not hold any of these locks.
+		 * During supplicant crash/SSR the DEL_IFACE command will not happen
+		 * and will cause a left over iface even after ifconfig wlan0 down.
+		 * So delete the iface first and then indicate the HANG event
 		 */
+		cfg->p2p_cleanup = TRUE;
 		wl_cfgp2p_del_p2p_disc_if(cfg->p2p_wdev, cfg);
+		cfg->p2p_cleanup = FALSE;
 #else
 		dhd->hang_reason = HANG_REASON_IFACE_DEL_FAILURE;
 
@@ -2866,6 +2870,7 @@ wl_cfgp2p_stop_p2p_device(struct wiphy *wiphy, struct wireless_dev *wdev)
 	int ret = 0;
 	struct net_device *ndev = NULL;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	bool lock_reqd = TRUE;
 
 	if (!cfg)
 		return;
@@ -2895,9 +2900,24 @@ wl_cfgp2p_stop_p2p_device(struct wiphy *wiphy, struct wireless_dev *wdev)
 	/* Cancel any on-going listen */
 	wl_cfgp2p_cancel_listen(cfg, bcmcfg_to_prmry_ndev(cfg), wdev, TRUE);
 
+	if (cfg->p2p_cleanup) {
+		/* p2p clean up context already holds if_sync lock, so skip it
+		 * to avoid deadlock
+		 */
+		lock_reqd = FALSE;
+	}
+
+	if (lock_reqd) {
+		mutex_lock(&cfg->if_sync);
+	}
+
 	ret = wl_cfgp2p_disable_discovery(cfg);
 	if (unlikely(ret < 0)) {
 		CFGP2P_ERR(("P2P disable discovery failed, ret=%d\n", ret));
+	}
+
+	if (lock_reqd) {
+		mutex_unlock(&cfg->if_sync);
 	}
 
 	p2p_on(cfg) = false;
@@ -3050,7 +3070,7 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	 * so retrieve the current channel of primary interface and then start the virtual
 	 * interface on that.
 	 */
-	 chspec = wl_cfg80211_get_shared_freq(wiphy);
+	chspec = wl_cfg80211_get_shared_freq(wiphy, wl_iftype);
 
 	/* For P2P mode, use P2P-specific driver features to create the
 	 * bss: "cfg p2p_ifadd"

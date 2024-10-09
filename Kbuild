@@ -252,8 +252,10 @@ DHDCFLAGS += -DBCMASSERT_LOG
 # Enable Log Dump
 DHDCFLAGS += -DDHD_LOG_DUMP
 
-# Enable MMIO Trace
-DHDCFLAGS += -DDHD_MMIO_TRACE
+# Enable MMIO Trace - STBTPUT: Disabled for tput in STB platform
+ifeq ($(CONFIG_ARCH_BRCMSTB),)
+  DHDCFLAGS += -DDHD_MMIO_TRACE
+endif
 
 # Enable log print rate limit
 DHDCFLAGS += -DDHD_LOG_PRINT_RATE_LIMIT
@@ -282,7 +284,8 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
     # Enable SSSR Dump
 	DHDCFLAGS += -DDHD_SSSR_DUMP
     # Not required for the customer platform due to memory overhead
-    ifneq ($(CONFIG_ARCH_HISI),)
+    # Enabled for internal Android platforms HIKEY and STB
+    ifeq ($(CONFIG_SOC_GOOGLE),)
         DHDCFLAGS += -DDHD_SSSR_DUMP_BEFORE_SR
     endif
     # Enable System Debug Trace Controller, Embedded Trace Buffer
@@ -314,13 +317,17 @@ ifneq ($(CONFIG_BCMDHD_PCIE),)
 
     # Enable PKTID AUDIT
     # Not required for the customer platform due to overhead
-ifeq ($(CONFIG_SOC_GOOGLE),)
+    # Not required for STB platform also, Enabled only for hikey.
+    ifneq ($(CONFIG_ARCH_HISI),)
 	DHDCFLAGS += -DDHD_PKTID_AUDIT_ENABLED
-endif
-    # Enable pktid logging
+    endif
+    # STBTPUT: Not enabled for the STB platform due to overhead
+    ifeq ($(CONFIG_ARCH_BRCMSTB),)
+      # Enable pktid logging
         DHDCFLAGS += -DDHD_MAP_PKTID_LOGGING
-    # Flow ring status trace in ISR and DPC
+      # Flow ring status trace in ISR and DPC
 	DHDCFLAGS += -DDHD_FLOW_RING_STATUS_TRACE
+    endif
     # Enable internal Rx packet pool
 	DHDCFLAGS += -DRX_PKT_POOL
     # Enable Load Balancing support by default.
@@ -328,7 +335,10 @@ endif
     # DHD_LB_TXP - Perform TX Packet processing in parallel, default disabled, enabled using DHD_LB_TXP_DEFAULT_ENAB
     # DHD_LB_STATS - To display the Load Blancing statistics
 	DHDCFLAGS += -DDHD_LB -DDHD_LB_RXP -DDHD_LB_TXP -DDHD_LB_STATS
-	ifneq ($(filter y, $(CONFIG_SOC_LGA)),)
+	ifneq ($(CONFIG_ARCH_BRCMSTB),)
+	  DHDCFLAGS += -DDHD_LB_CPU_SET8=0x000 -DDHD_LB_CPU_SET4=0x000 -DDHD_LB_CPU_SET0=0x00E
+	  DHDCFLAGS += -DDHD_LB_RXPOST -DDHD_LB_CANDIDACY_OVERRIDE
+	else ifneq ($(filter y, $(CONFIG_SOC_LGA)),)
 		DHDCFLAGS += -DDHD_LB_CPU_SET8=0x100 -DDHD_LB_CPU_SET4=0x07C -DDHD_LB_CPU_SET0=0x002
 	else ifneq ($(filter y, $(CONFIG_SOC_ZUMAPRO)),)
 		DHDCFLAGS += -DDHD_LB_CPU_SET8=0x100 -DDHD_LB_CPU_SET4=0x070 -DDHD_LB_CPU_SET0=0x00E
@@ -344,8 +354,11 @@ endif
 	DHDCFLAGS += -DDHD_LB_TXBOUND=32
     # GRO (Generic Receive Offload) feature
 	DHDCFLAGS += -DENABLE_DHD_GRO
-    # Support Monitor Mode
-	DHDCFLAGS += -DWL_MONITOR
+    #STBTPUT: Not enabled for the STB platform due to overhead
+    ifeq ($(CONFIG_ARCH_BRCMSTB),)
+      # Support Monitor Mode
+      DHDCFLAGS += -DWL_MONITOR
+    endif
     # WLAN-BT Regon coordinator
 	DHDCFLAGS += -DWBRC
 	DHDCFLAGS += -DWBRC_WLAN_ON_FIRST_ALWAYS
@@ -467,7 +480,10 @@ DHDCFLAGS += -DUSE_WL_TXBF
 DHDCFLAGS += -DSOFTAP_UAPSD_OFF
 DHDCFLAGS += -DVSDB
 DHDCFLAGS += -DWL_CFG80211_STA_EVENT
-DHDCFLAGS += -DWL_CFG80211_MONITOR
+#STBTPUT: Disabled for tput in STB platform
+ifeq ($(CONFIG_ARCH_BRCMSTB),)
+  DHDCFLAGS += -DWL_CFG80211_MONITOR
+endif
 ifneq ($(CONFIG_CFG80211_FILS_BKPORT),)
     DHDCFLAGS += -DWL_FILS
 endif
@@ -975,10 +991,13 @@ ifneq ($(filter y, $(CONFIG_BCM4389) $(CONFIG_BCM4398) $(CONFIG_BCM4390) $(CONFI
         DHDCFLAGS += -DPROP_TXSTATUS_VSDB
         # HEAP ASLR
         DHDCFLAGS += -DBCM_ASLR_HEAP
-	# Enable workitem aggregation
-	DHDCFLAGS += -DDHD_AGGR_WI
-	# Bits in DHD_AGGR_WI_EN : 0 = TXPOST | 1 = RXPOST | 2 = TXCPL | 3 = RXCPL
-	DHDCFLAGS += -DDHD_AGGR_WI_EN=0xE
+        #STBTPUT: Disabled for tput in STB platform
+        ifeq ($(CONFIG_ARCH_BRCMSTB),)
+	  # Enable workitem aggregation
+	  DHDCFLAGS += -DDHD_AGGR_WI
+	  # Bits in DHD_AGGR_WI_EN : 0 = TXPOST | 1 = RXPOST | 2 = TXCPL | 3 = RXCPL
+	  DHDCFLAGS += -DDHD_AGGR_WI_EN=0xE
+        endif
         DHDCFLAGS += -DMAX_CNTL_TX_TIMEOUT=1
         ifneq ($(CONFIG_ARCH_MSM),)
             DHDCFLAGS += -DMSM_PCIE_LINKDOWN_RECOVERY
@@ -1096,6 +1115,50 @@ else ifneq ($(CONFIG_ARCH_HISI),)
         # Dongle init fail
 	DHDCFLAGS += -DPOWERUP_MAX_RETRY=0
 	DHDCFLAGS := $(filter-out -DSIMPLE_MAC_PRINT ,$(DHDCFLAGS))
+else ifneq ($(CONFIG_ARCH_BRCMSTB),)
+  DHDCFLAGS += -DBOARD_STB -DBOARD_STB_HW2 -DBCMDEV
+  ifneq ($(CONFIG_BCMDHD_PCIE),)
+    # Enable FIS Dump (with common subcore) to collect on special cases
+    DHDCFLAGS += -DDHD_FIS_DUMP
+    DHDCFLAGS += -DFIS_WITH_CMN
+  endif
+  DHDCFLAGS += -DDHD_SUPPORT_VFS_CALL
+  # Skip pktlogging of data packets
+  DHDCFLAGS += -DDHD_SKIP_PKTLOGGING_FOR_DATA_PKTS
+  # Allow wl event forwarding as network packet
+  DHDCFLAGS += -DWL_EVENT_ENAB
+  # Enable memdump for logset beyond range only internal builds
+  DHDCFLAGS += -DDHD_LOGSET_BEYOND_MEMDUMP
+
+  DHDCFLAGS += -DDHD_LB_TXP_DEFAULT_ENAB
+  #ifneq ($(CONFIG_BCMDHD_PCIE),)
+    # LB RXP Flow control to avoid OOM
+    #STBTPUT: Disabled for tput in STB platform
+    #DHDCFLAGS += -DLB_RXP_STOP_THR=200 -DLB_RXP_STRT_THR=199
+  #endif
+  DHDCFLAGS += -DDHD_SUPPORT_VFS_CALL
+  DHDCFLAGS += -DDHD_IOVAR_LOG_FILTER_DUMP
+  DHDCFLAGS += -DDHD_CAP_PLATFORM="\"stb \""
+  DHDCFLAGS := $(filter-out -DSIMPLE_MAC_PRINT ,$(DHDCFLAGS))
+  # TCP TPUT Enhancement, enable only for GS101
+  DHDCFLAGS += -DDHD_TCP_LIMIT_OUTPUT
+  DHDCFLAGS += -DDHD_TCP_PACING_SHIFT
+  DHDCFLAGS += -DDHDTCPACK_SUPPRESS
+
+  ifneq ($(STB_ANDROIDVER),T)
+    # ch_switch_notify back port changes
+    DHDCFLAGS += -DWL_CH_SWITCH_BKPORT
+    # External auth request back port changes
+    # DHDCFLAGS += -DWL_EXT_AUTH_BKPORT
+    # TDI policy kernel back port changes
+    DHDCFLAGS += -DWL_MLO_BKPORT_NEW_PORT_AUTH
+    ifneq ($(STB_BOARD_VARIANT), A0)
+      DHDCFLAGS += -DWAKEUP_KSOFTIRQD_POST_NAPI_SCHEDULE
+    endif
+  endif
+  # STB supports MSI
+  DHDCFLAGS += -DDHD_MSI_SUPPORT
+  DHDCFLAGS += -DDISABLE_L2_IN_D3
 endif
 
 DHDCFLAGS += -DDHD_DEBUG
@@ -1155,6 +1218,8 @@ ifneq ($(filter y, $(CONFIG_SOC_GOOGLE) $(CONFIG_SOC_EXYNOS9820)),)
 	DHDOFILES += dhd_custom_google.o
 else ifneq ($(CONFIG_ARCH_HISI),)
 	DHDOFILES += dhd_custom_hikey.o
+else ifneq ($(CONFIG_ARCH_BRCMSTB),)
+  DHDOFILES += dhd_custom_stb.o
 endif
 
 ifneq ($(CONFIG_BROADCOM_WIFI_RESERVED_MEM),)

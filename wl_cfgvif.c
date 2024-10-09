@@ -256,6 +256,9 @@ wl_cfgvif_del_if(struct bcm_cfg80211 *cfg, struct net_device *primary_ndev,
 	struct wireless_dev *wdev, char *ifname)
 {
 	int ret = BCME_OK;
+	struct net_info *iter, *next;
+	bool active_iface = FALSE;
+
 	mutex_lock(&cfg->if_sync);
 	ret = _wl_cfg80211_del_if(cfg, primary_ndev, wdev, ifname);
 	mutex_unlock(&cfg->if_sync);
@@ -263,13 +266,32 @@ wl_cfgvif_del_if(struct bcm_cfg80211 *cfg, struct net_device *primary_ndev,
 	if ((cfg->vif_count == 0) && primary_ndev &&
 		!(primary_ndev->flags & IFF_UP) &&
 		!(IS_CFG80211_STATIC_IF_ACTIVE(cfg)) &&
+#ifdef WL_NAN
+		(wl_cfgnan_is_enabled(cfg) == FALSE) &&
+#endif /* WL_NAN */
 		(wl_cfgvif_get_iftype_count(cfg, WL_IF_TYPE_AP) == 0) &&
 		(wl_cfgvif_get_iftype_count(cfg, WL_IF_TYPE_STA) == 0)) {
 		/* DHD cleanup in case wlan0 down was already called but was not
 		* done due to a virtual interface still running
 		*/
-		WL_INFORM(("Calling dhd_stop for DHD cleanup as all interfaces are down\n"));
-		dhd_stop(primary_ndev);
+
+		GCC_DIAGNOSTIC_PUSH_SUPPRESS_CAST();
+		for_each_ndev(cfg, iter, next) {
+			GCC_DIAGNOSTIC_POP();
+			if (iter->ndev) {
+				WL_DBG_MEM(("iface:%s present. flags:0x%x\n",
+					iter->ndev->name, iter->ndev->flags));
+				if (iter->ndev->flags & IFF_UP) {
+					WL_DBG_MEM(("%s: interface active\n", iter->ndev->name));
+					active_iface = TRUE;
+				}
+			}
+		}
+
+		if (active_iface == FALSE) {
+			WL_INFORM(("Calling dhd_stop as all interfaces are down\n"));
+			dhd_stop(primary_ndev);
+		}
 	}
 
 	return ret;
@@ -1217,6 +1239,7 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 	u16 wl_iftype;
 	u16 wl_mode;
 	struct net_device *primary_ndev;
+	struct net_device *ndev = NULL;
 
 	if (!cfg) {
 		return -EINVAL;
@@ -1229,6 +1252,7 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 		return -ENODEV;
 	}
 
+	ndev = wdev_to_ndev(wdev);
 #ifdef WL_STATIC_IF
 	/* interface delete is invalid for static interface */
 	if (IS_CFG80211_STATIC_IF(cfg, wdev_to_ndev(wdev))) {
@@ -1237,10 +1261,22 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 	}
 #endif /* WL_STATIC_IF */
 
-	WL_DBG(("Enter  wdev:%p iftype: %d\n", wdev, wdev->iftype));
+	WL_INFORM_MEM(("Enter  wdev:%p iftype: %d\n", wdev, wdev->iftype));
 	if (cfg80211_to_wl_iftype(wdev->iftype, &wl_iftype, &wl_mode) < 0) {
 		WL_ERR(("Wrong iftype: %d\n", wdev->iftype));
 		return -ENODEV;
+	}
+
+	if (ndev) {
+#ifdef WL_NAN
+		if (IS_NDI_IFACE(ndev->name)) {
+			/* Check for aware* iface name for NAN iftype */
+			if (!cfg->nancfg->nan_init_state || !cfg->nancfg->nan_enable) {
+				WL_ERR(("Nan must be inited/enabled\n"));
+				return -ENODEV;
+			}
+		}
+#endif /* WL_NAN */
 	}
 
 	if ((ret = wl_cfgvif_del_if(cfg, primary_ndev,
@@ -1265,6 +1301,8 @@ wl_cfg80211_change_p2prole(struct wiphy *wiphy, struct net_device *ndev, enum nl
 #ifdef BCMDONGLEHOST
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* BCMDONGLEHOST */
+	u16 wl_iftype;
+	u16 wl_mode;
 
 	WL_INFORM_MEM(("Enter. current_role:%d new_role:%d \n", ndev->ieee80211_ptr->iftype, type));
 
@@ -1297,7 +1335,11 @@ wl_cfg80211_change_p2prole(struct wiphy *wiphy, struct net_device *ndev, enum nl
 	 * channel. so retrieve the current channel of primary interface and
 	 * then start the virtual interface on that.
 	 */
-	chspec = wl_cfg80211_get_shared_freq(wiphy);
+	if (cfg80211_to_wl_iftype(type, &wl_iftype, &wl_mode) < 0) {
+		WL_ERR(("Unsupported if type %d\n", type));
+		return BCME_UNSUPPORTED;
+	}
+	chspec = wl_cfg80211_get_shared_freq(wiphy, wl_iftype);
 	if (type == NL80211_IFTYPE_P2P_GO) {
 		/* Dual p2p doesn't support multiple P2PGO interfaces,
 		 * p2p_go_count is the counter for GO creation
@@ -1611,8 +1653,8 @@ wl_cfg80211_cleanup_virtual_ifaces(struct bcm_cfg80211 *cfg, bool rtnl_lock_reqd
 			if (!IS_CFG80211_STATIC_IF(cfg, iter->ndev))
 #endif /* WL_STATIC_IF */
 			{
-				dev_close(iter->ndev);
 				WL_INFORM(("Cleaning up iface:%s \n", iter->ndev->name));
+				dev_close(iter->ndev);
 #if defined(WLAN_ACCEL_BOOT)
 				/* Trigger force reg_on to ensure clean up of virtual interface
 				* states in FW for any residual interface states, casued due to
@@ -2304,6 +2346,15 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 				}
 #endif /* WL_UNII4_CHAN */
 			}
+		}
+	} else {
+		WL_DBG_MEM(("Non concurrency case chanspec 0x%x\n", chspec));
+		if ((CHSPEC_IS6G(chspec) && wl_is_6g_restricted(cfg, chspec)) ||
+			(CHSPEC_IS5G(chspec) && wl_is_5g_restricted(cfg, chspec)) ||
+			(CHSPEC_IS2G(chspec) && wl_is_2g_restricted(cfg, chspec))) {
+			err = BCME_BADCHAN;
+			WL_ERR(("Restricted chanspec 0x%x, failing softAP\n", chspec));
+			return err;
 		}
 	}
 
@@ -4779,9 +4830,9 @@ wl_cfg80211_start_ap(
 #ifdef PKT_FILTER_SUPPORT
 		dhd_enable_packet_filter(0, dhd);
 #endif /* PKT_FILTER_SUPPORT */
-#ifdef APF
+#if defined(APF) && defined(APF_SINGLE_IF_SUPPORT)
 		dhd_dev_apf_disable_filter(dhd_linux_get_primary_netdev(dhd));
-#endif /* APF */
+#endif /* APF && APF_SINGLE_IF_SUPPORT */
 	}
 #endif /* BCMDONGLEHOST */
 
@@ -4813,7 +4864,7 @@ wl_cfg80211_start_ap(
  *      hardcoded values in 'wl_cfg80211_set_channel()'.
  */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)) || defined(WL_MLO_BKPORT)
- 	err = wl_cfg80211_set_channel(wiphy, dev, dev->ieee80211_ptr->u.ap.preset_chandef.chan,
+	err = wl_cfg80211_set_channel(wiphy, dev, dev->ieee80211_ptr->u.ap.preset_chandef.chan,
 			NL80211_CHAN_HT20);
 #elif ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)) && !defined(WL_COMPAT_WIRELESS))
 	err = wl_cfg80211_set_channel(wiphy, dev, dev->ieee80211_ptr->preset_chandef.chan,
@@ -4921,9 +4972,9 @@ fail:
 #ifdef PKT_FILTER_SUPPORT
 			dhd_enable_packet_filter(1, dhd);
 #endif /* PKT_FILTER_SUPPORT */
-#ifdef APF
+#if defined(APF) && defined(APF_SINGLE_IF_SUPPORT)
 			dhd_dev_apf_enable_filter(dhd_linux_get_primary_netdev(dhd));
-#endif /* APF */
+#endif /* APF && APF_SINGLE_IF_SUPPORT */
 		}
 #endif /* BCMDONGLEHOST */
 
@@ -6871,6 +6922,7 @@ wl_cfgvif_csa_start_ind(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 const wl_event_msg_t *e, void *data)
 {
 	struct net_device *ndev = NULL;
+	wl_csa_event_t	*csa_event = NULL;
 
 	if (!cfgdev) {
 		WL_ERR(("invalid arg\n"));
@@ -6878,7 +6930,13 @@ const wl_event_msg_t *e, void *data)
 	}
 
 	ndev = cfgdev_to_wlc_ndev(cfgdev, cfg);
-	WL_INFORM_MEM(("[%s] csa started\n", ndev->name));
+	if (data) {
+		csa_event = (wl_csa_event_t *)data;
+		WL_INFORM_MEM(("[%s] csa started chspec:0x%x ifidx:%d bssidx:%d\n",
+			ndev->name, csa_event->csa.chspec, e->ifidx, e->bsscfgidx));
+	} else {
+		WL_INFORM_MEM(("[%s] csa started\n", ndev->name));
+	}
 
 	wl_set_drv_status(cfg, CSA_ACTIVE, ndev);
 
@@ -6906,8 +6964,9 @@ const wl_event_msg_t *e, void *data)
 		ndev = cfgdev_to_wlc_ndev(cfgdev, cfg);
 		wl_clr_drv_status(cfg, CSA_ACTIVE, ndev);
 
-		WL_INFORM_MEM(("[%s] CSA ind. ch:0x%x status:%d\n",
-			ndev->name, chanspec, status));
+		WL_INFORM_MEM(("[%s] CSA ind. status:%d ifidx:%d bssidx:%d\n",
+			ndev->name, status, e->ifidx, e->bsscfgidx));
+
 		if (status != WLC_E_STATUS_SUCCESS) {
 			WL_ERR(("csa complete error. status:0x%x\n", e->status));
 			return BCME_ERROR;
@@ -9418,6 +9477,69 @@ wl_cfgvif_is_scc_valid(chanspec_t sta_chanspec, chanspec_t chspec, wl_chan_info_
 	}
 	return FALSE;
 }
+
+#if defined(KEEP_ALIVE) && defined(OEM_ANDROID)
+s32
+wl_cfgvif_apply_default_keep_alive(struct net_device *ndev, struct bcm_cfg80211 *cfg)
+{
+	const char *str;
+	wl_mkeep_alive_pkt_v2_t mkeep_alive_pkt;
+	wl_mkeep_alive_pkt_v2_t *mkeep_alive_pktp = NULL;
+	u16 buf_len = 0;
+	u8 str_len = 0;
+	int res = BCME_ERROR;
+	u8 buf[WLC_IOCTL_SMLEN] = {0};
+	u16 pbuf_len = WLC_IOCTL_SMLEN;
+	u8 offset_len = OFFSETOF(wl_mkeep_alive_pkt_v2_t, data);
+
+	/*
+	 * The mkeep_alive packet is for STA interface only; if the bss is configured as AP,
+	 * dongle shall reject a mkeep_alive request.
+	 */
+	if (!IS_STA_IFACE(ndev_to_wdev(ndev))) {
+		WL_ERR(("%s not a STA interface\n", ndev->name));
+		return BCME_ERROR;
+	}
+
+	/* Request the specified ID */
+	bzero(&mkeep_alive_pkt, sizeof(wl_mkeep_alive_pkt_v2_t));
+	str = "mkeep_alive";
+	str_len = strlen(str);
+	buf_len = str_len + 1;
+	strlcpy(buf, str, buf_len);
+	pbuf_len -= buf_len;
+
+	if (sizeof(wl_mkeep_alive_pkt_v2_t) + buf_len > WLC_IOCTL_SMLEN) {
+		WL_ERR(("buf size issue\n"));
+		res = -EINVAL;
+		goto exit;
+	}
+	mkeep_alive_pktp = (wl_mkeep_alive_pkt_v2_t *) (buf + buf_len);
+	mkeep_alive_pkt.period_msec = CUSTOM_KEEP_ALIVE_SETTING;
+	mkeep_alive_pkt.version = htod16(WL_MKEEP_ALIVE_VERSION_2);
+	mkeep_alive_pkt.length = htod16(offset_len);
+
+	/* use id 0 for null data packet */
+	mkeep_alive_pkt.keep_alive_id = 0;
+	mkeep_alive_pkt.len_bytes = 0;
+	mkeep_alive_pkt.retry_cnt = 0;
+
+	if (memcpy_s((char *)mkeep_alive_pktp, pbuf_len,
+			&mkeep_alive_pkt, WL_MKEEP_ALIVE_FIXED_LEN)) {
+		res = -EINVAL;
+		goto exit;
+	}
+
+	buf_len += OFFSETOF(wl_mkeep_alive_pkt_v2_t, data);
+
+	res = wldev_ioctl_set(ndev, WLC_SET_VAR, buf, buf_len);
+	WL_INFORM_MEM(("default keepliave config %s. err:%d\n",
+		res ? "failed" : "succeeded", res));
+exit:
+	return res;
+}
+#endif /* KEEP_ALIVE && OEM_ANDROID */
+
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
 s32

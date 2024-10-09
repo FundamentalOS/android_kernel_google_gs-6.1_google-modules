@@ -5313,13 +5313,17 @@ wl_cfgscan_listen_complete_work(struct work_struct *work)
 	struct bcm_cfg80211 *cfg = NULL;
 	BCM_SET_CONTAINER_OF(cfg, work, struct bcm_cfg80211, loc.work.work);
 
+	mutex_lock(&cfg->if_sync);
 	WL_ERR(("listen timeout\n"));
 	/* listen not completed. Do recovery */
 	if (!cfg->loc.in_progress) {
 		WL_ERR(("No listen in progress!\n"));
-		return;
+		goto exit;
 	}
 	wl_cfgscan_notify_listen_complete(cfg);
+
+exit:
+	mutex_unlock(&cfg->if_sync);
 }
 
 s32
@@ -6932,7 +6936,8 @@ success:
 
 	for (i = 0; i < freq_list_len; i++) {
 		if ((parameter->freq_bands & CHSPEC_TO_WLC_BAND(p_chspec_list[i])) == 0) {
-			WL_DBG(("Skipping no matched band channel(0x%x).\n", p_chspec_list[i]));
+			WL_DBG(("Skipping no matched band channel(0x%x).\n",
+				p_chspec_list[i]));
 			continue;
 		}
 
@@ -7132,6 +7137,14 @@ wl_cfgscan_acs(struct wiphy *wiphy,
 				break;
 			}
 		}
+
+		if (req_len <= 0) {
+			ret = BCME_BADARG;
+			WL_ERR(("%s: *Error, Freq conversion resulted in (%d) no of frequencies\n",
+				__FUNCTION__, req_len));
+			break;
+		}
+
 		WL_TRACE(("%s: list_len=%d after freq_list\n", __FUNCTION__, req_len));
 
 		pReq->count = req_len;
@@ -7955,7 +7968,7 @@ u8 wl_cfgscan_get_max_num_chans_per_bw(chanspec_t chspec)
 }
 
 void
-wl_connected_channel_debuggability(struct bcm_cfg80211 * cfg, struct net_device * ndev)
+wl_connected_channel_debuggability(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 {
 	chanspec_t *chanspec;
 	struct ieee80211_channel *chan;
