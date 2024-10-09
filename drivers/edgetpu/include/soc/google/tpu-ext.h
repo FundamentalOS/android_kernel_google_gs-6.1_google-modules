@@ -94,9 +94,6 @@ enum edgetpu_ext_client_type {
  * Returns:
  *	0 on success or negative error code on error.
  */
-#if !IS_ENABLED(CONFIG_EDGETPU_TEST)
-#define edgetpu_ext_driver_cmd __mock_edgetpu_ext_driver_cmd
-#endif /* CONFIG_EDGETPU_TEST */
 int edgetpu_ext_driver_cmd(struct device *edgetpu_dev, enum edgetpu_ext_client_type client_type,
 			   enum edgetpu_ext_commands cmd_id, void *in_data, void *out_data);
 

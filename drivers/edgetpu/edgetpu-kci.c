@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <linux/string.h> /* memcpy */
 
+#include <gcip/gcip-firmware.h>
 #include <gcip/gcip-telemetry.h>
 #include <gcip/gcip-usage-stats.h>
 
@@ -170,7 +171,7 @@ static void edgetpu_reverse_kci_handle_response(struct gcip_kci *kci,
 		edgetpu_handle_client_fatal_error_notify(etdev, resp->retval);
 		break;
 	case GCIP_RKCI_FIRMWARE_CRASH:
-		edgetpu_handle_firmware_crash(etdev, (enum edgetpu_fw_crash_type)resp->retval);
+		edgetpu_handle_firmware_crash(etdev, (enum gcip_fw_crash_type)resp->retval);
 		break;
 	case GCIP_RKCI_JOB_LOCKUP:
 		edgetpu_handle_job_lockup(etdev, resp->retval);
@@ -178,6 +179,9 @@ static void edgetpu_reverse_kci_handle_response(struct gcip_kci *kci,
 #if EDGETPU_HAS_FW_DEBUG
 	case GCIP_RKCI_DEBUG_ASYNC_RESP:
 		edgetpu_fw_debug_resp_ready(etdev, resp->retval);
+		break;
+	case GCIP_RKCI_DEBUG_INIT_REQ:
+		edgetpu_fw_debug_init_req(etdev);
 		break;
 #endif
 	default:
@@ -817,5 +821,16 @@ int edgetpu_kci_fw_debug_reset(struct edgetpu_dev *etdev)
 
 	ret = gcip_kci_send_cmd_return_resp(etdev->etkci->kci, &cmd, &resp);
 	return ret;
+}
+
+void edgetpu_kci_fw_send_debug_init(struct edgetpu_dev *etdev, dma_addr_t daddr, size_t count)
+{
+	struct gcip_kci_command_element cmd = {
+		.code = GCIP_KCI_CODE_DEBUG_INIT,
+	};
+
+	cmd.dma.address = daddr;
+	cmd.dma.size = count;
+	gcip_kci_send_cmd(etdev->etkci->kci, &cmd);
 }
 #endif /* EDGETPU_HAS_FW_DEBUG */
