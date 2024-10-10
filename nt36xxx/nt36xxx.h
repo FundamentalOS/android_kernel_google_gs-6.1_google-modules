@@ -102,8 +102,14 @@
 #define NVT_PEN_BATTERY_NAME "nvt-pen-battery"
 
 //---Touch info.---
-#define TOUCH_DEFAULT_MAX_WIDTH 1600
-#define TOUCH_DEFAULT_MAX_HEIGHT 2560
+#define TOUCH_RES_SCALE 1
+#define DEFAULT_MAX_WIDTH 1600
+#define DEFAULT_MAX_HEIGHT 2560
+#define TOUCH_DEFAULT_MAX_WIDTH (DEFAULT_MAX_WIDTH * TOUCH_RES_SCALE)
+#define TOUCH_DEFAULT_MAX_HEIGHT (DEFAULT_MAX_HEIGHT * TOUCH_RES_SCALE)
+#define PEN_RES_SCALE 2
+#define PEN_DEFAULT_MAX_WIDTH (DEFAULT_MAX_WIDTH * PEN_RES_SCALE)
+#define PEN_DEFAULT_MAX_HEIGHT (DEFAULT_MAX_HEIGHT * PEN_RES_SCALE)
 #define TOUCH_MAX_FINGER_NUM 10
 #define TOUCH_KEY_NUM 0
 #if TOUCH_KEY_NUM > 0
@@ -136,9 +142,16 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define NVT_TOUCH_MP 1
 #define BOOT_UPDATE_FIRMWARE 1
 #if defined(CONFIG_SOC_GOOGLE)
+#if SPI_FLASH
+#define BOOT_UPDATE_FIRMWARE_MS_DELAY 0
+#define UPDATE_FIRMWARE_TIMEOUT 3000
+#else
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 100
+#define UPDATE_FIRMWARE_TIMEOUT 500
+#endif
 #else
 #define BOOT_UPDATE_FIRMWARE_MS_DELAY 14000
+#define UPDATE_FIRMWARE_TIMEOUT 500
 #endif
 #define BOOT_UPDATE_FIRMWARE_NAME "novatek_ts_fw.bin"
 #define MP_UPDATE_FIRMWARE_NAME   "novatek_ts_mp.bin"
@@ -268,6 +281,10 @@ struct nvt_ts_data {
 	uint16_t touch_height;
 	uint16_t abs_x_max;		/* abs report start from 0 to 'width-1' */
 	uint16_t abs_y_max;		/* abs report start from 0 to 'height-1' */
+	uint16_t pen_width;
+	uint16_t pen_height;
+	uint16_t pen_abs_x_max;		/* abs report start from 0 to 'width-1' */
+	uint16_t pen_abs_y_max;		/* abs report start from 0 to 'height-1' */
 	uint8_t max_touch_num;
 	uint8_t max_button_num;
 	uint8_t touch_freq_index;
@@ -291,7 +308,6 @@ struct nvt_ts_data {
 	bool probe_done;
 	bool irq_enabled;
 	bool pen_support;
-	bool wgp_stylus;
 	uint8_t x_gang_num;
 	uint8_t y_gang_num;
 	int8_t pen_input_idx;
@@ -361,6 +377,7 @@ struct nvt_ts_data {
 	/*
 	 * Used for google touch interface.
 	 */
+	bool fw_update_in_process;
 	bool selftest_in_process;
 	struct goog_touch_interface *gti;
 	uint8_t heatmap_host_cmd;
@@ -386,6 +403,7 @@ struct nvt_ts_data {
 #endif // SPI_FLASH
 	uint8_t mp_tvcl_mode;
 	uint8_t mp_ibias_mode;
+
 	union {
 	struct {
 		u32 selftest_failed_short : 1;
@@ -401,6 +419,14 @@ struct nvt_ts_data {
 	};
 	unsigned long selftest_defect_x_line;
 	unsigned long selftest_defect_y_line;
+
+	bool high_resolution_enabled;
+	u16 display_width; /* pixel */
+	u16 display_height; /* pixel */
+	u16 res_scale;
+	uint8_t *point_data;
+	u16 point_data_alloc_sz;
+
 };
 
 #if NVT_TOUCH_PROC
