@@ -1880,9 +1880,7 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 		struct wireless_dev *wdev, const void  *data, int len)
 {
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-#ifdef DHD_FILE_DUMP_EVENT
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
-#endif /* DHD_FILE_DUMP_EVENT */
 	struct net_device *ndev = wdev_to_wlc_ndev(wdev, cfg);
 
 	cfg->hal_state = HAL_STOP_IN_PROG;
@@ -1895,7 +1893,11 @@ wl_cfgvendor_stop_hal(struct wiphy *wiphy,
 #endif /* DHD_FILE_DUMP_EVENT */
 	WL_INFORM(("%s,[DUMP] HAL STOPPED\n", __FUNCTION__));
 
-	dhd_stop(ndev);
+	if (dhd->stop_in_progress) {
+		WL_INFORM(("dhd_stop in progress, skip\n"));
+	} else if (dhd->if_opened) {
+		dhd_stop(ndev);
+	}
 	cfg->hal_state = HAL_IDLE;
 	return BCME_OK;
 }
@@ -8435,7 +8437,9 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 		COMPAT_ASSIGN_VALUE(iface, peer_info->bssload.sta_count, bssload->sta_count);
 		COMPAT_ASSIGN_VALUE(iface, peer_info->bssload.chan_util, bssload->chan_util);
 	} else if (err == BCME_UNSUPPORTED) {
+		/* err return causes wifi turn off in android. print err and exit gracefully */
 		WL_ERR(("bssload_report is unsupported \n"));
+		err = BCME_OK;
 	} else if (err == BCME_NOTASSOCIATED) {
 		WL_ERR(("bssload_report IOVAR failed. STA is not associated.\n"));
 	} else {
