@@ -142,7 +142,7 @@ static int qbt_touch_connect(struct input_handler *handler,
 	int ret;
 
 	/* Only connect to the built in touchscreen. */
-	if (dev->uniq && strncmp(dev->uniq, "google_touchscreen", 18) != 0) {
+	if (!(dev->uniq && strncmp(dev->uniq, "google_touchscreen", 18) == 0)) {
 		pr_info("Skip connecting device: %s\n", dev_name(&dev->dev));
 		return 0;
 	}
