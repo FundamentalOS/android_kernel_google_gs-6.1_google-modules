@@ -2521,6 +2521,25 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	nvt_bootloader_reset();
 	nvt_check_fw_reset_state(RESET_STATE_INIT);
 	nvt_get_fw_info();
+	// Setup default tvcl ibias mode. Mode value can later be altered by sysfs node
+	switch (ts->nvt_pid) {
+	case TKI3_BOE:
+		ts->mp_tvcl_mode = MODE_1;
+		ts->mp_ibias_mode = MODE_1;
+		break;
+	case TKI3_CSOT:
+		ts->mp_tvcl_mode = MODE_3;
+		ts->mp_ibias_mode = MODE_2;
+		break;
+	default:
+		ts->mp_tvcl_mode = 0;
+		ts->mp_ibias_mode = 0;
+	}
+
+	if (ts->mp_tvcl_mode || ts->mp_ibias_mode) {
+		NVT_LOG("set default mp_tvcl_mode = %d, mp_ibias_mode = %d\n",
+				ts->mp_tvcl_mode, ts->mp_ibias_mode);
+	}
 #else
 	/*
 	 * For hostdl project, the touch W/H will update later by nvt_get_fw_info()
