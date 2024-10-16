@@ -15,6 +15,7 @@
 #include "edgetpu-ikv-mailbox-ops.h"
 #include "edgetpu-iremap-pool.h"
 #include "edgetpu-mailbox.h"
+#include "edgetpu-vii-litebuf.h"
 #include "edgetpu-vii-packet.h"
 #include "edgetpu.h"
 
@@ -45,13 +46,14 @@ static int edgetpu_ikv_alloc_queue(struct edgetpu_ikv *etikv, enum gcip_mailbox_
 	struct edgetpu_coherent_mem *mem;
 	int ret;
 
+	/* Allocate the queues based on the larger litebuf sizes which can handle both formats. */
 	switch (type) {
 	case GCIP_MAILBOX_CMD_QUEUE:
-		size = QUEUE_SIZE * sizeof(struct edgetpu_vii_command);
+		size = QUEUE_SIZE * VII_CMD_SIZE_BYTES;
 		mem = &etikv->cmd_queue_mem;
 		break;
 	case GCIP_MAILBOX_RESP_QUEUE:
-		size = QUEUE_SIZE * sizeof(struct edgetpu_vii_response);
+		size = QUEUE_SIZE * VII_RESP_SIZE_BYTES;
 		mem = &etikv->resp_queue_mem;
 		break;
 	}

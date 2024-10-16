@@ -68,7 +68,7 @@ void iif_manager_put(struct iif_manager *mgr)
 int iif_manager_register_ops(struct iif_manager *mgr, enum iif_ip_type ip,
 			     const struct iif_manager_ops *ops, void *data)
 {
-	if (!ops || !ops->fence_unblocked)
+	if (!ops || !ops->fence_unblocked || ip >= IIF_IP_NUM)
 		return -EINVAL;
 
 	down_write(&mgr->ops_sema);
@@ -83,6 +83,9 @@ int iif_manager_register_ops(struct iif_manager *mgr, enum iif_ip_type ip,
 
 void iif_manager_unregister_ops(struct iif_manager *mgr, enum iif_ip_type ip)
 {
+	if (ip >= IIF_IP_NUM)
+		return;
+
 	down_write(&mgr->ops_sema);
 
 	mgr->ops[ip] = NULL;
@@ -94,6 +97,9 @@ void iif_manager_unregister_ops(struct iif_manager *mgr, enum iif_ip_type ip)
 int iif_manager_acquire_block_wakelock(struct iif_manager *mgr, enum iif_ip_type ip)
 {
 	int ret = 0;
+
+	if (ip >= IIF_IP_NUM)
+		return -EINVAL;
 
 	down_read(&mgr->ops_sema);
 
@@ -107,6 +113,9 @@ int iif_manager_acquire_block_wakelock(struct iif_manager *mgr, enum iif_ip_type
 
 void iif_manager_release_block_wakelock(struct iif_manager *mgr, enum iif_ip_type ip)
 {
+	if (ip >= IIF_IP_NUM)
+		return;
+
 	down_read(&mgr->ops_sema);
 
 	if (mgr->ops[ip] && mgr->ops[ip]->release_block_wakelock)

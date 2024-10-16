@@ -600,7 +600,6 @@ void edgetpu_device_remove(struct edgetpu_dev *etdev)
 	edgetpu_mmu_detach(etdev);
 	if (!ret)
 		edgetpu_pm_put(etdev);
-	edgetpu_pm_shutdown(etdev, true);
 	edgetpu_pm_destroy(etdev);
 	edgetpu_fs_remove(etdev);
 	edgetpu_soc_exit(etdev);
@@ -717,9 +716,8 @@ void edgetpu_handle_firmware_crash(struct edgetpu_dev *etdev,
 	if (crash_type == EDGETPU_FW_CRASH_UNRECOV_FAULT) {
 		etdev_err(etdev, "firmware unrecoverable crash");
 		etdev->firmware_crash_count++;
+		edgetpu_fatal_error_notify(etdev, EDGETPU_ERROR_FW_CRASH);
 		edgetpu_debug_dump(etdev, DUMP_REASON_UNRECOVERABLE_FAULT);
-		/* Restart firmware */
-		edgetpu_watchdog_crash_reset(etdev);
 	} else {
 		etdev_err(etdev, "firmware non-fatal crash event: %u",
 			  crash_type);
