@@ -137,7 +137,7 @@ int32_t nvt_mp_settings(uint8_t tvcl_mode, uint8_t ibias_mode)
 	uint8_t buf[5] = {0}, i = 0;
 	const int32_t retry = 5;
 
-	if (!ts->mp_tvcl_mode || !ts->mp_ibias_mode) {
+	if (!tvcl_mode || !ibias_mode) {
 		NVT_LOG("mp tvcl/ibias setting not supported, ignore\n");
 		return 0;
 	}

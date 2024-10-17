@@ -185,7 +185,7 @@ void Boot_Update_Firmware(struct work_struct *work)
 	if (ret) {
 		NVT_ERR("update_firmware_request failed. (%d)\n", ret);
 		complete_all(&ts->fwu_done);
-		goto end;
+		return;
 	}
 
 	mutex_lock(&ts->lock);
@@ -226,26 +226,7 @@ void Boot_Update_Firmware(struct work_struct *work)
 	mutex_unlock(&ts->lock);
 	complete_all(&ts->fwu_done);
 	update_firmware_release();
-end:
-	// Setup default tvcl ibias mode. Mode value can later be altered by sysfs node
-	switch (ts->nvt_pid) {
-	case TKI3_BOE:
-		ts->mp_tvcl_mode = MODE_1;
-		ts->mp_ibias_mode = MODE_1;
-		break;
-	case TKI3_CSOT:
-		ts->mp_tvcl_mode = MODE_3;
-		ts->mp_ibias_mode = MODE_2;
-		break;
-	default:
-		ts->mp_tvcl_mode = 0;
-		ts->mp_ibias_mode = 0;
-	}
 
-	if (ts->mp_tvcl_mode || ts->mp_ibias_mode) {
-		NVT_LOG("set default mp_tvcl_mode = %d, mp_ibias_mode = %d\n",
-				ts->mp_tvcl_mode, ts->mp_ibias_mode);
-	}
 }
 #endif /* BOOT_UPDATE_FIRMWARE */
 
