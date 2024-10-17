@@ -527,6 +527,9 @@ int iif_fence_init(struct iif_manager *mgr, struct iif_fence *fence,
 	unsigned int id_max = id_min + IIF_NUM_FENCES_PER_IP - 1;
 	int ret;
 
+	if (signaler_ip >= IIF_IP_NUM)
+		return -EINVAL;
+
 	fence->id = ida_alloc_range(&mgr->idp, id_min, id_max, GFP_KERNEL);
 	if (fence->id < 0)
 		return fence->id;
@@ -659,6 +662,9 @@ int iif_fence_submit_waiter(struct iif_fence *fence, enum iif_ip_type ip)
 
 	might_sleep();
 
+	if (ip >= IIF_IP_NUM)
+		return -EINVAL;
+
 	if (unsubmitted)
 		return unsubmitted;
 
@@ -714,6 +720,9 @@ int iif_fence_submit_signaler_and_waiter(struct iif_fence **in_fences, int num_i
 	int i, ret;
 
 	might_sleep();
+
+	if (waiter_ip >= IIF_IP_NUM)
+		return -EINVAL;
 
 	ret = iif_fences_sort_by_id(in_fences, num_in_fences);
 	if (ret)
@@ -928,6 +937,9 @@ void iif_fence_waited(struct iif_fence *fence, enum iif_ip_type ip)
 void iif_fence_waited_async(struct iif_fence *fence, enum iif_ip_type ip)
 {
 	unsigned long flags;
+
+	if (ip >= IIF_IP_NUM)
+		return;
 
 	write_lock_irqsave(&fence->fence_lock, flags);
 
