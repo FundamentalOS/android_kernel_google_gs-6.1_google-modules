@@ -1062,16 +1062,6 @@ void __attribute__ ((weak)) dhd_plat_report_bh_sched(void *plat_info, int resche
 	return;
 }
 
-void __attribute__ ((weak)) dhd_plat_tx_pktcount(void *plat_info, uint cnt)
-{
-	return;
-}
-
-void __attribute__ ((weak)) dhd_plat_rx_pktcount(void *plat_info, uint cnt)
-{
-	return;
-}
-
 int __attribute__ ((weak)) dhd_plat_pcie_suspend(void *plat_info)
 {
 	return 0;

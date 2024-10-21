@@ -6438,11 +6438,9 @@ static int wl_cfgscan_acs_parse_parameter(struct bcm_cfg80211 *cfg,
 			return 0;
 		}
 
-		/* Handle 5G band (from bw20 to bw160)
-		 * Since bw160 falls into DFS, we downgrade the bw to 80MHz,
-		 * hence handling commonly here for both 160MHz and 80MHz
-		 */
-		if (((bw == 80) || (bw == 160)) &&
+		/* Handle 5G band (from bw20 to bw80) */
+		/* bw80 */
+		if ((bw == 80) &&
 				(pParameter->vht_enabled || pParameter->he_enabled)) {
 			chspec = wf_create_chspec_from_primary(channel,
 				WL_CHANSPEC_BW_80, chspec_band, 0);

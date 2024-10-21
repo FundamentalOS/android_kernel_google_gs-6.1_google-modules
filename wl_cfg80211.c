@@ -2760,9 +2760,8 @@ _wl_cfg80211_add_if(struct bcm_cfg80211 *cfg,
 	/* Protect the interace op context */
 	/* Do pre-create ops */
 
-	err = wl_cfg80211_iface_state_ops(primary_ndev->ieee80211_ptr, WL_IF_CREATE_REQ,
-			wl_iftype, wl_mode);
-	if (err < 0) {
+	if ((err = wl_cfg80211_iface_state_ops(primary_ndev->ieee80211_ptr, WL_IF_CREATE_REQ,
+			wl_iftype, wl_mode)) < 0) {
 		WL_ERR(("Failed in state_ops: wl_iftype %d\n", wl_iftype));
 		return NULL;
 	}
@@ -7942,8 +7941,7 @@ wl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 #endif /* DBG_PKT_MON */
 	if (assoc_info.reassoc) {
 		/* Handle roam to same ESS */
-		err = wl_handle_reassoc(cfg, dev, &assoc_info);
-		if (err != BCME_OK) {
+		if ((err = wl_handle_reassoc(cfg, dev, &assoc_info)) != BCME_OK) {
 			goto fail;
 		}
 	} else {
@@ -7964,8 +7962,7 @@ wl_cfg80211_connect(struct wiphy *wiphy, struct net_device *dev,
 			goto fail;
 		}
 
-		err = wl_handle_join(cfg, dev, &assoc_info);
-		if (err != BCME_OK) {
+		if ((err = wl_handle_join(cfg, dev, &assoc_info)) != BCME_OK) {
 			goto fail;
 		}
 #ifdef WL_CFGVENDOR_CUST_ADVLOG
@@ -9385,8 +9382,7 @@ wl_cfg80211_get_station(struct wiphy *wiphy, struct net_device *dev,
 			BCM_FALLTHROUGH;
 		case WL_IF_TYPE_P2P_GC:
 		case WL_IF_TYPE_P2P_DISC:
-			err = wl_cfg80211_get_rssi(dev, cfg, link_idx, &rssi);
-			if (err != BCME_OK) {
+			if ((err = wl_cfg80211_get_rssi(dev, cfg, link_idx, &rssi)) != BCME_OK) {
 				goto get_station_err;
 			}
 			sinfo->filled |= STA_INFO_BIT(INFO_SIGNAL);
@@ -14761,8 +14757,7 @@ wl_handle_assoc_done(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 
 #ifdef WL_MLO
 	if ((as->event_type == WLC_E_LINK) && (as->flags & WLC_EVENT_MSG_MULTILINK)) {
-		ret = wl_cfg80211_get_mlo_link_status(cfg, ndev);
-		if (ret != BCME_OK) {
+		if ((ret = wl_cfg80211_get_mlo_link_status(cfg, ndev)) != BCME_OK) {
 			WL_ERR(("ml status fetch failed\n"));
 			return ret;
 		}
@@ -14807,8 +14802,7 @@ wl_handle_roam_done(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 #ifdef WL_MLO
 	/* Update mlo link details post roam */
 	if ((as->event_type == WLC_E_LINK) && (as->flags & WLC_EVENT_MSG_MULTILINK)) {
-		ret = wl_cfg80211_get_mlo_link_status(cfg, as->ndev);
-		if (ret != BCME_OK) {
+		if ((ret = wl_cfg80211_get_mlo_link_status(cfg, as->ndev)) != BCME_OK) {
 			WL_ERR(("ML status fetch failed.\n"));
 			return ret;
 		}
@@ -16331,8 +16325,7 @@ wl_bss_roaming_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 #endif /* BCM4359 CHIP */
 
 	wl_update_prof(cfg, ndev, NULL, (const void *)(e->addr.octet), WL_PROF_BSSID);
-	err = wl_get_assoc_ies(cfg, ndev);
-	if (err != BCME_OK) {
+	if ((err = wl_get_assoc_ies(cfg, ndev)) != BCME_OK) {
 #ifdef BCMDONGLEHOST
 		DHD_STATLOG_CTRL(dhdp, ST(DISASSOC_INT_START),
 			dhd_net2idx(dhdp->info, ndev), WLAN_REASON_DEAUTH_LEAVING);
@@ -16343,8 +16336,7 @@ wl_bss_roaming_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	}
 
 	curbssid = wl_read_prof(cfg, ndev, WL_PROF_BSSID);
-	err = wl_update_bss_info(cfg, ndev, true, NULL);
-	if (err != BCME_OK) {
+	if ((err = wl_update_bss_info(cfg, ndev, true, NULL)) != BCME_OK) {
 		WL_ERR(("failed to update bss info, err=%d\n", err));
 		goto fail;
 	}
@@ -16730,8 +16722,7 @@ wl_fillup_conn_resp_params(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		(sec->auth_type == NL80211_AUTHTYPE_FILS_SK)) {
 		WL_DBG_MEM(("Security type is FILS with erp_next_seq_num %d\n",
 			fils_info->fils_erp_next_seq_num));
-		ret = wl_get_fils_connect_params(cfg, ndev);
-		if (ret != BCME_OK) {
+		if ((ret = wl_get_fils_connect_params(cfg, ndev)) != BCME_OK) {
 			WL_ERR(("FILS params fetch failed.\n"));
 			goto exit;
 		}
@@ -16825,8 +16816,7 @@ wl_bss_connect_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 			* For cases, there is no match available,
 			* need to update the cache based on bss info from fw.
 			*/
-		err = wl_update_bss_info(cfg, ndev, true, NULL);
-		if (err != BCME_OK) {
+		if ((err = wl_update_bss_info(cfg, ndev, true, NULL)) != BCME_OK) {
 			WL_ERR(("failed to update bss info, err=%d\n", err));
 			goto exit;
 		}
@@ -16897,9 +16887,6 @@ wl_bss_connect_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		WL_INFORM_MEM(("[%s] Report connect result - "
 			"connection succeeded\n", ndev->name));
 
-	} else {
-		WL_INFORM_MEM(("[%s] Report connection failure. status:%d auth_assoc_stat:%d cfg80211_status:%d\n",
-			ndev->name, status, sec->auth_assoc_res_status,  sec->cfg80211_assoc_status));
 	}
 
 exit:
@@ -17210,10 +17197,9 @@ wl_notify_rx_mgmt_frame(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	if (event == WLC_E_ACTION_FRAME_RX) {
 		{
 			u8 ioctl_buf[WLC_IOCTL_SMLEN];
-			err = wldev_iovar_getbuf_bsscfg(ndev, "cur_etheraddr",
+			if ((err = wldev_iovar_getbuf_bsscfg(ndev, "cur_etheraddr",
 					NULL, 0, ioctl_buf, sizeof(ioctl_buf), bsscfgidx,
-					NULL);
-			if (err != BCME_OK) {
+					NULL)) != BCME_OK) {
 				WL_ERR(("WLC_GET_CUR_ETHERADDR failed, error %d\n", err));
 				goto exit;
 			}
@@ -26178,14 +26164,9 @@ wl_notify_start_auth(struct bcm_cfg80211 *cfg,
 	 * the event since MLD is unknown to host yet.
 	 */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)) || defined(WL_EXT_AUTH_BKPORT)
-	if (cfg->mlo.supported) {
-		(void)memcpy_s(&ext_auth_param.mld_addr, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
-		(void)memcpy_s(&ext_auth_param.bssid,
-				ETHER_ADDR_LEN, evt_data->bssid.octet, ETHER_ADDR_LEN);
-	} else {
-		/* for 4383 with kernel version >= 6.3 */
-		(void)memcpy_s(&ext_auth_param.bssid, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
-	}
+	(void)memcpy_s(&ext_auth_param.mld_addr, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
+	(void)memcpy_s(&ext_auth_param.bssid,
+			ETHER_ADDR_LEN, evt_data->bssid.octet, ETHER_ADDR_LEN);
 #else
 	/* In non-ml aware kernels, use MLD address for auth ind for SAE PMK calc. */
 	(void)memcpy_s(&ext_auth_param.bssid, ETHER_ADDR_LEN, e->addr.octet, ETHER_ADDR_LEN);
@@ -26338,7 +26319,6 @@ wl_cfg80211_external_auth(struct wiphy *wiphy,
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
 	wl_assoc_mgr_cmd_t cmd;
-	struct wl_security *sec = wl_read_prof(cfg, ndev, WL_PROF_SEC);
 
 	WL_DBG(("Enter\n "));
 
@@ -26375,16 +26355,8 @@ wl_cfg80211_external_auth(struct wiphy *wiphy,
 	}
 
 	/* Issue disassoc on Auth failure */
-	if (ext_auth_param->status &&
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0))
-			(ext_auth_param->status != WLAN_STATUS_SAE_HASH_TO_ELEMENT) &&
-			(ext_auth_param->status != WLAN_STATUS_SAE_PK) &&
-#endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)) */
-			TRUE) {
-		WL_INFORM_MEM(("sae auth failed. force disassoc. reason:%d\n",
-			ext_auth_param->status));
+	if (unlikely(ext_auth_param->status)) {
 		wl_cfg80211_disassoc(ndev, WLAN_REASON_UNSPECIFIED);
-		sec->auth_assoc_res_status = ext_auth_param->status;
 		goto done;
 	}
 

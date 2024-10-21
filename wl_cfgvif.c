@@ -6220,17 +6220,10 @@ wl_cfg80211_tdls_mgmt(struct wiphy *wiphy, struct net_device *dev,
 s32 wl_cfg80211_tdls_mgmt(struct wiphy *wiphy, struct net_device *dev,
 	const u8 *peer, u8 action_code, u8 dialog_token, u16 status_code,
 	u32 peer_capability, const u8 *buf, size_t len)
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0) &&	\
-	(LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0)))
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0))
 s32 wl_cfg80211_tdls_mgmt(struct wiphy *wiphy, struct net_device *dev,
        const u8 *peer, u8 action_code, u8 dialog_token, u16 status_code,
        u32 peer_capability, bool initiator, const u8 *buf, size_t len)
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0))
-int wl_cfg80211_tdls_mgmt(struct wiphy *wiphy, struct net_device *dev,
-	const u8 *peer, int link_id,
-	u8 action_code, u8 dialog_token, u16 status_code,
-	u32 peer_capability, bool initiator,
-	const u8 *buf, size_t len)
 #else /* CONFIG_ARCH_MSM && TDLS_MGMT_VERSION2 */
 s32
 wl_cfg80211_tdls_mgmt(struct wiphy *wiphy, struct net_device *dev,
@@ -6782,7 +6775,7 @@ wl_cfg80211_ch_switch_notify(struct net_device *dev, uint16 chanspec,
 	/* FIXME: need to consider puncturing bitmap */
 	cfg80211_ch_switch_notify(dev, &chandef, link_id, 0);
 #elif (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 2)) || defined(WL_MLO_BKPORT)
-	cfg80211_ch_switch_notify(dev, &chandef, link_id);
+	cfg80211_ch_switch_notify(dev, &chandef, link_id, 0);
 #else
 	cfg80211_ch_switch_notify(dev, &chandef);
 #endif /* LINUX_VERSION_CODE > KERNEL_VERSION(5, 20, 0) || WL_MLO_BKPORT */
@@ -9429,7 +9422,7 @@ wl_cfgvif_update_assoc_fail_status(struct bcm_cfg80211 *cfg, struct net_device *
 	s32 reason = ntoh32(e->reason);
 	s32 auth_type = ntoh32(e->auth_type);
 	struct wl_security *sec = wl_read_prof(cfg, ndev, WL_PROF_SEC);
-	s32 assoc_status = 0;
+	s32 assoc_status = WLAN_STATUS_UNSPECIFIED_FAILURE;
 	s32 timeout_reason = 0;
 
 	if (!sec || (status == WLC_E_STATUS_SUCCESS)) {
@@ -9473,13 +9466,10 @@ wl_cfgvif_update_assoc_fail_status(struct bcm_cfg80211 *cfg, struct net_device *
 			break;
 	}
 
-	if (assoc_status) {
-		WL_INFORM_MEM(("cache assoc_status: event:%d"
-			"status:%d reason:%d\n", event, status, reason));
-		sec->cfg80211_assoc_status = assoc_status;
-		sec->cfg80211_timeout = timeout_reason;
-	}
-
+	WL_DBG_MEM(("caching assoc_status: event %d"
+		"assoc_status %d to_reason %d\n", event, status, reason));
+	sec->cfg80211_assoc_status = assoc_status;
+	sec->cfg80211_timeout = timeout_reason;
 	return 0;
 }
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)) */

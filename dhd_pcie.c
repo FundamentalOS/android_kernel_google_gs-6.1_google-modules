@@ -3133,15 +3133,6 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 			dhdp->db7_trap.fw_db7w_trap) {
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
 			dhdpcie_fw_trap(dhdp->bus);
-			/*
-			 * Since MSI might be missed in down path,
-			 * and if trap_data is 0, re-read trap_data before giving up
-			 */
-			if (dhdp->dongle_trap_data == 0) {
-				dhdp->dongle_trap_data = dhd_prot_process_trapbuf(dhdp);
-				DHD_PRINT(("%s: D2H_MSI miss retry: fw_db7w_trap_received:%d\n",
-					__FUNCTION__, dhdp->db7_trap.fw_db7w_trap_received));
-			}
 			if (!dhdp->db7_trap.fw_db7w_trap_received) {
 				char buf[512];
 				struct bcmstrbuf b;
@@ -7442,11 +7433,6 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 	int retry = 0;
 	bool in_flr_already = FALSE;
 
-	if (bus->is_linkdown) {
-		DHD_ERROR(("%s: pcie linkdown, return\n", __FUNCTION__));
-		return BCME_NOTUP;
-	}
-
 	DHD_PRINT(("******** Perform FLR ********\n"));
 
 	/* Kernel Panic for 4378Ax during traptest/devreset4 reload case:
@@ -7997,7 +7983,8 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 #endif
 
 #ifdef OEM_ANDROID
-			/* For android platforms reset (FLR) dongle during Wifi ON
+			/*
+			 * For android platforms reset (FLR) dongle during Wifi ON
 			 * this should be done before dongle attach
 			 */
 			dhdpcie_dongle_reset(bus);

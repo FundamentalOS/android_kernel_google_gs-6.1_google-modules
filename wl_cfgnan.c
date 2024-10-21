@@ -5545,7 +5545,6 @@ wl_cfgnan_trigger_ranging(struct net_device *ndev, struct bcm_cfg80211 *cfg,
 			range_req->egress = svc->egress_limit;
 		}
 		range_req->indication = NAN_RANGING_INDICATE_CONTINUOUS_MASK;
-		range_req->num_meas = ranging_inst->num_meas;
 	} else {
 		/* range response config */
 		sub_cmd->id = htod16(WL_NAN_CMD_RANGE_RESPONSE);
@@ -10531,6 +10530,7 @@ static s32
 wl_cfgnan_unregister_nmi_ndev(struct bcm_cfg80211 *cfg)
 {
 	struct wireless_dev *wdev;
+	int refcnt;
 
 	if (!cfg) {
 		WL_ERR(("NMI IF unreg, invalid cfg \n"));
@@ -10541,7 +10541,14 @@ wl_cfgnan_unregister_nmi_ndev(struct bcm_cfg80211 *cfg)
 		goto free_wdev;
 	}
 
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_INFORM_MEM(("refcnt before unregistering NAN NMI ndev: %d \n", refcnt));
+
 	dhd_unregister_net(cfg->nmi_ndev, true);
+
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_INFORM_MEM(("refcnt after unregistering NAN NMI ndev: %d \n", refcnt));
+
 	free_netdev(cfg->nmi_ndev);
 	cfg->nmi_ndev = NULL;
 
@@ -10561,6 +10568,7 @@ int
 wl_cfgnan_attach(struct bcm_cfg80211 *cfg)
 {
 	int err = BCME_OK;
+	int refcnt = 0;
 	wl_nancfg_t *nancfg = NULL;
 
 	if (cfg) {
@@ -10589,6 +10597,9 @@ wl_cfgnan_attach(struct bcm_cfg80211 *cfg)
 	nancfg->nan_dp_state = NAN_DP_STATE_DISABLED;
 	init_waitqueue_head(&nancfg->ndp_if_change_event);
 
+	refcnt = netdev_refcnt_read(cfg->nmi_ndev);
+	WL_INFORM_MEM(("refcnt after NAN NMI ndev reg: %d, cfg->nmi_ndev.name %s\n",
+			refcnt, cfg->nmi_ndev->name));
 done:
 	return err;
 
