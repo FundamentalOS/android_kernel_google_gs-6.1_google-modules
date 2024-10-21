@@ -18,36 +18,40 @@
  *
  * <<Broadcom-WL-IPTag/Dual:>>
  *
+ * + epivers.py --key-comp-dir components/dhd/src build/dhd/android-u/gg_pixelak3-gg/@gg/source/include/epivers.h
+ *
+ * FILE-CSTYLED
+ *
  */
 
 #ifndef _epivers_h_
 #define _epivers_h_
 
-#define EPI_MAJOR_VERSION	103
+#define EPI_MAJOR_VERSION	103u
 
-#define EPI_MINOR_VERSION	102
+#define EPI_MINOR_VERSION	10219u
 
-#define EPI_RC_NUMBER		19
+#define EPI_RC_NUMBER		34u
 
-#define EPI_INCREMENTAL_NUMBER	32
+#define EPI_INCREMENTAL_NUMBER	3u
 
-#define EPI_BUILD_NUMBER	0
+#define EPI_VERSION		(103, 10219, 34, 3)
 
-#define EPI_VERSION		103, 102, 19, 32
+#define EPI_VERSION_NUM		0x6727eb22u
 
-#define EPI_VERSION_NUM		0x67661320
+#define EPI_UNIQUE_NUM		0x6727eb2203u
 
-#define EPI_VERSION_DEV		103.102.19
+#define EPI_VERSION_DEV		(103.10219.34)
 
 /* Driver Version String, ASCII, 32 chars max */
-#if defined (WLTEST)
-#define EPI_VERSION_STR		"103.102.19.32 (wlan=r1080873 WLTEST)"
-#elif (defined (BCMDBG_ASSERT) && \
-	!defined (BCMDBG_ASSERT_DISABLED) && \
-	!defined (ASSERT_FP_DISABLE))
-#define EPI_VERSION_STR		"103.102.19.32 (wlan=r1080873 ASSRT)"
+#if defined(WLTEST)
+#define EPI_VERSION_STR		"103.10219.34.3 (wlan=r1083828 WLTEST)"
+#elif (defined(BCMDBG_ASSERT) && \
+	!defined(BCMDBG_ASSERT_DISABLED) && \
+	!defined(ASSERT_FP_DISABLE))
+#define EPI_VERSION_STR		"103.10219.34.3 (wlan=r1083828 ASSRT)"
 #else
-#define EPI_VERSION_STR		"103.102.19.32 (wlan=r1080873)"
+#define EPI_VERSION_STR		"103.10219.34.3 (wlan=r1083828)"
 #endif /* BCMINTERNAL */
 
 #endif /* _epivers_h_ */

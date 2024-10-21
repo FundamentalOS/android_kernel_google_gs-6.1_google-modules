@@ -12043,7 +12043,7 @@ dhd_msgbuf_wait_ioctl_cmplt(dhd_pub_t *dhd, uint32 len, void *buf)
 			DHD_PRINT(("Check dongle trap in the case of iovar timeout\n"));
 			dhd_bus_checkdied(dhd->bus, NULL, 0);
 
-			if (dhd->dongle_trap_occured) {
+			if (dhd_query_bus_erros(dhd)) {
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 #ifdef CONFIG_ARCH_MSM
 				dhd->bus->no_cfg_restore = 1;

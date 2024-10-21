@@ -1027,6 +1027,7 @@ dhd_dhcp_dump(dhd_pub_t *dhdp, int ifidx, uint8 *pktdata, bool tx,
 					DHD_STATLOG_DATA(dhdp, DHCP_TYPES_STAT(dhcp_type),
 						ifidx, tx, cond);
 					DHCP_PRINT("DHCP");
+					dhd_track_dhcp_op(dhdp, b->op, ifidx, tx);
 					break;
 				}
 			}

@@ -4702,9 +4702,11 @@ dhd_rpm_state_thread(void *data)
 {
 	tsk_ctl_t *tsk = (tsk_ctl_t *)data;
 	dhd_info_t *dhd = (dhd_info_t *)tsk->parent;
+	int ret = 0;
 
 	while (1) {
-		if (down_interruptible (&tsk->sema) == 0) {
+		ret = down_interruptible(&tsk->sema);
+		if (ret == 0) {
 			unsigned long flags;
 			unsigned long jiffies_at_start = jiffies;
 			unsigned long time_lapse;
@@ -4748,10 +4750,14 @@ dhd_rpm_state_thread(void *data)
 				DHD_GENERAL_UNLOCK(&dhd->pub, flags);
 			}
 		} else {
+			DHD_PRINT(("RPM thread is signalled or timeout ret:%d\n", ret));
 			break;
 		}
 	}
 
+	DHD_PRINT(("%s: RPM thread complete and exit\n", __func__));
+	dhd->thr_rpm_ctl.thr_pid = DHD_PID_KT_TERMINATED;
+	dhd->thr_rpm_ctl.terminated = TRUE;
 	KTHREAD_COMPLETE_AND_EXIT(&tsk->completed, 0);
 }
 
@@ -6532,7 +6538,7 @@ dhd_stop(struct net_device *net)
 	dhd->pub.d3ackcnt_timeout = 0;
 #endif /* BCMPCIE */
 	/* Synchronize between the stop and rx path */
-	dhd->pub.stop_in_progress = true;
+	dhd->pub.stop_in_progress = TRUE;
 	OSL_SMP_WMB();
 
 #ifdef DHD_COREDUMP
@@ -6790,7 +6796,7 @@ exit:
 #endif /* LINUX_VERSION_CODE > 4.19.0 && DHD_TCP_LIMIT_OUTPUT */
 	mutex_unlock(&dhd->pub.ndev_op_sync);
 	/* Clear stop in progress flag */
-	dhd->pub.stop_in_progress = false;
+	dhd->pub.stop_in_progress = FALSE;
 	dhd->pub.if_opened = FALSE;
 	DHD_PRINT(("%s: EXIT\n", __FUNCTION__));
 	return 0;
@@ -6945,6 +6951,9 @@ dhd_open(struct net_device *net)
 	int32 ret = 0;
 
 	DHD_PRINT(("%s: ENTER\n", __FUNCTION__));
+
+	dhd->pub.open_in_progress = TRUE;
+	OSL_SMP_WMB();
 #if defined(PREVENT_REOPEN_DURING_HANG)
 	/* WAR : to prevent calling dhd_open abnormally in quick succession after hang event */
 	if (dhd->pub.hang_was_sent == 1) {
@@ -7326,6 +7335,7 @@ exit:
 		(void)dhd_ota_buf_clean(&dhd->pub);
 	}
 #endif /* SUPPORT_OTA_UPDATE  && WLAN_ACCEL_BOOT */
+	dhd->pub.open_in_progress = FALSE;
 	DHD_PRINT(("%s: EXIT\n", __FUNCTION__));
 	return ret;
 }
@@ -7869,6 +7879,7 @@ dhd_allocate_if(dhd_pub_t *dhdpub, int ifidx, const char *name,
 	ifp->idx = ifidx;
 	ifp->bssidx = bssidx;
 	ifp->del_in_progress = FALSE;
+	ifp->dhcp_request_pending = FALSE;
 #ifdef DHD_MCAST_REGEN
 	ifp->mcast_regen_bss_enable = FALSE;
 #endif
@@ -14724,6 +14735,7 @@ dhd_register_if(dhd_pub_t *dhdp, int ifidx, bool need_rtnl_lock)
 
 	DHD_GENERAL_LOCK(dhdp, flags);
 	ifp->del_in_progress = FALSE;
+	ifp->dhcp_request_pending = FALSE;
 	DHD_GENERAL_UNLOCK(dhdp, flags);
 
 	return 0;
@@ -16041,6 +16053,15 @@ exit:
 
 }
 
+bool dhd_is_rpm_thread_alive(dhd_pub_t *pub)
+{
+	dhd_info_t *dhd = (dhd_info_t *)(pub->info);
+	if (dhd->thr_rpm_ctl.thr_pid < 0) {
+		return FALSE;
+	} else {
+		return TRUE;
+	}
+}
 #endif /* DHD_PCIE_RUNTIMEPM */
 
 int
@@ -18439,6 +18460,17 @@ void dhd_net_if_unlock_local(dhd_info_t *dhd)
 
 }
 
+bool dhd_net_if_lock_islocked_local(dhd_info_t *dhd)
+{
+#if defined(OEM_ANDROID)
+	if (dhd) {
+		return mutex_is_locked(&dhd->dhd_net_if_mutex);
+	}
+#endif
+	return FALSE;
+
+}
+
 static void dhd_suspend_lock(dhd_pub_t *pub)
 {
 
@@ -20134,7 +20166,11 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 #endif /* !DHD_DUMP_FILE_WRITE_FROM_KERNEL */
 #endif /* DHD_LOG_DUMP */
 
-	if (CAN_SLEEP()) {
+	/*
+	 * collect mem_dump from same context only for dhd_open and dhd_stop
+	 * ie: CAN_SLEEP and open_in_progress || stop_in_progress
+	 */
+	if (CAN_SLEEP() && (dhdp->open_in_progress || dhdp->stop_in_progress)) {
 		/* dhd_mem_dump will clear memdump_type, so cache it */
 		uint32 memdump_type = dhdp->memdump_type;
 		dhd_info->scheduled_memdump = FALSE;
@@ -24605,6 +24641,22 @@ dhd_cfg80211_resume(dhd_pub_t *dhdp)
 #endif /* DHD_CFG80211_SUSPEND_RESUME */
 
 #if defined(WLAN_ACCEL_BOOT)
+void
+dhd_set_accel_force_reg_on(dhd_pub_t *dhdp)
+{
+	dhd_info_t *dhd_info = NULL;
+	if (!dhdp) {
+		DHD_ERROR(("dhdp is null\n"));
+		return;
+	}
+	dhd_info = (dhd_info_t *)dhdp->info;
+
+	if (dhd_info) {
+		DHD_PRINT(("%s: set force reg on\n", __FUNCTION__));
+		dhd_info->wl_accel_force_reg_on = TRUE;
+	}
+}
+
 int
 dhd_dev_set_accel_force_reg_on(struct net_device *dev)
 {
@@ -24947,6 +24999,56 @@ dhd_os_skbq_dump(struct sk_buff_head *qdump, char *qname)
 	if (p != line) {
 		DHD_PRINT(("%s\n", line));
 	}
+}
+
+/* Refer dhcp_ops[] in dhd_linux_pktdump.c */
+#define DHCP_OP_REQUEST	1u
+#define DHCP_OP_REPLY	2u
+
+void
+dhd_track_dhcp_op(struct dhd_pub *dhdp, uint8 op, int ifidx, bool tx)
+{
+#ifdef PCIE_FULL_DONGLE
+	dhd_info_t *dhd = (dhd_info_t *)(dhdp->info);
+	if (DHD_IF_ROLE_GENERIC_STA(dhdp, ifidx)) {
+		if (tx && (op == DHCP_OP_REQUEST)) {
+			dhd->iflist[ifidx]->dhcp_request_pending = TRUE;
+			DHD_PRINT(("%s: SET dhcp_request_pending for %d\n",
+				__FUNCTION__, ifidx));
+		} else if (!tx && (op == DHCP_OP_REPLY)) {
+			dhd->iflist[ifidx]->dhcp_request_pending = FALSE;
+			DHD_PRINT(("%s: CLEAR dhcp_request_pending for %d\n",
+				__FUNCTION__, ifidx));
+		} else {
+			DHD_ERROR(("%s: UNKNOWN_DHCP_OPS\n", __FUNCTION__));
+		}
+	}
+#endif /* PCIE_FULL_DONGLE */
+}
+
+bool
+dhd_check_dhcp_request_pending(struct net_device *net)
+{
+	int ifidx;
+	dhd_info_t *dhd;
+
+	if (!net || !DEV_PRIV(net)) {
+		DHD_ERROR(("%s invalid parameter net %p dev_priv %p\n",
+			__FUNCTION__, net, DEV_PRIV(net)));
+		return FALSE;
+	}
+
+	dhd = DHD_DEV_INFO(net);
+	if (!dhd)
+		return FALSE;
+
+	ifidx = dhd_net2idx(dhd, net);
+	if ((ifidx < 0) || (ifidx >= DHD_MAX_IFS)) {
+		DHD_ERROR(("%s: invalid ifidx %d\n", __FUNCTION__, ifidx));
+		return FALSE;
+	}
+
+	return dhd->iflist[ifidx]->dhcp_request_pending;
 }
 
 void
