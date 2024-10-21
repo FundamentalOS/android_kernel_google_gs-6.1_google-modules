@@ -936,7 +936,7 @@ info_retry:
 			ts->abs_x_max = ts->touch_width - 1;
 			ts->abs_y_max = ts->touch_height - 1;
 			ts->max_button_num = TOUCH_KEY_NUM;
-			NVT_ERR("Set default fw_ver=%d, abs_x_max=%d, abs_y_max=%d, max_button_num=%d!\n",
+			NVT_ERR("Set default fw_ver=0x%02X, abs_max(x,y)=%d %d, max_button=%d!\n",
 				ts->fw_ver, ts->abs_x_max, ts->abs_y_max, ts->max_button_num);
 			ret = -1;
 			goto out;
@@ -2524,11 +2524,9 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	// Setup default tvcl ibias mode. Mode value can later be altered by sysfs node
 	switch (ts->nvt_pid) {
 	case TKI3_BOE:
-		ts->mp_tvcl_mode = MODE_1;
-		ts->mp_ibias_mode = MODE_1;
-		break;
 	case TKI3_CSOT:
-		ts->mp_tvcl_mode = MODE_3;
+		// b/374674968: set 0.3/max as default for self-test.
+		ts->mp_tvcl_mode = MODE_1;
 		ts->mp_ibias_mode = MODE_2;
 		break;
 	default:

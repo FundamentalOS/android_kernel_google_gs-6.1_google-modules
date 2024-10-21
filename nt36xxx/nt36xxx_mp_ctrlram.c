@@ -1777,7 +1777,7 @@ void show_selftest(uint8_t ker_pf_data, uint8_t ker_pf_result, struct seq_file *
 
 	show_print(ker_pf_result, m, "\n\n===== Test Result =====\n\n");
 
-	show_print(ker_pf_result, m, "FW Version: %d\n\n", fw_ver);
+	show_print(ker_pf_result, m, "FW Version: 0x%02X\n\n", fw_ver);
 
 	show_print(ker_pf_result, m, "Short Test");
 	print_selftest_result(ker_pf_result, m, TestResult_Short, RecordResult_Short,
@@ -1929,6 +1929,9 @@ void show_selftest(uint8_t ker_pf_data, uint8_t ker_pf_result, struct seq_file *
 		}
 	} /* if (ts->pen_support) */
 
+	show_print(ker_pf_result, m, "Self-test TVCL/IBIAS: %u %u\n",
+		ts->mp_tvcl_mode, ts->mp_ibias_mode);
+
 	// to prevent c_show_test entering multiple times
 	nvt_mp_test_result_printed = 1;
 
@@ -1969,7 +1972,7 @@ int32_t nvt_print_selftest_result(char *buf, int size)
 	show_selftest(false, true, NULL);
 	// print the result into buf
 	ret += scnprintf(buf + ret, size - ret, "\n===== Test Result =====\n");
-	ret += scnprintf(buf + ret, size - ret, "FW Version: %d\n", fw_ver);
+	ret += scnprintf(buf + ret, size - ret, "FW Version: 0x%02X\n", fw_ver);
 	ret += scnprintf(buf + ret, size - ret, "\n");
 	ret += scnprintf(buf + ret, size - ret, "Short Test %s\n",
 		TestResult_Short ? "FAIL!" : "PASS!");
@@ -1987,6 +1990,8 @@ int32_t nvt_print_selftest_result(char *buf, int size)
 		TestResult_Pen_Noise ? "FAIL!" : "PASS!");
 	ret += scnprintf(buf + ret, size - ret, "Pen Detect Test %s\n",
 		TestResult_Pen_Rx_Max ? "FAIL!" : "PASS!");
+	ret += scnprintf(buf + ret, size - ret, "Self-test TVCL/IBIAS: %u %u\n",
+		ts->mp_tvcl_mode, ts->mp_ibias_mode);
 	ret += scnprintf(buf + ret, size - ret, "\n");
 
 	NVT_LOGD("--\n");
