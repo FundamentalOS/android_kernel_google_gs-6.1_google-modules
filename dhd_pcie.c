@@ -8365,10 +8365,6 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 	int retry = 0;
 	bool in_flr_already = FALSE;
 
-	if (!bus->sih) {
-		DHD_ERROR(("%s: bus->sih is NULL! si_attach not done\n", __FUNCTION__));
-		return BCME_BADARG;
-	}
 	if (bus->is_linkdown) {
 		DHD_ERROR(("%s: pcie linkdown, return\n", __FUNCTION__));
 		return BCME_NOTUP;
@@ -8924,8 +8920,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 #endif
 
 #ifdef OEM_ANDROID
-			/*
-			 * For android platforms reset (FLR) dongle during Wifi ON
+			/* For android platforms reset (FLR) dongle during Wifi ON
 			 * this should be done before dongle attach
 			 */
 			dhdpcie_dongle_reset(bus);
@@ -11238,8 +11233,8 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state, bool byint)
 dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 {
-	int timeleft;
-	int rc = 0;
+	int timeleft = 0;
+	int rc = 0, ret = BCME_OK;
 	unsigned long flags;
 #ifdef DHD_PCIE_NATIVE_RUNTIMEPM
 	int d3_read_retry = 0;
@@ -11414,19 +11409,20 @@ dhdpcie_bus_suspend(struct dhd_bus *bus, bool state)
 			DHD_BUS_INB_DW_LOCK(bus->inb_lock, flags);
 			DHD_RPM(("%s: Before D3_INFORM inband_dw_state:%d\n",
 				__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
-			dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM, __FUNCTION__);
+			ret = dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM, __FUNCTION__);
 			DHD_RPM(("%s: After D3_INFORM inband_dw_state:%d\n",
 				__FUNCTION__, dhdpcie_bus_get_pcie_inband_dw_state(bus)));
 			DHD_BUS_INB_DW_UNLOCK(bus->inb_lock, flags);
 		} else
 #endif /* PCIE_INB_DW */
 		{
-			dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM, __FUNCTION__);
+			ret = dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM, __FUNCTION__);
 		}
 
-		/* Wait for D3 ACK for D3_ACK_RESP_TIMEOUT seconds */
-
-		timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
+		if (!bus->is_linkdown && ret == BCME_OK) {
+			/* Wait for D3 ACK for D3_ACK_RESP_TIMEOUT seconds */
+			timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
+		}
 #ifdef DHD_RECOVER_TIMEOUT
 		/* WAR for missing D3 ACK MB interrupt */
 		if ((bus->wait_for_d3_ack == 0) && (timeleft == 0) &&

@@ -5450,7 +5450,7 @@ int wl_android_wifi_off(struct net_device *dev, bool force_off)
 #endif /* WBRC */
 
 	dhd_net_if_lock(dev);
-	if (g_wifi_on || force_off) {
+	if (g_wifi_on) {
 #if defined(BCMSDIO) || defined(BCMPCIE)
 		ret = dhd_net_bus_devreset(dev, TRUE);
 #ifdef BCMSDIO
@@ -5571,11 +5571,20 @@ wbrc2wl_wlan_on_request(void *dhd_pub)
 				dhd_net_bus_suspend(dev);
 			}
 			g_wifi_on = TRUE;
+			g_wifi_accel_on = TRUE;
+			/* Clear force reg on, so that
+			 * next wifi on will not toggle REG_ON.
+			 */
+			dhd_dev_clear_accel_force_reg_on(dev);
 		} else {
 			/* if wlan on fails, turn it off to keep it in a sane state */
 			DHD_ERROR(("%s: wlan on failed! turning wlan off...\n", __FUNCTION__));
 			dhd_net_bus_devreset(dev, TRUE);
 			dhd_net_wifi_platform_set_power(dev, FALSE, WIFI_TURNOFF_DELAY);
+			/* set force reg on, so that
+			 * next wifi on will toggle REG_ON.
+			 */
+			dhd_dev_set_accel_force_reg_on(dev);
 		}
 	} else {
 		DHD_PRINT(("%s: wlan is already ON\n", __FUNCTION__));

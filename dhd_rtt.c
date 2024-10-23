@@ -5284,11 +5284,11 @@ dhd_rtt_nan_range_report(struct bcm_cfg80211 *cfg,
 	rtt_status = rtt_result->report.status;
 	bzero(&range_res, sizeof(range_res));
 	/* RTT can be negative(for GG req).. for geofence make it zero */
-	if (rtt_result->report.distance < 0) {
-		range_res.dist_mm = DHD_NAN_RTT_MIN_GEOFENCE_DIST_IN_MM;
-	} else {
-		range_res.dist_mm = rtt_result->report.distance;
-	}
+		if (rtt_result->report.distance < 0) {
+			range_res.dist_mm = DHD_NAN_RTT_MIN_GEOFENCE_DIST_IN_MM;
+		} else {
+			range_res.dist_mm = rtt_result->report.distance;
+		}
 	/* same src and header len, ignoring ret val here */
 	(void)memcpy_s(&range_res.peer_m_addr, ETHER_ADDR_LEN,
 		&rtt_result->report.addr, ETHER_ADDR_LEN);

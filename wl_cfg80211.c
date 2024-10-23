@@ -5619,7 +5619,16 @@ wl_set_key_mgmt(struct net_device *dev, struct cfg80211_connect_params *sme,
 	if (sme->crypto.n_akm_suites) {
 		WL_DBG(("No of akms %d 0x%x 0x%x\n", sme->crypto.n_akm_suites,
 			sme->crypto.akm_suites[0], sme->crypto.akm_suites[1]));
-		if (sme->crypto.n_akm_suites > 1) {
+		/* akm_suites[0] = AKM for targeted AP
+		 * akm_suites[1-2] = allowed key_mgmt for seamless roam
+		 * SAE-EXT seamless roam is not supported
+		 * and hence fall into single AKM handling mode
+		 */
+		if (sme->crypto.n_akm_suites > 1 &&
+#ifndef SUPPORT_SAE_EXT_CROSS_AKM
+			(sme->crypto.akm_suites[0] != WLAN_AKM_SUITE_SAE_EXT_PSK) &&
+#endif /* SUPPORT_SAE_EXT_CROSS_AKM */
+			TRUE) {
 			err = wl_set_multi_akm(dev, cfg, sme, assoc_info);
 			if (unlikely(err)) {
 				WL_ERR(("Failed to set multi akm key mgmt err = %d\n", err));
@@ -17297,6 +17306,11 @@ wl_notify_rx_mgmt_frame(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 #endif /* BCMDONGLEHOST && TDLS_MSG_ONLY_WFD && WLTDLS */
 
+	if (ntoh32(e->datalen) < sizeof(wl_event_rx_frame_data_t)) {
+		WL_ERR(("wrong datalen:%d\n", ntoh32(e->datalen)));
+		return -EINVAL;
+	}
+
 	rxframe = (wl_event_rx_frame_data_t *)data;
 	if (!rxframe) {
 		WL_ERR(("rxframe: NULL\n"));
@@ -17305,19 +17319,9 @@ wl_notify_rx_mgmt_frame(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 
 	/* Handle different versions of Rx frame data */
 	if (ntoh16(rxframe->version) == BCM_RX_FRAME_DATA_VERSION_1) {
-		if (ntoh32(e->datalen) < sizeof(wl_event_rx_frame_data_v1_t)) {
-			WL_ERR(("wrong datalen:%d for rxframe v1:%lu\n",
-				ntoh32(e->datalen), sizeof(wl_event_rx_frame_data_v1_t)));
-			return -EINVAL;
-		}
 		mgmt_frame_len = ntoh32(e->datalen) - (uint32)sizeof(wl_event_rx_frame_data_v1_t);
 		rx_event_data = (u8 *) ((wl_event_rx_frame_data_v1_t *)rxframe + 1);
 	} else if (ntoh16(rxframe->version) == BCM_RX_FRAME_DATA_VERSION_2) {
-		if (ntoh32(e->datalen) < sizeof(wl_event_rx_frame_data_v2_t)) {
-			WL_ERR(("wrong datalen:%d for rxframe v2:%lu\n",
-				ntoh32(e->datalen), sizeof(wl_event_rx_frame_data_v2_t)));
-			return -EINVAL;
-		}
 		mgmt_frame_len = ntoh32(e->datalen) - (uint32)sizeof(wl_event_rx_frame_data_v2_t);
 		rx_event_data = (u8 *) ((wl_event_rx_frame_data_v2_t *)rxframe + 1);
 	} else {
