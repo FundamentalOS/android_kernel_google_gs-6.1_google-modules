@@ -315,7 +315,7 @@ int nvt_callback(void *private_data,
 
 		buf_idx += scnprintf(buf + buf_idx, size, "\n");
 		buf_idx += scnprintf(buf + buf_idx, size,
-			"fw_ver=%d, x_num=%d, y_num=%d, button_num=%d\n",
+			"fw_ver=0x%02X, x_num=%d, y_num=%d, button_num=%d\n",
 			ts->fw_ver, ts->x_num, ts->y_num, ts->max_button_num);
 		buf_idx += scnprintf(buf + buf_idx, size,
 			"id= 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
