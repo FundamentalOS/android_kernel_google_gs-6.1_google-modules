@@ -160,7 +160,7 @@ u32 lhbm_rgb_ratio[LHBM_OVERDRIVE_GRP_MAX][LHBM_RATIO_SIZE] = {
 };
 
 static const struct gs_dsi_cmd tg4a_off_cmds[] = {
-	GS_DSI_DELAY_CMD(MIPI_DCS_SET_DISPLAY_OFF),
+	GS_DSI_CMD(MIPI_DCS_SET_DISPLAY_OFF),
 	GS_DSI_DELAY_CMD(120, MIPI_DCS_ENTER_SLEEP_MODE),
 };
 static DEFINE_GS_CMDSET(tg4a_off);
