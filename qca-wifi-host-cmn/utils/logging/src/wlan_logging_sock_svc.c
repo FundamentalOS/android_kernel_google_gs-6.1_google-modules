@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -714,7 +714,9 @@ static int send_filled_buffers_to_user(void)
 
 		wnl = (tAniNlHdr *) nlh;
 		wnl->radio = plog_msg->radio;
-		memcpy(&wnl->wmsg, plog_msg->logbuf,
+
+		/* Offset of data buffer from nlmsg_hdr + sizeof(int) radio */
+		memcpy(nlmsg_data(nlh) + sizeof(wnl->radio), plog_msg->logbuf,
 		       plog_msg->filled_length + sizeof(tAniHdr));
 
 		spin_lock_irqsave(&gwlan_logging.spin_lock, flags);
