@@ -467,8 +467,8 @@ typedef struct dhd_bus {
 	bool	d2h_intr_control;
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 	uint8 no_cfg_restore;
-	bool read_shm_fail;
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
+	bool read_shm_fail;
 	int32 idletime;                 /* Control for activity timeout */
 	bool rpm_enabled;
 #ifdef DHD_PCIE_RUNTIMEPM

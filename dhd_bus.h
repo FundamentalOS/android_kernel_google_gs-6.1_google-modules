@@ -307,11 +307,11 @@ static INLINE void dhd_bus_intr_count_dump(dhd_pub_t *dhdp) { UNUSED_PARAMETER(d
 static INLINE bool dhd_bus_query_dpc_sched_errors(dhd_pub_t *dhdp) { return 0; }
 static INLINE int dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type) { return 0; }
 static INLINE bool dhd_bus_check_driver_up(void) { return FALSE; }
-extern INLINE void dhd_bus_set_linkdown(dhd_pub_t *dhdp, bool val) { }
-extern INLINE int dhd_bus_get_linkdown(dhd_pub_t *dhdp) { return 0; }
+static INLINE void dhd_bus_set_linkdown(dhd_pub_t *dhdp, bool val) { }
+static INLINE int dhd_bus_get_linkdown(dhd_pub_t *dhdp) { return 0; }
 static INLINE int dhd_bus_get_cto(dhd_pub_t *dhdp) { return 0; }
 static INLINE bool dhd_bus_get_read_shm(dhd_pub_t *dhdp) { return 0; }
-extern INLINE int dhd_bus_checkdied(struct dhd_bus *bus, char *data, uint size) { return 0; }
+static INLINE int dhd_bus_checkdied(struct dhd_bus *bus, char *data, uint size) { return 0; }
 #endif /* BCMPCIE */
 
 #if defined(BCMPCIE) && defined(EWP_ETD_PRSRV_LOGS)
