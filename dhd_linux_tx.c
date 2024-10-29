@@ -1480,6 +1480,12 @@ dhd_print_if_stats(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 		return;
 	}
 
+	if (dhd_net_if_lock_islocked_local(dhd) == TRUE) {
+		bcm_bprintf(strbuf, "\nPer interface TX/RX stats: Not Available(locked)\n");
+		DHD_ERROR(("Per interface TX/RX stats: Not Available(locked)\n"));
+		return;
+	}
+
 	bcm_bprintf(strbuf, "\nPer interface TX/RX stats:\n");
 	bcm_bprintf(strbuf, "%9s %9s %9s", "Interface", "TxPkts", "RxPkts\n");
 	bcm_bprintf(strbuf, "%9s %9s %9s", "=========", "======", "======\n");

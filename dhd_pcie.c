@@ -1476,6 +1476,7 @@ int
 dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type)
 {
 	dma_xfer_info_t dmaxfer_lpbk;
+	uint64 current_time;
 	int ret = BCME_OK;
 
 #define PCIE_DMAXFER_LPBK_LENGTH	4096
@@ -1486,6 +1487,8 @@ dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type)
 	dmaxfer_lpbk.type = type;
 	dmaxfer_lpbk.should_wait = TRUE;
 
+	current_time = OSL_LOCALTIME_NS();
+	DHD_PRINT(("dmaxfer_start_time_new="SEC_USEC_FMT"\n", GET_SEC_USEC(current_time)));
 	ret = dhd_bus_iovar_op(dhdp, "pcie_dmaxfer", NULL, 0,
 		(char *)&dmaxfer_lpbk, sizeof(dma_xfer_info_t), IOV_SET);
 	if (ret < 0) {
@@ -1498,6 +1501,10 @@ dhd_bus_dmaxfer_lpbk(dhd_pub_t *dhdp, uint32 type)
 		DHD_ERROR(("failed to check PCIe Loopback Test!!! "
 			"Type:%d Status:%d Error code:%d\n", type,
 			dmaxfer_lpbk.status, dmaxfer_lpbk.error_code));
+
+		DHD_ERROR(("checking if DMA lpbk failure is due to missing MSI\n"));
+		dhd_msgbuf_iovar_timeout_dump(dhdp);
+
 		ret = BCME_ERROR;
 	} else {
 		DHD_PRINT(("successful to check PCIe Loopback Test"
@@ -5280,7 +5287,7 @@ dhdpcie_checkdied(dhd_bus_t *bus, char *data, uint size)
 	}
 
 done1:
-	if (bcmerror) {
+	if (bcmerror && !dhd_query_bus_erros(bus->dhd)) {
 		/* dhdpcie_checkdied is invoked only when dongle has trapped
 		 * or after PCIe link down..etc. so set dongle_trap_occured so that
 		 * log_dump logic can rely on only one flag dongle_trap_occured.
@@ -5766,6 +5773,8 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		/* intentional fall through */
 	case DUMP_TYPE_SAR_CONF_NOTFOUND:
 		/* intentional fall through */
+	case DUMP_TYPE_DHCP_TIMEOUT:
+		/* intentional fall through */
 		if (dhdp->memdump_type == DUMP_TYPE_RESUMED_ON_TIMEOUT ||
 			dhdp->memdump_type == DUMP_TYPE_D3_ACK_TIMEOUT) {
 			timeout = TRUE;
@@ -5775,6 +5784,10 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 			__FUNCTION__));
 		dhdp->collect_sdtc = TRUE;
 #endif /* DHD_SDTC_ETB_DUMP */
+
+#if defined(WLAN_ACCEL_BOOT)
+		dhd_set_accel_force_reg_on(dhdp);
+#endif /* WLAN_ACCEL_BOOT */
 		if (dhdp->db7_trap.fw_db7w_trap) {
 			/* Set fw_db7w_trap_inprogress here and clear from DPC */
 			dhdp->db7_trap.fw_db7w_trap_inprogress = TRUE;
@@ -8042,9 +8055,7 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 #endif /* DHD_CONTROL_PCIE_ASPM_WIFI_TURNON */
 			bus->is_linkdown = 0;
 			bus->cto_triggered = 0;
-#ifdef SUPPORT_LINKDOWN_RECOVERY
 			bus->read_shm_fail = FALSE;
-#endif /* SUPPORT_LINKDOWN_RECOVERY */
 			bcmerror = dhdpcie_bus_enable_device(bus);
 			if (bcmerror) {
 				DHD_ERROR(("%s: host configuration restore failed: %d\n",
@@ -12828,6 +12839,10 @@ dhdpcie_fw_trap(dhd_bus_t *bus)
 			CAN_SLEEP() ? OSL_SLEEP(DB7_TRAP_RETRY_DELAY_MS) :
 				OSL_DELAY(DB7_TRAP_RETRY_DELAY_MS * USEC_PER_MSEC);
 		}
+
+		/* once DB7 is sent, cannot sent another DB7 trap till next FW download */
+		bus->dhd->db7_trap.fw_db7w_trap = FALSE;
+
 		DHD_PRINT(("%s: fw_db7w_trap_received:%d\n", __FUNCTION__,
 			bus->dhd->db7_trap.fw_db7w_trap_received));
 		return;
@@ -14374,6 +14389,7 @@ dhdpcie_wait_readshared_area_addr(dhd_bus_t *bus, uint32 *share_addr)
 			DHD_ERROR(("%s : PCIe link might be down\n", __FUNCTION__));
 			bus->is_linkdown = TRUE;
 		} else {
+			bus->read_shm_fail = TRUE;
 #if defined(DHD_FW_COREDUMP)
 #ifdef DHD_SSSR_DUMP
 #ifdef OEM_ANDROID
@@ -14419,7 +14435,9 @@ dhdpcie_wait_readshared_area_addr(dhd_bus_t *bus, uint32 *share_addr)
 #ifdef DHD_SDTC_ETB_DUMP
 				bus->dhd->collect_sdtc = TRUE;
 #endif /* DHD_SDTC_ETB_DUMP */
-				bus->dhd->memdump_type = DUMP_TYPE_DONGLE_INIT_FAILURE;
+				/* This will make further query_buserrors fail */
+				bus->read_shm_fail = TRUE;
+				bus->dhd->memdump_type = DUMP_TYPE_READ_SHM_FAIL;
 				dhdpcie_mem_dump(bus);
 			}
 		}
@@ -15257,6 +15275,7 @@ fail:
 	 * For android dhd_force_collect_init_fail_dumps will do it
 	 * so no need to collect dumps here
 	 */
+	bus->read_shm_fail = TRUE;
 #if defined(DHD_FW_COREDUMP) && !defined(OEM_ANDROID)
 #ifdef DHD_SSSR_DUMP
 	bus->dhd->collect_sssr = TRUE;
@@ -16138,11 +16157,7 @@ dhd_bus_get_cto(dhd_pub_t *dhdp)
 bool
 dhd_bus_get_read_shm(dhd_pub_t *dhdp)
 {
-#ifdef SUPPORT_LINKDOWN_RECOVERY
 	return dhdp->bus->read_shm_fail;
-#else
-	return FALSE;
-#endif /* SUPPORT_LINKDOWN_RECOVERY */
 }
 
 #if defined(__linux__)

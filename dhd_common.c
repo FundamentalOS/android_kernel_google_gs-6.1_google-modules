@@ -11735,6 +11735,9 @@ dhd_convert_memdump_type_to_str(uint32 type, char *buf, size_t buf_len, int subs
 		case DUMP_TYPE_NO_DB7_ACK:
 			type_str = "NO_DB7_ACK";
 			break;
+		case DUMP_TYPE_DHCP_TIMEOUT:
+			type_str = "DHCP_TIMEOUT";
+			break;
 		default:
 			type_str = "Unknown_type";
 			break;

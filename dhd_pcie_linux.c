@@ -2413,8 +2413,8 @@ int dhdpcie_init(struct pci_dev *pdev)
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 		dhd_plat_pcie_register_event(bus->dhd->plat_info, pdev,
 			dhdpcie_linkdown_cb);
-		bus->read_shm_fail = FALSE;
 #endif /* SUPPORT_LINKDOWN_RECOVERY */
+		bus->read_shm_fail = FALSE;
 
 		if (bus->intr) {
 			/* Register interrupt callback, but mask it (not operational yet). */
@@ -3663,6 +3663,10 @@ bool dhd_runtime_bus_wake(dhd_bus_t *bus, bool wait, void *func_addr)
 
 		/* If wait is TRUE, function with wait = TRUE will be wait in here  */
 		if (wait) {
+			if (!dhd_is_rpm_thread_alive(bus->dhd)) {
+				DHD_ERROR(("%s: RPM thread is terminated\n", __FUNCTION__));
+				return FALSE;
+			}
 			if (!wait_event_timeout(bus->rpm_queue, bus->runtime_resume_done,
 					msecs_to_jiffies(RPM_WAKE_UP_TIMEOUT))) {
 				DHD_ERROR(("%s: RPM_WAKE_UP_TIMEOUT error\n", __FUNCTION__));

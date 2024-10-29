@@ -964,7 +964,7 @@ void dhd_lb_stats_rxc_percpu_cnt_incr(dhd_pub_t *dhdp)
  * CPU and schedules a tasklet.
  * @tasklet: opaque pointer to the tasklet
  */
-INLINE void
+void
 dhd_tasklet_schedule(void *tasklet)
 {
 	tasklet_schedule((struct tasklet_struct *)tasklet);
@@ -980,13 +980,13 @@ dhd_tasklet_schedule(void *tasklet)
  * will be invoked to schedule the specified work on the requested CPU.
  */
 
-INLINE void
+void
 dhd_work_schedule_on(struct work_struct *work, int on_cpu)
 {
 	schedule_work_on(on_cpu, work);
 }
 
-INLINE void
+void
 dhd_delayed_work_schedule_on(struct delayed_work *dwork, int on_cpu, ulong delay)
 {
 	schedule_delayed_work_on(on_cpu, dwork, delay);

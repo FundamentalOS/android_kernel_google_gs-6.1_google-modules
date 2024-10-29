@@ -373,6 +373,7 @@ typedef struct dhd_if {
 #endif /* DHD_POST_EAPOL_M1_AFTER_ROAM_EVT */
 	uint64 rx_pkts;		/* per interface total rx pkts, can be cleared with iovar */
 	uint64 tx_pkts;		/* per interface total tx pkts, can be cleared with iovar */
+	bool	dhcp_request_pending;
 } dhd_if_t;
 
 struct ipv6_work_info_t {

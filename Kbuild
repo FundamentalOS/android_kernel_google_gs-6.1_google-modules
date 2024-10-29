@@ -129,6 +129,7 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
 	DHDCFLAGS += -fstrict-flex-arrays=0
 endif
 
+DHDCFLAGS += --std=gnu17
 DHDCFLAGS += -DOEM_ANDROID
 DHDCFLAGS += -DDHD_COREDUMP
 
