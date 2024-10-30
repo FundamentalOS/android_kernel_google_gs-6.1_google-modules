@@ -5313,13 +5313,17 @@ wl_cfgscan_listen_complete_work(struct work_struct *work)
 	struct bcm_cfg80211 *cfg = NULL;
 	BCM_SET_CONTAINER_OF(cfg, work, struct bcm_cfg80211, loc.work.work);
 
+	mutex_lock(&cfg->if_sync);
 	WL_ERR(("listen timeout\n"));
 	/* listen not completed. Do recovery */
 	if (!cfg->loc.in_progress) {
 		WL_ERR(("No listen in progress!\n"));
-		return;
+		goto exit;
 	}
 	wl_cfgscan_notify_listen_complete(cfg);
+
+exit:
+	mutex_unlock(&cfg->if_sync);
 }
 
 s32
@@ -6442,9 +6446,11 @@ static int wl_cfgscan_acs_parse_parameter(struct bcm_cfg80211 *cfg,
 			return 0;
 		}
 
-		/* Handle 5G band (from bw20 to bw80) */
-		/* bw80 */
-		if ((bw == 80) &&
+		/* Handle 5G band (from bw20 to bw160)
+		 * Since bw160 falls into DFS, we downgrade the bw to 80MHz,
+		 * hence handling commonly here for both 160MHz and 80MHz
+		 */
+		if (((bw == 80) || (bw == 160)) &&
 				(pParameter->vht_enabled || pParameter->he_enabled)) {
 			chspec = wf_create_chspec_from_primary(channel,
 				WL_CHANSPEC_BW_80, chspec_band, 0);
@@ -6934,7 +6940,8 @@ success:
 
 	for (i = 0; i < freq_list_len; i++) {
 		if ((parameter->freq_bands & CHSPEC_TO_WLC_BAND(p_chspec_list[i])) == 0) {
-			WL_DBG(("Skipping no matched band channel(0x%x).\n", p_chspec_list[i]));
+			WL_DBG(("Skipping no matched band channel(0x%x).\n",
+				p_chspec_list[i]));
 			continue;
 		}
 
@@ -7134,6 +7141,14 @@ wl_cfgscan_acs(struct wiphy *wiphy,
 				break;
 			}
 		}
+
+		if (req_len <= 0) {
+			ret = BCME_BADARG;
+			WL_ERR(("%s: *Error, Freq conversion resulted in (%d) no of frequencies\n",
+				__FUNCTION__, req_len));
+			break;
+		}
+
 		WL_TRACE(("%s: list_len=%d after freq_list\n", __FUNCTION__, req_len));
 
 		pReq->count = req_len;
@@ -7564,7 +7579,20 @@ wl_handle_ap_sta_mlo_concurrency(struct bcm_cfg80211 *cfg, struct net_info *mld_
 			scc_case = wl_acs_check_scc(cfg, parameter, sta_chanspecs[WLC_BAND_6G],
 				qty, pList);
 			if (scc_case) {
-				WL_DBG(("6G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_6G]));
+				WL_DBG_MEM(("6G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_6G]));
+			}
+		} else if (!wl_is_5g_restricted(cfg, sta_chanspecs[WLC_BAND_5G]) &&
+			(!wf_chspec_valid(sta_chanspecs[WLC_BAND_6G]) ||
+			wl_is_link_sleepable(cfg, pri_chspec, sta_chanspecs[WLC_BAND_6G]))) {
+			/*
+			 * Case: STA in EMLSR mode with primary channel as
+			 * 5G (6G channel is sleepable).
+			 * If 5G STA channel is not restricted for Softap, do SCC
+			 */
+			scc_case = wl_acs_check_scc(cfg, parameter, sta_chanspecs[WLC_BAND_5G],
+				qty, pList);
+			if (scc_case) {
+				WL_DBG_MEM(("5G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_5G]));
 			}
 		} else {
 			/* If STA is non-VLP or non-PSC set to available 2G channel from list */
@@ -7584,7 +7612,7 @@ wl_handle_ap_sta_mlo_concurrency(struct bcm_cfg80211 *cfg, struct net_info *mld_
 			scc_case = wl_acs_check_scc(cfg, parameter, sta_chanspecs[WLC_BAND_5G],
 				qty, pList);
 			if (scc_case) {
-				WL_DBG(("5G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_5G]));
+				WL_DBG_MEM(("5G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_5G]));
 			}
 		} else {
 			/*
@@ -7607,7 +7635,7 @@ wl_handle_ap_sta_mlo_concurrency(struct bcm_cfg80211 *cfg, struct net_info *mld_
 			scc_case = wl_acs_check_scc(cfg, parameter, sta_chanspecs[WLC_BAND_2G],
 				qty, pList);
 			if (scc_case) {
-				WL_DBG(("2G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_2G]));
+				WL_DBG_MEM(("2G SCC case 0x%x\n", sta_chanspecs[WLC_BAND_2G]));
 			}  else {
 				WL_ERR(("No concurrent channel in 2G. Fail ACS\n"));
 				return BCME_BADARG;
@@ -7635,7 +7663,7 @@ wl_handle_ap_sta_mlo_concurrency(struct bcm_cfg80211 *cfg, struct net_info *mld_
 		} else {
 			/* Attempt ACS with 2G band, since sta is not connected to 2G channel */
 			parameter->freq_bands &= ~(WLC_BAND_5G | WLC_BAND_6G);
-			WL_DBG(("Attempting ACS with 2G band\n"));
+			WL_DBG_MEM(("Attempting ACS with 2G band\n"));
 			return BCME_OK;
 		}
 	}
@@ -7914,4 +7942,22 @@ wl_cfgscan_get_bw_chspec(chanspec_t *chspec, u32 bw)
 			cur_chspec, *chspec, bw,
 			wf_chspec_primary20_chan(*chspec)));
 	return BCME_OK;
+}
+
+void
+wl_connected_channel_debuggability(struct bcm_cfg80211 * cfg, struct net_device * ndev)
+{
+	chanspec_t *chanspec;
+	struct ieee80211_channel *chan;
+	u32 center_freq;
+	struct wiphy *wiphy = bcmcfg_to_wiphy(cfg);
+
+	chanspec = (chanspec_t *)wl_read_prof(cfg, ndev, WL_PROF_CHAN);
+	center_freq = wl_channel_to_frequency(wf_chspec_ctlchan(*chanspec),
+			CHSPEC_BAND(*chanspec));
+
+	chan = ieee80211_get_channel(wiphy, center_freq);
+	if (chan) {
+		WL_INFORM_MEM(("Connected center_freq:%d flags:%x\n", center_freq, chan->flags));
+	}
 }

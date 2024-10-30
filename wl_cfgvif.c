@@ -1209,8 +1209,15 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 	u16 wl_iftype;
 	u16 wl_mode;
 	struct net_device *primary_ndev;
+	struct net_device *ndev = NULL;
+	dhd_pub_t *dhdp;
 
 	if (!cfg) {
+		return -EINVAL;
+	}
+
+	dhdp = (dhd_pub_t *)(cfg->pub);
+	if (!dhdp) {
 		return -EINVAL;
 	}
 
@@ -1221,6 +1228,7 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 		return -ENODEV;
 	}
 
+	ndev = wdev_to_ndev(wdev);
 #ifdef WL_STATIC_IF
 	/* interface delete is invalid for static interface */
 	if (IS_CFG80211_STATIC_IF(cfg, wdev_to_ndev(wdev))) {
@@ -1229,10 +1237,22 @@ wl_cfg80211_del_virtual_iface(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev)
 	}
 #endif /* WL_STATIC_IF */
 
-	WL_DBG(("Enter  wdev:%p iftype: %d\n", wdev, wdev->iftype));
+	WL_INFORM_MEM(("Enter  wdev:%p iftype: %d\n", wdev, wdev->iftype));
 	if (cfg80211_to_wl_iftype(wdev->iftype, &wl_iftype, &wl_mode) < 0) {
 		WL_ERR(("Wrong iftype: %d\n", wdev->iftype));
 		return -ENODEV;
+	}
+
+	if (ndev) {
+#ifdef WL_NAN
+		if (IS_NDI_IFACE(ndev->name)) {
+			/* Check for aware* iface name for NAN iftype */
+			if (!cfg->nancfg->nan_init_state || !cfg->nancfg->nan_enable) {
+				WL_ERR(("Nan must be inited/enabled\n"));
+				return -ENODEV;
+			}
+		}
+#endif /* WL_NAN */
 	}
 
 	if ((ret = wl_cfgvif_del_if(cfg, primary_ndev,
@@ -1257,6 +1277,8 @@ wl_cfg80211_change_p2prole(struct wiphy *wiphy, struct net_device *ndev, enum nl
 #ifdef BCMDONGLEHOST
 	dhd_pub_t *dhd = (dhd_pub_t *)(cfg->pub);
 #endif /* BCMDONGLEHOST */
+	u16 wl_iftype;
+	u16 wl_mode;
 
 	WL_INFORM_MEM(("Enter. current_role:%d new_role:%d \n", ndev->ieee80211_ptr->iftype, type));
 
@@ -1289,7 +1311,11 @@ wl_cfg80211_change_p2prole(struct wiphy *wiphy, struct net_device *ndev, enum nl
 	 * channel. so retrieve the current channel of primary interface and
 	 * then start the virtual interface on that.
 	 */
-	chspec = wl_cfg80211_get_shared_freq(wiphy);
+	if (cfg80211_to_wl_iftype(type, &wl_iftype, &wl_mode) < 0) {
+		WL_ERR(("Unsupported if type %d\n", type));
+		return BCME_UNSUPPORTED;
+	}
+	chspec = wl_cfg80211_get_shared_freq(wiphy, wl_iftype);
 	if (type == NL80211_IFTYPE_P2P_GO) {
 		/* Dual p2p doesn't support multiple P2PGO interfaces,
 		 * p2p_go_count is the counter for GO creation
@@ -2256,6 +2282,15 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 				}
 #endif /* WL_UNII4_CHAN */
 			}
+		}
+	} else {
+		WL_DBG_MEM(("Non concurrency case chanspec 0x%x\n", chspec));
+		if ((CHSPEC_IS6G(chspec) && wl_is_6g_restricted(cfg, chspec)) ||
+			(CHSPEC_IS5G(chspec) && wl_is_5g_restricted(cfg, chspec)) ||
+			(CHSPEC_IS2G(chspec) && wl_is_2g_restricted(cfg, chspec))) {
+			err = BCME_BADCHAN;
+			WL_ERR(("Restricted chanspec 0x%x, failing softAP\n", chspec));
+			return err;
 		}
 	}
 
@@ -6581,6 +6616,7 @@ int wl_chspec_chandef(chanspec_t chanspec,
 			chan_type = NL80211_CHAN_HT20;
 			break;
 		case WL_CHANSPEC_BW_40:
+#ifdef WL_FORCE_40BW_CHANDEF
 		{
 			if (CHSPEC_SB_UPPER(chanspec)) {
 				channel += CH_10MHZ_APART;
@@ -6589,6 +6625,11 @@ int wl_chspec_chandef(chanspec_t chanspec,
 			}
 		}
 			chan_type = NL80211_CHAN_HT40PLUS;
+#else
+			/* Use 20MHz BW for chandef */
+			channel = wf_chspec_primary20_chan(chanspec);
+			chan_type = NL80211_CHAN_HT20;
+#endif
 			break;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION (3, 8, 0))
@@ -7435,12 +7476,12 @@ typedef struct {
 	uint16 id;
 	uint16 len;
 	uint32 val;
-} he_xtlv_v32;
+} xtlv_v32_t;
 
 static bool
-wl_he_get_uint_cb(void *ctx, uint16 *id, uint16 *len)
+wl_get_uint_cb(void *ctx, uint16 *id, uint16 *len)
 {
-	he_xtlv_v32 *v32 = ctx;
+	xtlv_v32_t *v32 = ctx;
 
 	*id = v32->id;
 	*len = v32->len;
@@ -7449,9 +7490,9 @@ wl_he_get_uint_cb(void *ctx, uint16 *id, uint16 *len)
 }
 
 	static void
-wl_he_pack_uint_cb(void *ctx, uint16 id, uint16 len, uint8 *buf)
+wl_pack_uint_cb(void *ctx, uint16 id, uint16 len, uint8 *buf)
 {
-	he_xtlv_v32 *v32 = ctx;
+	xtlv_v32_t *v32 = ctx;
 
 	BCM_REFERENCE(id);
 	BCM_REFERENCE(len);
@@ -7481,7 +7522,7 @@ int wl_cfg80211_set_he_mode(struct net_device *dev, struct bcm_cfg80211 *cfg,
 	bcm_xtlv_t read_he_xtlv;
 	uint8 se_he_xtlv[32];
 	int se_he_xtlv_len = sizeof(se_he_xtlv);
-	he_xtlv_v32 v32;
+	xtlv_v32_t v32;
 	u32 he_feature = 0;
 	s32 err = 0;
 	uint8 iovar_buf[WLC_IOCTL_SMLEN];
@@ -7508,7 +7549,7 @@ int wl_cfg80211_set_he_mode(struct net_device *dev, struct bcm_cfg80211 *cfg,
 	}
 
 	err = bcm_pack_xtlv_buf((void *)&v32, se_he_xtlv, sizeof(se_he_xtlv),
-			BCM_XTLV_OPTION_ALIGN32, wl_he_get_uint_cb, wl_he_pack_uint_cb,
+			BCM_XTLV_OPTION_ALIGN32, wl_get_uint_cb, wl_pack_uint_cb,
 			&se_he_xtlv_len);
 	if (err != BCME_OK) {
 		WL_ERR(("failed to pack he settvl=%d\n", err));
@@ -9156,6 +9197,83 @@ wl_get_max_bw_for_band(u32 chspec_band)
 	return bw;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0))
+s32
+wl_cfgvif_set_eht_features(struct net_device *dev, struct bcm_cfg80211 *cfg,
+	u32 eht_mask)
+{
+	bcm_xtlv_t read_eht_xtlv;
+	uint8 set_eht_xtlv[32];
+	int set_eht_xtlv_len = sizeof(set_eht_xtlv);
+	xtlv_v32_t v32;
+	u32 eht_feature = 0;
+	s32 err = BCME_OK;
+	uint8 iovar_buf[WLC_IOCTL_SMLEN];
+
+	bzero(&v32, sizeof(xtlv_v32_t));
+	bzero(&read_eht_xtlv, sizeof(read_eht_xtlv));
+
+	read_eht_xtlv.id = WL_EHT_CMD_FEATURES;
+	read_eht_xtlv.len = 0;
+
+	err = wldev_iovar_getbuf(dev, "eht", &read_eht_xtlv, sizeof(read_eht_xtlv),
+			iovar_buf, WLC_IOCTL_SMLEN, NULL);
+	if (err < 0) {
+		WL_ERR(("EHT get failed. error=%d\n", err));
+		goto exit;
+	} else {
+		eht_feature = *(int*)iovar_buf;
+		eht_feature = dtoh32(eht_feature);
+	}
+
+	v32.id = WL_EHT_CMD_FEATURES;
+	v32.len = sizeof(s32);
+
+	v32.val = eht_feature;
+
+	if (eht_mask) {
+		if (eht_mask & DHD_DISABLE_STA_EHT) {
+			/* Host enforced EHT disable */
+			v32.val |= WL_EHT_FEATURES_STA_DISABLE;
+			WL_INFORM(("host enforced STA EHT disable. fw_cap:0x%x\n",
+					(eht_feature & WL_EHT_FEATURES_STA_DISABLE)));
+		}
+
+		if (eht_mask & DHD_ENABLE_STA_EHT) {
+			if (eht_feature & WL_EHT_FEATURES_STA_DISABLE) {
+				v32.val &= ~WL_EHT_FEATURES_STA_DISABLE;
+				WL_INFORM(("Reset host enforced EHT disable. fw_cap:0x%x\n",
+						v32.val));
+			}
+		}
+	}
+
+	if (eht_feature == v32.val) {
+		WL_INFORM(("eht_feature val is unchanged, skip overwrite\n"));
+		goto exit;
+	}
+
+	err = bcm_pack_xtlv_buf((void *)&v32, set_eht_xtlv, sizeof(set_eht_xtlv),
+			BCM_XTLV_OPTION_ALIGN32, wl_get_uint_cb, wl_pack_uint_cb,
+			&set_eht_xtlv_len);
+	if (err != BCME_OK) {
+		WL_ERR(("failed to pack eht settvl=%d\n", err));
+		goto exit;
+	}
+
+	err = wldev_iovar_setbuf(dev, "eht", set_eht_xtlv, sizeof(set_eht_xtlv),
+			cfg->ioctl_buf, WLC_IOCTL_SMLEN, &cfg->ioctl_buf_sync);
+	if (err < 0) {
+		WL_ERR(("failed to set eht features, error=%d\n", err));
+		goto exit;
+	}
+
+	WL_INFORM_MEM(("Set EHT done: 0x%x\n", v32.val));
+exit:
+	return err;
+}
+#endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0) */
+
 s32
 wl_cfgvif_get_ml_scc_channel_array(struct bcm_cfg80211 *cfg,
 	wl_chan_info_t *wl_chaninfo)
@@ -9324,3 +9442,68 @@ exit:
 	return res;
 }
 #endif /* KEEP_ALIVE && OEM_ANDROID */
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+s32
+wl_cfgvif_update_assoc_fail_status(struct bcm_cfg80211 *cfg, struct net_device *ndev,
+		const wl_event_msg_t *e)
+{
+	u32 event = ntoh32(e->event_type);
+	s32 status = ntoh32(e->status);
+	s32 reason = ntoh32(e->reason);
+	s32 auth_type = ntoh32(e->auth_type);
+	struct wl_security *sec = wl_read_prof(cfg, ndev, WL_PROF_SEC);
+	s32 assoc_status = 0;
+	s32 timeout_reason = 0;
+
+	if (!sec || (status == WLC_E_STATUS_SUCCESS)) {
+		WL_ERR(("invalid arg! status:%d\n", status));
+		return 0;
+	}
+
+	/* @status: Status code, %WLAN_STATUS_SUCCESS for successful connection, use
+	 * WLAN_STATUS_UNSPECIFIED_FAILURE if your device cannot give you
+	 * the real status code for failures. If this call is used to report a
+	 * failure due to a timeout (e.g., not receiving an Authentication frame
+	 * from the AP) instead of an explicit rejection by the AP, -1 is used to
+	 * indicate that this is a failure, but without a status code.
+	 * @timeout_reason is used to report the reason for the timeout in that
+	 * case.
+	 */
+	switch (event) {
+		case WLC_E_AUTH:
+			if ((status == WLC_E_STATUS_TIMEOUT) ||
+					(status == WLC_E_STATUS_NO_ACK)) {
+				WL_DBG_MEM(("AUTH timeout\n"));
+				assoc_status = -1;
+				timeout_reason = NL80211_TIMEOUT_AUTH;
+			} else if (reason) {
+				/* For WLC_E_AUTH e->reason carries the dot11 status */
+				assoc_status = reason;
+			}
+			break;
+		case WLC_E_ASSOC:
+			if ((status == WLC_E_STATUS_TIMEOUT) ||
+					(status == WLC_E_STATUS_NO_ACK)) {
+				WL_DBG_MEM(("ASSOC timeout\n"));
+				assoc_status = -1;
+				timeout_reason = NL80211_TIMEOUT_ASSOC;
+			} else if (auth_type) {
+				/* WLC_E_ASSOC e->auth_type carries dot11 assoc status */
+				assoc_status = e->auth_type;
+			}
+			break;
+		default:
+			break;
+	}
+
+	if (assoc_status) {
+		WL_INFORM_MEM(("cache assoc_status: event:%d"
+			"status:%d reason:%d\n", event, status, reason));
+		sec->cfg80211_assoc_status = assoc_status;
+		sec->cfg80211_timeout = timeout_reason;
+	}
+
+	return 0;
+}
+#endif /* LINUX_VER >= 5.4 */
