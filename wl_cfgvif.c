@@ -9401,7 +9401,8 @@ wl_cfgvif_apply_default_keep_alive(struct net_device *ndev, struct bcm_cfg80211 
 	 * dongle shall reject a mkeep_alive request.
 	 */
 	if (!IS_STA_IFACE(ndev_to_wdev(ndev))) {
-		return res;
+		WL_ERR(("%s not a STA interface\n", ndev->name));
+		return BCME_ERROR;
 	}
 
 	/* Request the specified ID */

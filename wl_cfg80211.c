@@ -20795,15 +20795,17 @@ static s32 __wl_cfg80211_up(struct bcm_cfg80211 *cfg)
 	u8 ioctl_buf[WLC_IOCTL_SMLEN];
 	wl_actframe_version_v1_t *af_ver_p;
 
-	WL_DBG(("In\n"));
+	WL_INFORM_MEM(("Enter. ifname:%s iftype:%d\n",
+		ndev->name, wdev->iftype));
 
 	/* Reserve 0x8000 toggle bit for P2P GO/GC */
 	cfg->vif_macaddr_mask = 0x8000;
 
 #if defined(BCMDONGLEHOST)
 	err = dhd_config_dongle(cfg);
-	if (unlikely(err))
+	if (unlikely(err)) {
 		return err;
+	}
 #endif /* defined(BCMDONGLEHOST) */
 
 #ifdef SHOW_LOGTRACE
@@ -20844,6 +20846,8 @@ static s32 __wl_cfg80211_up(struct bcm_cfg80211 *cfg)
 	}
 
 	if (cfg80211_to_wl_iftype(wdev->iftype, &wl_iftype, &wl_mode) < 0) {
+		WL_ERR(("unsupported wdev_iftype:%d wl_iftype:%d wl_mode:%d\n",
+			wdev->iftype, wl_iftype, wl_mode));
 		return -EINVAL;
 	}
 	if (!dhd->fw_preinit) {
@@ -20959,6 +20963,9 @@ static s32 __wl_cfg80211_up(struct bcm_cfg80211 *cfg)
 #endif /* DHD_LOSSLESS_ROAMING */
 
 	err = dhd_monitor_init(cfg->pub);
+	if (err) {
+		WL_ERR(("monitor init failed err:%d\n", err));
+	}
 
 #ifdef WL_HOST_BAND_MGMT
 	/* By default the curr_band is initialized to BAND_AUTO */
@@ -21076,7 +21083,9 @@ static s32 __wl_cfg80211_up(struct bcm_cfg80211 *cfg)
 #endif /* WL_IDAUTH */
 
 #if defined(KEEP_ALIVE) && defined(OEM_ANDROID)
-	err = wl_cfgvif_apply_default_keep_alive(ndev, cfg);
+	if (IS_STA_IFACE(ndev_to_wdev(ndev))) {
+		err = wl_cfgvif_apply_default_keep_alive(ndev, cfg);
+	}
 #endif /* KEEP_ALIVE && OEM_ANDROID */
 
 	return err;
@@ -21371,34 +21380,35 @@ s32 wl_cfg80211_up(struct net_device *net)
 #ifdef WL_USE_RANDOMIZED_SCAN
 	uint8 random_addr[ETHER_ADDR_LEN] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
 #endif /* WL_USE_RANDOMIZED_SCAN */
+
 	WL_DBG(("In\n"));
 	cfg = wl_get_cfg(net);
 
+	mutex_lock(&cfg->usr_sync);
 #ifdef WL_DUAL_STA
 	cfg->inet_ndev = net;
 #endif /* WL_DUAL_STA */
 	if ((err = wldev_ioctl_get(bcmcfg_to_prmry_ndev(cfg), WLC_GET_VERSION, &val,
 		sizeof(int)) < 0)) {
 		WL_ERR(("WLC_GET_VERSION failed, err=%d\n", err));
-		return err;
+		goto exit;
 	}
 	val = dtoh32(val);
 	if (val != WLC_IOCTL_VERSION && val != 1) {
 		WL_ERR(("Version mismatch, please upgrade. Got %d, expected %d or 1\n",
 			val, WLC_IOCTL_VERSION));
-		return BCME_VERSION;
+		goto exit;
 	}
 	ioctl_version = val;
 	WL_TRACE(("WLC_GET_VERSION=%d\n", ioctl_version));
 
-	mutex_lock(&cfg->usr_sync);
 #if defined(BCMDONGLEHOST)
 	dhd = (dhd_pub_t *)(cfg->pub);
 	if (!(dhd->op_mode & DHD_FLAG_HOSTAP_MODE)) {
 		err = wl_cfg80211_attach_post(bcmcfg_to_prmry_ndev(cfg));
 		if (unlikely(err)) {
-			mutex_unlock(&cfg->usr_sync);
-			return err;
+			WL_ERR(("wl_cfg80211_attach_post failed. err:%d\n", err));
+			goto exit;
 		}
 	}
 #if defined(BCMSUP_4WAY_HANDSHAKE)
@@ -21413,8 +21423,10 @@ s32 wl_cfg80211_up(struct net_device *net)
 #endif /* BCMSUP_4WAY_HANDSHAKE */
 #endif /* defined(BCMDONGLEHOST) */
 	err = __wl_cfg80211_up(cfg);
-	if (unlikely(err))
-		WL_ERR(("__wl_cfg80211_up failed\n"));
+	if (unlikely(err)) {
+		WL_ERR(("__wl_cfg80211_up failed. err:%d\n", err));
+		goto exit;
+	}
 
 #ifdef ROAM_CHANNEL_CACHE
 	if (init_roam_cache(cfg, ioctl_version) == 0) {
@@ -21460,8 +21472,6 @@ s32 wl_cfg80211_up(struct net_device *net)
 	}
 #endif /* WL_CHAN_UTIL */
 
-	mutex_unlock(&cfg->usr_sync);
-
 #ifdef WLAIBSS_MCHAN
 	bcm_cfg80211_add_ibss_if(cfg->wdev->wiphy, IBSS_IF_NAME);
 #endif /* WLAIBSS_MCHAN */
@@ -21471,6 +21481,8 @@ s32 wl_cfg80211_up(struct net_device *net)
 		wl_set_drv_status(cfg, READY, net);
 	}
 
+exit:
+	mutex_unlock(&cfg->usr_sync);
 	return err;
 }
 
