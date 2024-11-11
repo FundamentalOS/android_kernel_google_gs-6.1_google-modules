@@ -939,7 +939,8 @@ static int dhdpcie_pci_suspend(struct device *dev)
 		if ((timeleft == 0) || (timeleft == 1)) {
 			DHD_ERROR(("%s: Timed out dhd_bus_busy_state=0x%x\n",
 				__FUNCTION__, bus->dhd->dhd_bus_busy_state));
-			return -EBUSY;
+			ret = -EBUSY;
+			goto exit;
 		}
 	} else {
 		DHD_BUS_BUSY_SET_SUSPEND_IN_PROGRESS(bus->dhd);
@@ -952,7 +953,7 @@ static int dhdpcie_pci_suspend(struct device *dev)
 
 	if (!bus->dhd->dongle_reset)
 		ret = dhdpcie_set_suspend_resume(bus, TRUE);
-
+exit:
 	DHD_GENERAL_LOCK(bus->dhd, flags);
 	DHD_BUS_BUSY_CLEAR_SUSPEND_IN_PROGRESS(bus->dhd);
 	dhd_os_busbusy_wake(bus->dhd);
@@ -1799,6 +1800,8 @@ dhdpcie_pci_stop(struct pci_dev *pdev)
 #endif /* DHD_PCIE_NATIVE_RUNTIMEPM */
 
 	if (bus) {
+		/*  Stop Runtime PM in pci_remove */
+		DHD_STOP_RPM_TIMER(bus->dhd);
 #ifdef SUPPORT_LINKDOWN_RECOVERY
 		dhd_plat_pcie_deregister_event(bus->dhd->plat_info);
 #endif /* SUPPORT_LINKDOWN_RECOVERY */

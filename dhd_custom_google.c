@@ -157,6 +157,7 @@ typedef struct dhd_plat_info {
 	struct exynos_pcie_register_event pcie_event;
 	struct exynos_pcie_notify pcie_notify;
 #endif	/* CONFIG_PCI_EXYNOS_GS */
+	u32 cb_events;
 	struct pci_dev *pdev;
 } dhd_plat_info_t;
 
@@ -230,7 +231,7 @@ _pcie_deregister_event(struct dhd_plat_info *p)
 		exynos_pcie_deregister_event(&p->pcie_event);
 	}
 }
-#else
+#else /* !IS_ENABLED(CONFIG_PCI_EXYNOS_GS) */
 #define PCI_EXP_LINKCAP2_SPEED_MASK (PCI_EXP_LNKCAP2_SLS_2_5GB | PCI_EXP_LNKCAP2_SLS_5_0GB  | \
 				     PCI_EXP_LNKCAP2_SLS_8_0GB | PCI_EXP_LNKCAP2_SLS_16_0GB | \
 				     PCI_EXP_LNKCAP2_SLS_32_0GB | PCI_EXP_LNKCAP2_SLS_64_0GB)
@@ -250,9 +251,55 @@ static int dhd_pcie_l1ss_ctrl(int enable, int ch_num);
 #ifdef DHD_TREAT_D3ACKTO_AS_LINKDWN
 #define _pcie_set_skip_config(ch, val) PCIE_DUMMY()
 #endif /* DHD_TREAT_D3ACKTO_AS_LINKDWN */
-#define _pcie_register_event(plat_info, pdev, pfn) pcie_dummy_return(__func__)
-#define _pcie_deregister_event(plat_info) PCIE_DUMMY()
-#endif	/* CONFIG_PCI_EXYNOS_GS */
+
+static void google_pcie_event_cb(enum google_pcie_callback_type type, void *priv)
+{
+	dhd_plat_info_t *p = (dhd_plat_info_t *)priv;
+	struct pci_dev *pdev;
+
+	if (p == NULL) {
+		DHD_TRACE(("%s(): Invalid argument to platform layer call back \r\n", __func__));
+		return;
+	}
+
+	if (g_pfn && (p->cb_events & BIT(type))) {
+		pdev = p->pdev;
+		DHD_TRACE(("%s(): Invoking DHD call back with pdev %p for event 0x%x\r\n",
+			__func__, pdev, type));
+		(*(g_pfn))(pdev);
+	} else {
+		DHD_TRACE(("%s(): Skip callback for event 0x%x \r\n", __func__, type));
+	}
+
+}
+
+int _pcie_register_event(void *plat_info, struct pci_dev *pdev, dhd_pcie_event_cb_t pfn)
+{
+	dhd_plat_info_t *p = plat_info;
+	if ((p == NULL) || (pdev == NULL) || (pdev->bus == NULL)) {
+		DHD_ERROR(("%s(): Unable to register PCIE events \r\n", __func__));
+		return -EINVAL;
+	}
+
+	p->cb_events = BIT(GPCIE_CB_LINK_DOWN);
+#ifdef PCIE_CPL_TIMEOUT_RECOVERY
+	p->cb_events |= BIT(GPCIE_CB_CPL_TIMEOUT);
+#endif /* PCIE_CPL_TIMEOUT_RECOVERY */
+	DHD_TRACE(("%s(): Registering for PCIe events 0x%x with plat_info %p\r\n",
+		__func__, p->cb_events, p));
+	return google_pcie_register_callback(pdev->bus->domain_nr,
+			google_pcie_event_cb, p);
+}
+
+void _pcie_deregister_event(void *plat_info)
+{
+	dhd_plat_info_t *p = plat_info;
+
+	if (p && p->pdev && p->pdev->bus) {
+		google_pcie_unregister_callback(p->pdev->bus->domain_nr);
+	}
+}
+#endif /* !IS_ENABLED(CONFIG_PCI_EXYNOS_GS) */
 
 static void sscd_release(struct device *dev)
 {
@@ -1625,7 +1672,7 @@ dhd_pcie_l1ss_ctrl(int enable, int ch_num)
 	/* TODO: enable PCIE_LINK_STATE_CLKPM */
 	if (support_l1ss & enable) {
 		aspm_state = PCIE_LINK_STATE_L1 |
-				PCIE_LINK_STATE_L1_1;
+				PCIE_LINK_STATE_L1_1 | PCIE_LINK_STATE_L1_2;
 	}
 
 	DHD_PRINT(("%s: Set aspm link state %x (support_l1ss = %d)\n",

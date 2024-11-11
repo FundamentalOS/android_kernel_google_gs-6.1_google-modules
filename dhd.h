@@ -698,7 +698,8 @@ enum dhd_dongledump_type {
 	DUMP_TYPE_STA_4WAY_HS_TIMEOUT		= 43,
 	DUMP_TYPE_STA_ROAM_TIMEOUT		= 44,
 	DUMP_TYPE_SAR_CONF_NOTFOUND		= 45,
-	DUMP_TYPE_DHCP_TIMEOUT			= 46
+	DUMP_TYPE_DHCP_TIMEOUT			= 46,
+	DUMP_TYPE_NDO_IP_ERROR			= 47
 };
 
 enum dhd_hang_reason {
@@ -2777,6 +2778,7 @@ extern int dhd_dev_set_nodfs(struct net_device *dev, uint nodfs);
 
 extern int dhd_dev_ndo_cfg(struct net_device *dev, u8 enable);
 extern int dhd_dev_ndo_update_inet6addr(struct net_device *dev);
+extern int dhd_ndo_host_and_dongle_sanity(struct net_device *dev);
 #endif /* NDO_CONFIG_SUPPORT */
 #endif /* __linux__ */
 
