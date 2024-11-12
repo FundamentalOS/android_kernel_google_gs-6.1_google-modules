@@ -348,7 +348,6 @@ akm_suites_station[] = {
 	WLAN_AKM_SUITE_FT_FILS_SHA384,
 	WLAN_AKM_SUITE_OWE,
 	WLAN_AKM_SUITE_DPP,
-	WLAN_AKM_SUITE_SAE_EXT
 };
 
 static const uint32
@@ -413,6 +412,9 @@ static void wl_cfg80211_wbtext_set_wnm_maxidle(struct bcm_cfg80211 *cfg, struct 
 static int wl_cfg80211_recv_nbr_resp(struct net_device *dev, uint8 *body, uint body_len);
 #endif /* WBTEXT */
 
+#ifdef LEGACY_CROSS_AKM
+static bool wl_is_legacy_cross_akm(struct cfg80211_connect_params *sme);
+#endif /* LEGACY_CROSS_AKM */
 #ifdef RTT_SUPPORT
 static s32 wl_cfg80211_rtt_event_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 		const wl_event_msg_t *e, void *data);
@@ -4769,14 +4771,17 @@ wl_set_wpa_version(struct net_device *dev, struct cfg80211_connect_params *sme)
 		return BCME_ERROR;
 	}
 
-	if (sme->crypto.wpa_versions & NL80211_WPA_VERSION_1)
+	WL_INFORM_MEM(("wpa_version:0x%x\n", sme->crypto.wpa_versions));
+	if (sme->crypto.wpa_versions & NL80211_WPA_VERSION_1) {
 		val = WPA_AUTH_PSK |
 			WPA_AUTH_UNSPECIFIED;
-	else if (sme->crypto.wpa_versions & NL80211_WPA_VERSION_2)
+	} else if (sme->crypto.wpa_versions & NL80211_WPA_VERSION_2) {
 		val = WPA2_AUTH_PSK|
 			WPA2_AUTH_UNSPECIFIED;
-	else
+	} else {
+		WL_ERR(("unsupported wpa_versions (%d)\n", sme->crypto.wpa_versions));
 		val = WPA_AUTH_DISABLED;
+	}
 
 	if (is_wps_conn(sme))
 		val = WPA_AUTH_DISABLED;
@@ -5549,17 +5554,19 @@ static u8
 wl_find_multiakm_combo_tuples(u32 multi_akm_auth)
 {
 	u8 num_tuples = 0;
-
 	if (multi_akm_auth & WPA3_AUTH_SAE_PSK) {
 		num_tuples++;
 	}
 	if (multi_akm_auth & WPA2_AUTH_PSK) {
 		num_tuples++;
+#ifndef DISABLE_WPAPSK_MULTIAKM
+		/* consider WPA-PSK too when wpa2psk is provided */
+		num_tuples++;
+#endif /* !DISABLE_WPAPSK_MULTIAKM */
 	}
 	if (multi_akm_auth & WPA2_AUTH_PSK_SHA256) {
 		num_tuples++;
 	}
-
 	return num_tuples;
 }
 
@@ -5583,13 +5590,64 @@ wl_prepare_joinpref_tuples(uint8 **pref_buf, u32 akm, u32 pairwise_cipher, u32 m
 	*pref_buf += WPA_SUITE_LEN;
 	WL_DBG(("AKM 0x%x, pairwise_cipher 0x%x, mcast_cipher 0x%x\n",
 		akm, pairwise_cipher, mcast_cipher));
-
 }
 
-#define LEGACY_CROSS_AKM_RESTRICT(crypto) \
-	((crypto.ciphers_pairwise[0] != WLAN_CIPHER_SUITE_CCMP) || \
-	 (crypto.cipher_group != WLAN_CIPHER_SUITE_CCMP) || \
-	 !(crypto.wpa_versions & NL80211_WPA_VERSION_2))
+static void
+wl_update_join_pref_tuple(u32 multi_akm_auth, uint8 **pref)
+{
+	/* 4389 supports CCMP cipher only */
+	if (multi_akm_auth & WPA3_AUTH_SAE_PSK) {
+		wl_prepare_joinpref_tuples(pref, WLAN_AKM_SUITE_SAE,
+			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
+	}
+	if (multi_akm_auth & WPA2_AUTH_PSK) {
+		wl_prepare_joinpref_tuples(pref, WLAN_AKM_SUITE_PSK,
+			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
+#ifndef DISABLE_WPAPSK_MULTIAKM
+		/* consider WPA-PSK (wpaie) too when wpa2psk is provided */
+		wl_prepare_joinpref_tuples(pref, WLAN_AKM_SUITE_PSK_VER_1,
+			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
+#endif /* !DISABLE_WPAPSK_MULTIAKM */
+	}
+	if (multi_akm_auth & WPA2_AUTH_PSK_SHA256) {
+		wl_prepare_joinpref_tuples(pref, WL_AKM_SUITE_SHA256_PSK,
+			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
+	}
+	return;
+}
+
+#ifdef LEGACY_CROSS_AKM
+static bool
+wl_is_legacy_cross_akm(struct cfg80211_connect_params *sme)
+{
+	u32 akm;
+	u32 pwise;
+	u32 gwise;
+	if (!sme || !sme->crypto.n_akm_suites) {
+		return FALSE;
+	}
+	akm = sme->crypto.akm_suites[0];
+	pwise = sme->crypto.ciphers_pairwise[0];
+	gwise = sme->crypto.cipher_group;
+	if ((akm != WLAN_AKM_SUITE_PSK) && (akm != WLAN_AKM_SUITE_SAE) &&
+		(akm != WL_AKM_SUITE_SHA256_PSK))
+	{
+		WL_INFORM_MEM(("unsupported akm (0x%x) for legacy cross AKM\n", akm));
+		return FALSE;
+	}
+	if (pwise != WLAN_CIPHER_SUITE_CCMP) {
+		WL_INFORM_MEM(("unsupported p-cipher (0x%x) for legacy cross AKM\n", pwise));
+		return FALSE;
+	}
+	if (gwise != WLAN_CIPHER_SUITE_CCMP) {
+		WL_INFORM_MEM(("unsupported g-cipher (0x%x) for legacy cross AKM\n", gwise));
+		return FALSE;
+	}
+	WL_INFORM_MEM(("legacy cross akm case. akm:0x%x pwise:0x%x gwise:0x%x\n",
+		akm, pwise, gwise));
+	return TRUE;
+}
+#endif /* LEGACY_CROSS_AKM */
 
 static s32
 wl_set_multi_akm(struct net_device *dev, struct bcm_cfg80211 *cfg,
@@ -5602,37 +5660,29 @@ wl_set_multi_akm(struct net_device *dev, struct bcm_cfg80211 *cfg,
 	int j;
 	int total_bytes = 0;
 	u32 multi_akm_auth = 0;
-	u32 auth;
-	u32 key_mgmt = 0;
+	u32 selected_akm = 0;
+	u32 allowed_key_mgmts = 0;
 	s32 err = 0;
+
+	/* akm_suites[0] is best akm which is selected by upper layer */
+	selected_akm = wl_rsn_akm_wpa_auth_lookup(sme->crypto.akm_suites[0]);
 
 	/* Check for valid set AKM combinations */
 	for (j = 0; j < sme->crypto.n_akm_suites; j++) {
-		auth = wl_rsn_akm_wpa_auth_lookup(sme->crypto.akm_suites[j]);
 		multi_akm_auth |= wl_rsn_akm_wpa_auth_lookup(sme->crypto.akm_suites[j]);
-		/* akm_suites[0] is best akm which is selected by upper layer */
-		if (j == 0) {
-			key_mgmt = auth;
-		}
+		WL_DBG(("AKM 0x%x at index %d, updated auth 0x%x\n",
+			sme->crypto.akm_suites[j], j, multi_akm_auth));
 	}
 
 	/* Set multi akms except the best akm */
-	assoc_info->allowed_key_mgmts = multi_akm_auth & ~(key_mgmt);
-
+	allowed_key_mgmts = multi_akm_auth & ~(selected_akm);
 	num_tuples += wl_find_multiakm_combo_tuples(multi_akm_auth);
 
-	WL_INFORM_MEM(("multi_akm_auth:0x%x num_tuples:%d key:0x%x allowed_key:0x%x "
-			"p:%x g:%x v:%x\n",
-			multi_akm_auth, num_tuples, key_mgmt, assoc_info->allowed_key_mgmts,
+	WL_INFORM_MEM(("multi_akm_auth:0x%x num_tuples:%d selected_akm:0x%x allowed_akms:0x%x "
+			"p:%x g:%x wpa_ver:%x\n",
+			multi_akm_auth, num_tuples, selected_akm, allowed_key_mgmts,
 			sme->crypto.ciphers_pairwise[0], sme->crypto.cipher_group,
 			sme->crypto.wpa_versions));
-#ifdef LEGACY_CROSS_AKM
-	/* restricted cross AKM support */
-	if (LEGACY_CROSS_AKM_RESTRICT(sme->crypto)) {
-		WL_ERR(("cipher not part of limted cross-akm support\n"));
-		return BCME_UNSUPPORTED;
-	}
-#endif /* LEGACY_CROSS_AKM */
 
 	if (!num_tuples || (num_tuples > JOIN_PREF_MAX_WPA_TUPLES)) {
 		WL_ERR(("Unsupported MultiAKM combos\n"));
@@ -5655,21 +5705,7 @@ wl_set_multi_akm(struct net_device *dev, struct bcm_cfg80211 *cfg,
 		return -EINVAL;
 	}
 
-	/* Update tuples in akm-ucipher-mcipher format required for join_pref, the order of
-	* tuple defines the AKM preference, the first addition being the highest preference
-	*/
-	if (multi_akm_auth & WPA3_AUTH_SAE_PSK) {
-		wl_prepare_joinpref_tuples(&pref, WLAN_AKM_SUITE_SAE,
-			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
-	}
-	if (multi_akm_auth & WPA2_AUTH_PSK_SHA256) {
-		wl_prepare_joinpref_tuples(&pref, WL_AKM_SUITE_SHA256_PSK,
-			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
-	}
-	if (multi_akm_auth & WPA2_AUTH_PSK) {
-		wl_prepare_joinpref_tuples(&pref, WLAN_AKM_SUITE_PSK,
-			WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_CCMP);
-	}
+	wl_update_join_pref_tuple(multi_akm_auth, &pref);
 #ifdef MFP
 	if ((err = wl_cfg80211_set_mfp(cfg, dev, sme)) < 0) {
 		WL_ERR(("MFP set failed err:%d\n", err));
@@ -5711,7 +5747,11 @@ wl_set_key_mgmt(struct net_device *dev, struct cfg80211_connect_params *sme,
 		for (i = 0; i < sme->crypto.n_akm_suites; i++) {
 			WL_INFORM_MEM(("akms idx:%d 0x%x\n", i, sme->crypto.akm_suites[i]));
 		}
-		if (sme->crypto.n_akm_suites > 1) {
+		/* akm_suites[0] = AKM for targeted AP
+		 * akm_suites[1-n] = allowed key_mgmt for seamless roam
+		 */
+		if ((sme->crypto.n_akm_suites > 1u) &&
+				(assoc_info->skip_seamless_psk == FALSE)) {
 			err = wl_set_multi_akm(dev, cfg, sme, assoc_info);
 			if (unlikely(err)) {
 				WL_ERR(("Failed to set multi akm key mgmt err = %d."
@@ -5721,6 +5761,7 @@ wl_set_key_mgmt(struct net_device *dev, struct cfg80211_connect_params *sme,
 				goto set_prof;
 			}
 		}
+
 		err = wldev_iovar_getint(dev, "wpa_auth", &val);
 		if (unlikely(err)) {
 			WL_ERR(("could not get wpa_auth (%d)\n", err));
@@ -6266,28 +6307,25 @@ wl_config_assoc_security(struct bcm_cfg80211 *cfg, struct net_device *dev,
 	}
 #endif /* WL_FILS */
 
+	/* Avoid cipher setting for multi-AKM. cipher combinations for multi-AKM predefined */
+	if (!(sme->crypto.n_akm_suites > 1u) ||
 #ifdef LEGACY_CROSS_AKM
-	/* In case of single akm case or not supporting cross akm, set wsec */
-	if (!(sme->crypto.n_akm_suites > 1) || LEGACY_CROSS_AKM_RESTRICT(sme->crypto)) {
-		WL_DBG(("set cipher its not case of cross-akm support p:%x g:%x v:%x\n",
-			sme->crypto.ciphers_pairwise[0], sme->crypto.cipher_group,
-			sme->crypto.wpa_versions));
-		err = wl_set_set_cipher(dev, sme);
-		if (unlikely(err)) {
-			WL_ERR(("Invalid ciper err:%d\n", err));
-			goto exit;
-		}
-	}
-#else
-	/* Avoid cipher setting for multi-AKM, cipher combinations for multi-AKM predefined */
-	if (!(sme->crypto.n_akm_suites > 1)) {
+		(wl_is_legacy_cross_akm(sme) == FALSE) ||
+#endif /* LEGACY_CROSS_AKM */
+#ifdef DISABLE_WPAPSK_MULTIAKM
+		/* If target AKM ver is WPA_VER_1, follow single AKM path */
+		(sme->crypto.wpa_versions == NL80211_WPA_VERSION_1) ||
+#endif /* DISABLE_WPAPSK_MULTIAKM */
+		FALSE) {
+		assoc_info->skip_seamless_psk = TRUE;
 		err = wl_set_set_cipher(dev, sme);
 		if (unlikely(err)) {
 			WL_ERR(("Invalid ciper\n"));
 			goto exit;
 		}
+	} else {
+		WL_DBG_MEM(("skip cipher setting\n"));
 	}
-#endif /* LEGACY_CROSS_AKM */
 
 	err = wl_set_key_mgmt(dev, sme, assoc_info);
 	if (unlikely(err)) {

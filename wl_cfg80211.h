@@ -781,6 +781,8 @@ do {									\
 #define WLAN_CIPHER_SUITE_PMK			0x00904C00
 #endif /* WLAN_CIPHER_SUITE_PMK */
 
+#define WLAN_AKM_SUITE_PSK_VER_1                0x0050F202
+
 #ifndef WLAN_AKM_SUITE_FT_8021X
 #define WLAN_AKM_SUITE_FT_8021X			0x000FAC03
 #endif /* WLAN_AKM_SUITE_FT_8021X */
@@ -802,7 +804,6 @@ do {									\
 #define WL_AKM_SUITE_SHA256_PSK 0x000FAC06
 
 #define WLAN_AKM_SUITE_SAE_SHA256		0x000FAC08
-#define WLAN_AKM_SUITE_SAE_EXT			0x000FAC24
 #define MAX_NUM_MULTI_AKM_SUITES		4u
 
 #ifndef WLAN_AKM_SUITE_FILS_SHA256
@@ -1851,6 +1852,7 @@ typedef struct wlcfg_assoc_info {
 	u32 allowed_key_mgmts;  /* Keep multi akms except the best akm current trying */
 	bool auto_wpa_enabled;	/* auto_wpa enabled for multi AKM */
 	bool seamless_psk;	/* Multi-AKMs needing seamless PSK */
+	bool skip_seamless_psk;
 } wlcfg_assoc_info_t;
 
 #define MAX_NUM_OF_ASSOCIATED_DEV       64
