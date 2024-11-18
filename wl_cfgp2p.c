@@ -460,13 +460,13 @@ wl_cfgp2p_ifadd(struct bcm_cfg80211 *cfg, struct ether_addr *mac, u8 if_type,
 	struct net_device *ndev = bcmcfg_to_prmry_ndev(cfg);
 
 	ifreq.type = if_type;
-	ifreq.chspec = chspec;
+	ifreq.chspec = wf_chspec_ctlchspec(chspec);
 	memcpy(ifreq.addr.octet, mac->octet, sizeof(ifreq.addr.octet));
 
-	CFGP2P_ERR(("---cfg p2p_ifadd "MACDBG" %s %u\n",
+	CFGP2P_ERR(("---cfg p2p_ifadd "MACDBG" %s channel:%u chspec:0x%x\n",
 		MAC2STRDBG(ifreq.addr.octet),
 		(if_type == WL_P2P_IF_GO) ? "go" : "client",
-	        (chspec & WL_CHANSPEC_CHAN_MASK) >> WL_CHANSPEC_CHAN_SHIFT));
+		wf_chspec_ctlchan((chanspec_t)chspec), ifreq.chspec));
 
 	err = wldev_iovar_setbuf(ndev, "p2p_ifadd", &ifreq, sizeof(ifreq),
 		cfg->ioctl_buf, WLC_IOCTL_MAXLEN, &cfg->ioctl_buf_sync);
@@ -2753,15 +2753,19 @@ wl_cfgp2p_add_p2p_disc_if(struct bcm_cfg80211 *cfg)
 		wl_probe_wdev_all(cfg);
 #ifdef EXPLICIT_DISCIF_CLEANUP
 		/*
-		 * CUSTOMER_HW4 design doesn't delete the p2p discovery
-		 * interface on ifconfig wlan0 down context which comes
-		 * without a preceeding NL80211_CMD_DEL_INTERFACE for p2p
-		 * discovery. But during supplicant crash the DEL_IFACE
-		 * command will not happen and will cause a left over iface
-		 * even after ifconfig wlan0 down. So delete the iface
-		 * first and then indicate the HANG event
+		 * It is seen that sometimes framework doesn't delete the
+		 * p2p discovery interface on wifi off/disable/supp crash and
+		 * if a discovery interface is found during add_p2p_disc, attempt
+		 * to clean up by removing the discovery I/F. But this context
+		 * already holds rtnl_lock + if_sync. so the clean up function
+		 * should not hold any of these locks.
+		 * During supplicant crash/SSR the DEL_IFACE command will not happen
+		 * and will cause a left over iface even after ifconfig wlan0 down.
+		 * So delete the iface first and then indicate the HANG event
 		 */
+		cfg->p2p_cleanup = TRUE;
 		wl_cfgp2p_del_p2p_disc_if(cfg->p2p_wdev, cfg);
+		cfg->p2p_cleanup = FALSE;
 #else
 		dhd->hang_reason = HANG_REASON_IFACE_DEL_FAILURE;
 
@@ -2855,6 +2859,7 @@ wl_cfgp2p_stop_p2p_device(struct wiphy *wiphy, struct wireless_dev *wdev)
 	int ret = 0;
 	struct net_device *ndev = NULL;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	bool lock_reqd = TRUE;
 
 	if (!cfg)
 		return;
@@ -2884,9 +2889,24 @@ wl_cfgp2p_stop_p2p_device(struct wiphy *wiphy, struct wireless_dev *wdev)
 	/* Cancel any on-going listen */
 	wl_cfgp2p_cancel_listen(cfg, bcmcfg_to_prmry_ndev(cfg), wdev, TRUE);
 
+	if (cfg->p2p_cleanup) {
+		/* p2p clean up context already holds if_sync lock, so skip it
+		 * to avoid deadlock
+		 */
+		lock_reqd = FALSE;
+	}
+
+	if (lock_reqd) {
+		mutex_lock(&cfg->if_sync);
+	}
+
 	ret = wl_cfgp2p_disable_discovery(cfg);
 	if (unlikely(ret < 0)) {
 		CFGP2P_ERR(("P2P disable discovery failed, ret=%d\n", ret));
+	}
+
+	if (lock_reqd) {
+		mutex_unlock(&cfg->if_sync);
 	}
 
 	p2p_on(cfg) = false;
@@ -2995,6 +3015,8 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	u16 p2p_iftype;
 	int dhd_mode;
 	struct net_device *new_ndev = NULL;
+	long time_to_wait = MAX_WAIT_TIME;
+	unsigned long start_wait_time;
 	struct wiphy *wiphy = bcmcfg_to_wiphy(cfg);
 	struct ether_addr *p2p_addr;
 
@@ -3037,7 +3059,7 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	 * so retrieve the current channel of primary interface and then start the virtual
 	 * interface on that.
 	 */
-	 chspec = wl_cfg80211_get_shared_freq(wiphy);
+	chspec = wl_cfg80211_get_shared_freq(wiphy, wl_iftype);
 
 	/* For P2P mode, use P2P-specific driver features to create the
 	 * bss: "cfg p2p_ifadd"
@@ -3064,11 +3086,30 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 	}
 
 	/* Wait for WLC_E_IF event with IF_ADD opcode */
-	timeout = wait_event_interruptible_timeout(cfg->netif_change_event,
-		((wl_get_p2p_status(cfg, IF_ADDING) == false) &&
-		(cfg->if_event_info.valid)),
-		msecs_to_jiffies(MAX_WAIT_TIME));
-	if (timeout > 0 && !wl_get_p2p_status(cfg, IF_ADDING) && cfg->if_event_info.valid) {
+	while (TRUE) {
+		start_wait_time = get_jiffies_64();
+		timeout = wait_event_interruptible_timeout(cfg->netif_change_event,
+			((wl_get_p2p_status(cfg, IF_ADDING) == false) &&
+			(cfg->if_event_info.valid)),
+			msecs_to_jiffies(time_to_wait));
+		if (timeout == -ERESTARTSYS) {
+			WL_ERR(("waitqueue was interrupted by a signal\n"));
+			time_to_wait -= jiffies_to_msecs(get_jiffies_64() - start_wait_time);
+			if (time_to_wait <= 0) {
+				WL_ERR(("Timed out. time_to_wait:%ld, timeout:%ld\n",
+					time_to_wait, timeout));
+				goto fail;
+			}
+		} else if (timeout <= 0) {
+			WL_ERR(("ADD_IF event, didn't come. timeout:%ld\n", time_to_wait));
+			goto fail;
+		} else {
+			/* wait event interrupt, break and process */
+			break;
+		}
+	}
+
+	if (!wl_get_p2p_status(cfg, IF_ADDING) && cfg->if_event_info.valid) {
 		wl_if_event_info *event = &cfg->if_event_info;
 		new_ndev = wl_cfg80211_post_ifcreate(bcmcfg_to_prmry_ndev(cfg), event,
 			event->mac, cfg->p2p->vir_ifname, false);
@@ -3101,9 +3142,13 @@ wl_cfgp2p_if_add(struct bcm_cfg80211 *cfg, wl_iftype_t wl_iftype,
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 13, 0) */
 
 			return new_ndev->ieee80211_ptr;
+	} else {
+		WL_ERR(("iface_creation wrong state. p2p_status:%d event_valid:%d\n",
+			wl_get_p2p_status(cfg, IF_ADDING), cfg->if_event_info.valid));
 	}
 
 fail:
+	WL_ERR(("virtual iface creation failed\n"));
 	return NULL;
 }
 
@@ -3125,8 +3170,11 @@ wl_cfgp2p_if_del(struct wiphy *wiphy, struct wireless_dev *wdev)
 
 #ifdef WL_CFG80211_P2P_DEV_IF
 	if (wdev->iftype == NL80211_IFTYPE_P2P_DEVICE) {
+		cfg->p2p_cleanup = TRUE;
 		/* Handle dedicated P2P discovery interface. */
-		return wl_cfgp2p_del_p2p_disc_if(wdev, cfg);
+		err = wl_cfgp2p_del_p2p_disc_if(wdev, cfg);
+		cfg->p2p_cleanup = FALSE;
+		return err;
 	}
 #endif /* WL_CFG80211_P2P_DEV_IF */
 

@@ -8242,8 +8242,22 @@ fail:
 	return ret;
 }
 
+static u8 wl_map_to_wifihal_link_state(u8 link_power_state)
+{
+	u8 hal_link_power_state = WIFI_LINK_STATE_UNKNOWN;
+
+	if ((link_power_state == WL_MLO_LINK_PWRST_ACTIVE) ||
+			(link_power_state == WL_MLO_LINK_PWRST_PM)) {
+		hal_link_power_state = WIFI_LINK_STATE_IN_USE;
+	} else if (link_power_state == WL_MLO_LINK_PWRST_DORMANT) {
+		hal_link_power_state = WIFI_LINK_STATE_NOT_IN_USE;
+	}
+
+	return hal_link_power_state;
+}
+
 static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *inet_ndev,
-	u8 link_idx, u8 link_id, char **output, uint *total_len)
+	u8 link_idx, u8 link_id, u8 link_pwrst, char **output, uint *total_len)
 {
 	static char iovar_buf[WLC_IOCTL_MAXLEN];
 	wifi_rate_stat_v1 *p_wifi_rate_stat_v1 = NULL;
@@ -8282,6 +8296,8 @@ static int wl_update_ml_link_stat(struct bcm_cfg80211 *cfg, struct net_device *i
 	COMPAT_BZERO_IFACE(wifi_link_stat, iface);
 
 	COMPAT_ASSIGN_VALUE(iface, link_id, link_id);
+	COMPAT_ASSIGN_VALUE(iface, state, wl_map_to_wifihal_link_state(link_pwrst));
+
 	err = wldev_link_iovar_getint(inet_ndev, link_idx, "chanspec", &chan);
 	if (unlikely(err)) {
 		WL_ERR(("%s: Could not get chanspec %d\n", __FUNCTION__, err));
@@ -8510,6 +8526,7 @@ static int wl_update_multi_link_stat(struct bcm_cfg80211 *cfg, struct net_device
 	int err = 0;
 	u8 link_idx = NON_ML_LINK;
 	u8 link_id = 0;
+	u8 link_pwrst = WIFI_LINK_STATE_UNKNOWN;
 	u8 i = 0;
 	wifi_iface_ml_stat ml_iface;
 #ifdef WL_MLO
@@ -8553,8 +8570,10 @@ static int wl_update_multi_link_stat(struct bcm_cfg80211 *cfg, struct net_device
 		if (mld_netinfo) {
 			link_idx = mld_netinfo->mlinfo.links[i].link_idx;
 			link_id = mld_netinfo->mlinfo.links[i].link_id;
+			link_pwrst = mld_netinfo->mlinfo.links[i].link_power_state;
 		}
-		err = wl_update_ml_link_stat(cfg, inet_ndev, link_idx, link_id, output, total_len);
+		err = wl_update_ml_link_stat(cfg, inet_ndev, link_idx, link_id,
+			link_pwrst, output, total_len);
 		if (unlikely(err)) {
 			WL_ERR(("Failed to get link %d iface stat (%d)\n", link_id, err));
 			break;
@@ -8662,6 +8681,12 @@ static int wl_cfgvendor_lstats_get_info(struct wiphy *wiphy,
 			num_channels, &output, &total_len);
 	if (unlikely(err)) {
 		WL_ERR(("Failed to get radio_stat (%d)\n", err));
+		goto exit;
+	}
+
+	err = wl_cfg80211_get_mlo_link_status(cfg, inet_ndev);
+	if (err != BCME_OK) {
+		WL_ERR(("ml status fetch failed\n"));
 		goto exit;
 	}
 
@@ -12676,7 +12701,7 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 	u32 mask = 0;
 	uint32 channel;
 	uint32 freq, width;
-	uint32 chspec, chaninfo;
+	uint32 chspec, chaninfo, cfg_chaninfo;
 	u16 list_count;
 	int found_idx = BCME_NOTFOUND;
 	bool ch_160mhz_5g;
@@ -12867,10 +12892,17 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 #endif /* WL_SOFTAP_6G */
 				} else {
 					/* handle 2G and 5G channels */
-					mask |= (1 << WIFI_INTERFACE_SOFTAP);
-
 					if (!(chaninfo & WL_CHAN_P2P_PROHIBITED)) {
 						mask |= (1 << WIFI_INTERFACE_P2P_GO);
+					}
+
+					if (CHSPEC_IS2G(chspec) ||
+						(CHSPEC_IS5G(chspec) &&
+						((wl_cfgscan_get_chan_info(cfg,
+						&cfg_chaninfo, chspec) == BCME_OK) &&
+						!((cfg_chaninfo & WL_CHAN_RADAR) ||
+						(cfg_chaninfo & WL_CHAN_PASSIVE))))) {
+						mask |= (1 << WIFI_INTERFACE_SOFTAP);
 					}
 #ifdef WL_NAN_INSTANT_MODE
 					if (wl_cfgvendor_is_nan_instant_mask_set(u_info)) {
@@ -12887,9 +12919,10 @@ static int wl_cfgvendor_get_usable_channels_handler(struct bcm_cfg80211 *cfg,
 		}
 
 		/* Supplicant does scan passive channel but not for DFS channel */
-		if (!(chaninfo & WL_CHAN_RADAR) && !ch_160mhz_5g &&
+		if (!ch_160mhz_5g &&
 			!CHSPEC_IS6G(chspec) && (!is_unii4) &&
-				!(chaninfo & WL_CHAN_P2P_PROHIBITED)) {
+				!(chaninfo & (WL_CHAN_P2P_PROHIBITED |
+				WL_CHAN_CLM_RESTRICTED | WL_CHAN_INDOOR_ONLY))) {
 			mask |= (1 << WIFI_INTERFACE_P2P_CLIENT);
 		}
 
