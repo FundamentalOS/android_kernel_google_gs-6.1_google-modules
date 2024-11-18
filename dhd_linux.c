@@ -7771,7 +7771,8 @@ dhd_get_ifp_by_ndev(dhd_pub_t *dhdp, struct net_device *ndev)
 		}
 	} while (ifidx--);
 
-	DHD_ERROR(("no entry found for %s\n", ndev->name));
+	/* if match not found, ndev may be freed. so avoid dereference */
+	DHD_ERROR(("no entry found for ndev ptr\n"));
 	return NULL;
 }
 
@@ -14969,7 +14970,7 @@ void dhd_detach(dhd_pub_t *dhdp)
 
 			dhd_if_del_sta_list(ifp);
 
-			MFREE(dhd->pub.osh, ifp, sizeof(*ifp));
+			MFREE(dhd->pub.osh, dhd->iflist[0], sizeof(*ifp));
 			ifp = NULL;
 #ifdef WL_CFG80211
 			if (cfg && cfg->wdev) {
@@ -25344,7 +25345,8 @@ dhd_clear_del_in_progress(dhd_pub_t *dhdp, struct net_device *ndev)
 	DHD_PRINT(("%s\n", __FUNCTION__));
 	ifp = dhd_get_ifp_by_ndev(dhdp, ndev);
 	if (ifp == NULL) {
-		DHD_ERROR(("DHD Iface Info corresponding to %s not found\n", ndev->name));
+		/* use ndev addr only for finding ifp, the ndev may be freed already */
+		DHD_ERROR(("DHD Iface Info not found for given ndev\n"));
 		return;
 	}
 
@@ -25498,8 +25500,14 @@ int dhd_os_send_alert_message(dhd_pub_t *dhdp)
 void *dhd_irq_to_desc(unsigned int irq)
 {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0))
-	struct irq_data *irqdata = irq_get_irq_data(irq);
-	struct irq_desc *desc = irq_data_to_desc(irqdata);
+	struct irq_data *irqdata = NULL;
+	struct irq_desc *desc = NULL;
+
+	irqdata = irq_get_irq_data(irq);
+	if (irqdata == NULL) {
+		return NULL;
+	}
+	desc = irq_data_to_desc(irqdata);
 #else
 	struct irq_desc *desc = irq_to_desc(irq);
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0) */

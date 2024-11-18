@@ -25157,7 +25157,7 @@ typedef struct wl_mlo_link_status_v2 {
 	uint8			num_peers;	/* number of peers for this link. For STA, this
 						 * will be 1, for AP, can be multiple
 						 */
-	uint8			pad[1];
+	uint8			link_pwrst;	/* power state of the link */
 	wl_mlo_link_peer_info_v2_t	pi[];	/* number of peers for this link */
 } wl_mlo_link_status_v2_t;
 
@@ -25176,6 +25176,12 @@ typedef struct wl_mlo_status_v2 {
 							 * type wl_mlo_link_status_v2_t
 							 */
 } wl_mlo_status_v2_t;
+
+#define WL_MLO_LINK_PWRST_UNKNOWN	0u		/* Uninitialized state */
+#define WL_MLO_LINK_PWRST_ACTIVE	1u
+#define WL_MLO_LINK_PWRST_PM		2u
+#define WL_MLO_LINK_PWRST_DORMANT	3u
+
 /* ================================================== */
 /* mlo cap structure
  *
