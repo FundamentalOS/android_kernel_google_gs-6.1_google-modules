@@ -1520,7 +1520,7 @@ dhd_prot_get_h2d_txpost_size_for_prealloc(dhd_pub_t *dhd)
 	/* MUST: size of the workitem must be multiples of 8x */
 	size = ROUNDUP(size, 8);
 
-	DHD_PRINT(("%s = %u\n", __FUNCTION__, size));
+	DHD_INFO(("%s = %u\n", __FUNCTION__, size));
 
 	return size;
 }
@@ -1559,7 +1559,7 @@ dhd_prot_get_h2d_txpost_size(dhd_pub_t *dhd)
 	/* MUST: size of the workitem must be multiples of 8x */
 	size = ROUNDUP(size, 8);
 
-	DHD_PRINT(("***dhd_prot_get_h2d_txpost_size, final workitem size = %u \n", size));
+	DHD_INFO(("***dhd_prot_get_h2d_txpost_size, final workitem size = %u \n", size));
 
 #ifdef FLOW_RING_PREALLOC
 	if (size > prealloc_size) {

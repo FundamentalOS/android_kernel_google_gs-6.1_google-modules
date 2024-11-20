@@ -554,6 +554,9 @@ static void dhd_natoe_ct_ioctl_handler(void *handle, void *event_info, uint8 eve
 
 #if defined(CONFIG_IPV6) && defined(IPV6_NDO_SUPPORT)
 static void dhd_inet6_work_handler(void *dhd_info, void *event_data, u8 event);
+#ifdef NDO_CONFIG_SUPPORT
+int dhd_ndo_host_and_dongle_sanity(struct net_device *dev);
+#endif /* NDO_CONFIG_SUPPORT */
 #endif /* CONFIG_IPV6 && IPV6_NDO_SUPPORT */
 #ifdef WL_CFG80211
 extern void dhd_netdev_free(struct net_device *ndev);
@@ -7265,6 +7268,9 @@ dhd_open(struct net_device *net)
 				dhd_inet6addr_notifier_registered = TRUE;
 				register_inet6addr_notifier(&dhd_inet6addr_notifier);
 			}
+#ifdef NDO_CONFIG_SUPPORT
+			dhd_ndo_host_and_dongle_sanity(net);
+#endif /* NDO_CONFIG_SUPPORT */
 #endif /* CONFIG_IPV6 && IPV6_NDO_SUPPORT */
 		}
 #if defined(DHDTCPACK_SUPPRESS) && defined(BCMSDIO)
@@ -14398,6 +14404,9 @@ dhd_inet6_work_handler(void *dhd_info, void *event_data, u8 event)
 	dhd_info_t *dhd = (dhd_info_t *)dhd_info;
 	dhd_pub_t *dhdp;
 	int ret;
+#ifdef NDO_CONFIG_SUPPORT
+	struct nd_ol_stats_t nd_stats;
+#endif /* NDO_CONFIG_SUPPORT */
 
 	if (!dhd) {
 		DHD_ERROR(("%s: invalid dhd_info\n", __FUNCTION__));
@@ -14471,11 +14480,20 @@ dhd_inet6_work_handler(void *dhd_info, void *event_data, u8 event)
 		}
 #endif /* NDO_CONFIG_SUPPORT */
 		break;
-
 	default:
 		DHD_ERROR(("%s: unknown notifier event \n", __FUNCTION__));
 		break;
 	}
+#ifdef NDO_CONFIG_SUPPORT
+	ret = dhd_iovar(dhdp, 0, "nd_status", NULL, 0, (char *)&nd_stats, sizeof(nd_stats), FALSE);
+	if (ret < 0) {
+		DHD_ERROR(("%s failed to get nd_status%d\n", __FUNCTION__, ret));
+	} else if (nd_stats.host_ip_entries >= dhdp->ndo_max_host_ip) {
+		DHD_ERROR(("%s dongle host_ip_entries:%d >= ndo_max_host_ip:%d."
+			"Host IP count reached max capacity. ND offload may fail\n",
+			__FUNCTION__, nd_stats.host_ip_entries, dhdp->ndo_max_host_ip));
+	}
+#endif /* NDO_CONFIG_SUPPORT */
 done:
 
 	/* free ndo_work. alloced while scheduling the work */
@@ -16911,6 +16929,64 @@ dhd_dev_ndo_get_valid_inet6addr_count(struct inet6_dev *inet6)
 	read_unlock_bh(&inet6->lock);
 
 	return addr_count;
+}
+
+int
+dhd_ndo_host_and_dongle_sanity(struct net_device *dev)
+{
+	dhd_info_t *dhd;
+	dhd_pub_t *dhdp;
+	struct inet6_dev *inet6;
+	struct nd_ol_stats_t nd_stats;
+	int cnt;
+	int ret = BCME_OK;
+
+	if (dev) {
+		inet6 = dev->ip6_ptr;
+		if (!inet6) {
+			DHD_ERROR(("%s: Invalid inet6_dev\n", __FUNCTION__));
+			return BCME_ERROR;
+		}
+
+		dhd = DHD_DEV_INFO(dev);
+		if (!dhd) {
+			DHD_ERROR(("%s: Invalid dhd_info\n", __FUNCTION__));
+			return BCME_ERROR;
+		}
+		dhdp = &dhd->pub;
+
+		if (dhd_net2idx(dhd, dev) != 0) {
+			DHD_ERROR(("%s: Not primary interface\n", __FUNCTION__));
+			return BCME_ERROR;
+		}
+	} else {
+		DHD_ERROR(("%s: Invalid net_device\n", __FUNCTION__));
+		return BCME_ERROR;
+	}
+
+	/* Check host IP overflow */
+	cnt = dhd_dev_ndo_get_valid_inet6addr_count(inet6);
+
+	ret = dhd_iovar(dhdp, 0, "nd_status", NULL, 0, (char *)&nd_stats, sizeof(nd_stats), FALSE);
+	if (ret < 0) {
+		DHD_ERROR(("%s failed to get nd_status%d\n", __FUNCTION__, ret));
+		goto done;
+	}
+	if ((cnt > dhdp->ndo_max_host_ip) ||
+		(cnt != nd_stats.host_ip_entries) ||
+		(nd_stats.host_ip_entries > dhdp->ndo_max_host_ip)) {
+		DHD_ERROR(("%s ndo host(%d) dongle(%d) max(%d) sanity failed\n",
+			__FUNCTION__, cnt, nd_stats.host_ip_entries, dhdp->ndo_max_host_ip));
+#ifdef DHD_FW_COREDUMP
+		/* Collect socram dump */
+		if (dhdp->memdump_enabled) {
+			dhdp->memdump_type = DUMP_TYPE_NDO_IP_ERROR;
+			dhd_bus_mem_dump(dhdp);
+		}
+#endif /* DHD_FW_COREDUMP */
+	}
+done:
+	return ret;
 }
 
 int

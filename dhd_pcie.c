@@ -2614,22 +2614,24 @@ dhdpcie_dongle_attach(dhd_bus_t *bus)
 		dhd_bus_pcie_pwr_req_nolock(bus);
 	}
 
-	/*
-	 * If FIS done bit is set, then clear it, set chip big hammer
-	 * and return. This bit will be cleared only after Chip big hammer.
-	 */
-	FISCtrlStatus = PMU_REG(bus->sih, FISCtrlStatus, 0, 0);
-	DHD_PRINT(("%s: FISCtrlStatus:0x%x\n", __FUNCTION__, FISCtrlStatus));
-	if ((FISCtrlStatus & PMU_CLEAR_FIS_DONE_MASK)) {
-		DHD_ERROR(("%s: FIS Done bit is set, clear it and exit\n",
-			__FUNCTION__));
-		PMU_REG(bus->sih, FISCtrlStatus, PMU_CLEAR_FIS_DONE_MASK,
-			PMU_CLEAR_FIS_DONE_MASK);
-		if (bus->dhd) {
-			DHD_ERROR(("%s : Set do_chip_bighammer\n", __FUNCTION__));
-			bus->dhd->do_chip_bighammer = TRUE;
+	if (bus->sih->buscorerev >= 0x82) {
+		/*
+		 * If FIS done bit is set, then clear it, set chip big hammer
+		 * and return. This bit will be cleared only after Chip big hammer.
+		 */
+		FISCtrlStatus = PMU_REG(bus->sih, FISCtrlStatus, 0, 0);
+		DHD_PRINT(("%s: FISCtrlStatus:0x%x\n", __FUNCTION__, FISCtrlStatus));
+		if ((FISCtrlStatus & PMU_CLEAR_FIS_DONE_MASK)) {
+			DHD_ERROR(("%s: FIS Done bit is set, clear it and exit\n",
+				__FUNCTION__));
+			PMU_REG(bus->sih, FISCtrlStatus, PMU_CLEAR_FIS_DONE_MASK,
+				PMU_CLEAR_FIS_DONE_MASK);
+			if (bus->dhd) {
+				DHD_ERROR(("%s : Set do_chip_bighammer\n", __FUNCTION__));
+				bus->dhd->do_chip_bighammer = TRUE;
+			}
+			goto fail;
 		}
-		goto fail;
 	}
 
 	/* Calling after requesting dm1 (Wl) power as there are mac wrapper regs */
@@ -3142,7 +3144,7 @@ dhdpcie_advertise_bus_cleanup(dhd_pub_t *dhdp)
 	int timeleft;
 
 #ifdef DHD_PCIE_RUNTIMEPM
-	dhdpcie_runtime_bus_wake(dhdp, TRUE, dhdpcie_advertise_bus_cleanup);
+	DHD_DISABLE_RUNTIME_PM(dhdp);
 #endif /* DHD_PCIE_RUNTIMEPM */
 
 	dhdp->dhd_watchdog_ms_backup = dhd_watchdog_ms;
@@ -5775,8 +5777,10 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		/* intentional fall through */
 	case DUMP_TYPE_DHCP_TIMEOUT:
 		/* intentional fall through */
+	case DUMP_TYPE_NDO_IP_ERROR:
+		/* intentional fall through */
 		if (dhdp->memdump_type == DUMP_TYPE_RESUMED_ON_TIMEOUT ||
-			dhdp->memdump_type == DUMP_TYPE_D3_ACK_TIMEOUT) {
+				dhdp->memdump_type == DUMP_TYPE_D3_ACK_TIMEOUT) {
 			timeout = TRUE;
 		}
 #ifdef DHD_SDTC_ETB_DUMP
@@ -7654,15 +7658,15 @@ dhd_bus_perform_flr(dhd_bus_t *bus, bool force_fail)
 		"is cleared\n",	PCIE_SSRESET_STATUS_BIT, PCIE_CFG_SUBSYSTEM_CONTROL));
 	do {
 		val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val));
-		DHD_PRINT(("read_config: reg=0x%x read val=0x%x\n",
+		DHD_INFO(("read_config: reg=0x%x read val=0x%x\n",
 			PCIE_CFG_SUBSYSTEM_CONTROL, val));
 		val = val & (1 << PCIE_SSRESET_STATUS_BIT);
 		OSL_DELAY(DHD_SSRESET_STATUS_RETRY_DELAY);
 	} while (val && (retry++ < DHD_SSRESET_STATUS_RETRIES));
 
 	if (val) {
-		DHD_ERROR_MEM(("ERROR: reg=0x%x bit %d is not cleared\n",
-			PCIE_CFG_SUBSYSTEM_CONTROL, PCIE_SSRESET_STATUS_BIT));
+		DHD_ERROR_MEM(("ERROR: reg=0x%x bit %d is not cleared. val=0x%x\n",
+			PCIE_CFG_SUBSYSTEM_CONTROL, PCIE_SSRESET_STATUS_BIT, val));
 		/* User has to fire the IOVAR again, if force_fail is needed */
 		if (force_fail) {
 			bus->flr_force_fail = FALSE;
@@ -7735,16 +7739,16 @@ dhd_bus_cfg_ss_ctrl_bp_reset(struct dhd_bus *bus)
 		PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT, PCIE_CFG_SUBSYSTEM_CONTROL));
 	do {
 		val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val));
-		DHD_PRINT(("read_config: reg=0x%x read val=0x%x\n",
+		DHD_INFO(("read_config: reg=0x%x read val=0x%x\n",
 			PCIE_CFG_SUBSYSTEM_CONTROL, val));
 		reset_stat_bit = val & (1 << PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT);
 		OSL_DELAY(DHD_BP_RESET_STATUS_RETRY_DELAY);
 	} while (!reset_stat_bit && (retry++ < DHD_BP_RESET_STATUS_RETRIES));
 
 	if (!reset_stat_bit) {
-		DHD_PRINT(("ERROR: reg=0x%x bit %d is not set\n",
+		DHD_PRINT(("ERROR: reg=0x%x bit %d is not set. val=0x%x\n",
 			PCIE_CFG_SUBSYSTEM_CONTROL,
-			PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT));
+			PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT, val));
 		ret = BCME_ERROR;
 		goto aspm_enab;
 	}
@@ -7765,16 +7769,16 @@ dhd_bus_cfg_ss_ctrl_bp_reset(struct dhd_bus *bus)
 		PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT, PCIE_CFG_SUBSYSTEM_CONTROL));
 	do {
 		val = OSL_PCI_READ_CONFIG(bus->osh, PCIE_CFG_SUBSYSTEM_CONTROL, sizeof(val));
-		DHD_PRINT(("read_config: reg=0x%x read val=0x%x\n",
+		DHD_INFO(("read_config: reg=0x%x read val=0x%x\n",
 			PCIE_CFG_SUBSYSTEM_CONTROL, val));
 		reset_stat_bit = val & (1 << PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT);
 		OSL_DELAY(DHD_BP_RESET_STATUS_RETRY_DELAY);
 	} while (reset_stat_bit && (retry++ < DHD_BP_RESET_STATUS_RETRIES));
 
 	if (reset_stat_bit) {
-		DHD_PRINT(("ERROR: reg=0x%x bit %d is not cleared\n",
+		DHD_PRINT(("ERROR: reg=0x%x bit %d is not cleared. val=0x%x\n",
 			PCIE_CFG_SUBSYSTEM_CONTROL,
-			PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT));
+			PCIE_CFG_SUBSYSTEM_CONTROL_BP_RESET_STATUS_BIT, val));
 		ret = BCME_ERROR;
 	}
 
