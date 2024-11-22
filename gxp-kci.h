@@ -10,6 +10,9 @@
 
 #include <linux/bits.h>
 #include <linux/rwsem.h>
+#include <linux/spinlock.h>
+#include <linux/types.h>
+#include <linux/workqueue.h>
 
 #include <gcip/gcip-fault-injection.h>
 #include <gcip/gcip-kci.h>
@@ -77,6 +80,11 @@ struct gxp_kci {
 	bool enable_rkci_ack;
 	/* Protects @enable_rkci_ack. */
 	struct rw_semaphore enable_rkci_ack_lock;
+
+	/* The work handles CLIENT_FATAL_ERROR_NOTIFY RKCI requests. */
+	struct work_struct client_fatal_error_notify_work;
+	struct list_head client_fatal_error_notify_list;
+	spinlock_t client_fatal_error_notify_lock;
 };
 
 /* Used when sending the details about allocate_vmbox KCI command. */
@@ -118,6 +126,16 @@ struct gxp_kci_link_unlink_offload_vmbox_detail {
 	/* Reserved */
 	u8 reserved[55];
 } __packed;
+
+/*
+ * CLIENT_FATAL_ERROR_NOTIFY RKCI request.
+ *
+ * The VD of @client_id will be invalidated asynchronously.
+ */
+struct gxp_rkci_client_fatal_error_notify {
+	struct list_head node;
+	int client_id;
+};
 
 /*
  * Initializes a KCI object.

@@ -17,7 +17,6 @@
 #include <linux/of.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
-#include <linux/version.h>
 
 #include <iif/iif-fence-table.h>
 #include <iif/iif-fence.h>
