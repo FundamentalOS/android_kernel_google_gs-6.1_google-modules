@@ -103,6 +103,7 @@ struct vendor_task_struct {
 	unsigned long util_enqueued;
 	unsigned long util_dequeued;
 	unsigned long prev_util_dequeued;
+	unsigned long prev_util;
 	bool ignore_util_est_update;
 
 	/* sched qos attributes */

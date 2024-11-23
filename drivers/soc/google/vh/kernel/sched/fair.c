@@ -11,7 +11,6 @@
 #include <kernel/sched/autogroup.h>
 #include <kernel/sched/sched.h>
 #include <kernel/sched/pelt.h>
-#include <linux/sched/clock.h>
 #include <linux/moduleparam.h>
 #include <trace/events/power.h>
 #include <trace/hooks/systrace.h>
@@ -2933,6 +2932,7 @@ void rvh_enqueue_task_fair_pixel_mod(void *data, struct rq *rq, struct task_stru
 		vp->prev_sum_exec_runtime = p->se.sum_exec_runtime;
 		vp->ignore_util_est_update = true;
 		vp->util_enqueued = task_util(p);
+		vp->prev_util = vp->util_dequeued;
 
 		/*
 		 * If the utilization is rising, keep accounting for delta_exec
