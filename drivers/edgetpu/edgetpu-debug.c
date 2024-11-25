@@ -152,19 +152,9 @@ static int fw_debug_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-/* Open firmware debug service debugfs interface. */
-static int fw_debug_open(struct inode *inode, struct file *file)
+static int fw_debug_alloc_mem(struct edgetpu_dev *etdev)
 {
-	struct edgetpu_dev *etdev = inode->i_private;
 	int ret;
-
-	file->private_data = etdev;
-
-	ret = edgetpu_pm_get(etdev);
-	if (ret) {
-		etdev_err_ratelimited(etdev, "fw debug error powering TPU: %d", ret);
-		return ret;
-	}
 
 	/* Allocate command/response buffer and map to TPU if not already. */
 	if (etdev->fw_debug_mem.sgt)
@@ -182,11 +172,29 @@ static int fw_debug_open(struct inode *inode, struct file *file)
 	if (ret) {
 		gcip_free_noncontiguous(etdev->fw_debug_mem.sgt);
 		etdev->fw_debug_mem.sgt = NULL;
-		edgetpu_pm_put(etdev);
 		return ret;
 	}
 
 	return 0;
+}
+
+/* Open firmware debug service debugfs interface. */
+static int fw_debug_open(struct inode *inode, struct file *file)
+{
+	struct edgetpu_dev *etdev = inode->i_private;
+	int ret;
+
+	file->private_data = etdev;
+
+	ret = fw_debug_alloc_mem(etdev);
+	if (ret)
+		return ret;
+
+	ret = edgetpu_pm_get(etdev);
+	if (ret)
+		etdev_err_ratelimited(etdev, "fw debug error powering TPU: %d", ret);
+
+	return ret;
 }
 
 static const struct file_operations fops_fw_debug = {
@@ -197,11 +205,38 @@ static const struct file_operations fops_fw_debug = {
 	.release = fw_debug_release,
 };
 
+static void fw_debug_init_req_worker(struct work_struct *work)
+{
+	struct edgetpu_fw_debug_init_req_work *init_req_work =
+		container_of(work, struct edgetpu_fw_debug_init_req_work, work);
+	struct edgetpu_dev *etdev = init_req_work->etdev;
+	int ret;
+
+	ret = fw_debug_alloc_mem(etdev);
+	if (!ret)
+		/* Keep power on, just in case no client keeps a wakelock across this sequence. */
+		ret = edgetpu_pm_get_if_powered(etdev, true);
+	if (ret) {
+		etdev_warn_ratelimited(etdev, "debug init failed (%d)", ret);
+		return;
+	}
+
+	edgetpu_kci_fw_send_debug_init(etdev, FW_DEBUG_BUFFER_IOVA, FW_DEBUG_BUFFER_SIZE);
+	edgetpu_pm_put(etdev);
+}
+
+void edgetpu_fw_debug_init_req(struct edgetpu_dev *etdev)
+{
+	schedule_work(&etdev->fw_debug_mem.debug_init_req_work.work);
+}
+
 /* Init firmware debug interface. */
 static void edgetpu_fw_debug_init(struct edgetpu_dev *etdev)
 {
 	debugfs_create_file("fw_debug", 0660, etdev->d_entry, etdev, &fops_fw_debug);
 	init_completion(&etdev->fw_debug_mem.rd_data_ready);
+	INIT_WORK(&etdev->fw_debug_mem.debug_init_req_work.work, fw_debug_init_req_worker);
+	etdev->fw_debug_mem.debug_init_req_work.etdev = etdev;
 }
 
 /* De-init firmware debug interface. */

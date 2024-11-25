@@ -710,10 +710,9 @@ void edgetpu_client_remove(struct edgetpu_client *client)
 		edgetpu_pm_put(etdev);
 }
 
-void edgetpu_handle_firmware_crash(struct edgetpu_dev *etdev,
-				   enum edgetpu_fw_crash_type crash_type)
+void edgetpu_handle_firmware_crash(struct edgetpu_dev *etdev, enum gcip_fw_crash_type crash_type)
 {
-	if (crash_type == EDGETPU_FW_CRASH_UNRECOV_FAULT) {
+	if (crash_type == GCIP_FW_CRASH_UNRECOVERABLE_FAULT) {
 		etdev_err(etdev, "firmware unrecoverable crash");
 		etdev->firmware_crash_count++;
 		edgetpu_fatal_error_notify(etdev, EDGETPU_ERROR_FW_CRASH);

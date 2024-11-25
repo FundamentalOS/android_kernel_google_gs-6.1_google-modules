@@ -78,8 +78,6 @@ static int edgetpu_mailbox_remove_locked(struct edgetpu_mailbox_manager *mgr,
 	}
 
 	mgr->mailboxes[mailbox->mailbox_id] = NULL;
-	if (mgr->use_ikv && mailbox->mailbox_id == IKV_MAILBOX_INDEX)
-		edgetpu_ikv_release(mgr->etdev, mailbox->internal.etikv);
 	kfree(mailbox);
 	return 0;
 }

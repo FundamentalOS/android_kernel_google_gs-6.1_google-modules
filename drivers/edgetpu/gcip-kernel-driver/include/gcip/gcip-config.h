@@ -8,7 +8,6 @@
 #ifndef __GCIP_CONFIG_H__
 #define __GCIP_CONFIG_H__
 
-#include <linux/version.h>
 
 /* Macros to check the availability of features and APIs */
 
