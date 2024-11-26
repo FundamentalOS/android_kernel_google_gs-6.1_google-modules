@@ -559,16 +559,6 @@ static int tk4b_read_beh(struct gs_panel *ctx)
 	return 0;
 }
 
-static void tk4b_change_spi_speed(struct gs_panel *ctx, int speed)
-{
-	struct device *dev = ctx->dev;
-
-	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x04);
-	GS_DCS_BUF_ADD_CMD(dev, 0xC2, (speed == 23)? 0x14 : 0x12);
-	GS_DCS_BUF_ADD_CMD(dev, 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x08);
-	GS_DCS_BUF_ADD_CMD_AND_FLUSH(dev, 0xC2, (speed == 23)? 0x00 : 0x33);
-}
-
 static int tk4b_enable(struct drm_panel *panel)
 {
 	struct gs_panel *ctx = container_of(panel, struct gs_panel, base);
@@ -595,22 +585,21 @@ static int tk4b_enable(struct drm_panel *panel)
 		int retry;
 		int ret = 1;
 
-		dev_warn(dev, "Reading BEh failed at first try\n");
-
-		tk4b_change_spi_speed(ctx, 23);
+		dev_warn(dev, "Reading BEh failed at first try reset the panel\n");
 
 		for (retry = 0; retry < TK4B_READ_BEH_RETRY_COUNT && ret; retry++) {
-			GS_DCS_WRITE_DELAY_CMD(dev, 120, MIPI_DCS_ENTER_SLEEP_MODE);
-			GS_DCS_WRITE_DELAY_CMD(dev, 120, MIPI_DCS_EXIT_SLEEP_MODE);
+			gs_panel_reset_helper(ctx);
+			gs_panel_send_cmdset(ctx, &tk4b_init_cmdset);
+			tk4b_change_frequency(ctx, pmode);
+			/* delay 20ms make sure read BEh successful */
+			GS_DCS_WRITE_DELAY_CMD(dev, 20, 0x00);
 			ret = tk4b_read_beh(ctx);
 		}
 
 		if (retry == TK4B_READ_BEH_RETRY_COUNT)
 			dev_warn(dev, "Failed to read BEh %d times\n", retry);
 		else
-			dev_info(dev, "Success to read BEh after retry %d time(s)\n", retry);
-
-		tk4b_change_spi_speed(ctx, 34);
+			dev_dbg(dev, "Success to read BEh after retry %d time(s)\n", retry);
 	}
 
 	/* dimming frame */
