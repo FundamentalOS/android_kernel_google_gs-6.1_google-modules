@@ -31,6 +31,61 @@ static irqreturn_t goog_fts_irq_handler(int irq, void *data)
     return IRQ_HANDLED;
 }
 
+static int google_enter_normal_sensing(struct fts_ts_data *ts_data)
+{
+    int ret = 0;
+    int i = 0;
+    u8 gesture_mode = 0;
+    u8 power_mode = 0;
+    mutex_lock(&ts_data->reg_lock);
+
+    for (i = 0; i < 200; i++) {
+        ret = fts_write_reg(FTS_REG_WAKEUP, FTS_WAKEUP_VALUE);
+        if (ret < 0) {
+          FTS_ERROR("Write reg(%x) = %x fail", FTS_REG_WAKEUP, FTS_WAKEUP_VALUE);
+          goto exit;
+        }
+
+        ret = fts_read_reg(FTS_REG_POWER_MODE, &power_mode);
+        if (ret < 0) {
+          FTS_ERROR("read reg0xA5 fails");
+          goto exit;
+        }
+
+        if (power_mode != 3)
+            break;
+
+        usleep_range(1000, 1000);
+    }
+
+    if (i >= 200) {
+        FTS_ERROR("Enter normal mode failed");
+        goto exit;
+    } else {
+        FTS_INFO("Enter normal mode (%d ms)", i);
+    }
+
+
+    ret = fts_read_reg(FTS_REG_GESTURE_EN, &gesture_mode);
+    if (ret < 0) {
+        FTS_ERROR("Read reg(%x) fails", FTS_REG_GESTURE_EN);
+        goto exit;
+    }
+    if (gesture_mode) {
+      FTS_INFO("Exit gesture mode");
+      gesture_mode = 0;
+      ret = fts_write_reg(FTS_REG_GESTURE_EN, gesture_mode);
+      if (ret < 0) {
+        FTS_ERROR("Write reg(%x) = %x fail", FTS_REG_GESTURE_EN, gesture_mode);
+        goto exit;
+      }
+    }
+
+exit:
+    mutex_unlock(&ts_data->reg_lock);
+    return ret;
+}
+
 static int goog_fts_ts_suspend(struct device *dev)
 {
     int ret = 0;
@@ -43,8 +98,19 @@ static int goog_fts_ts_suspend(struct device *dev)
         return 0;
     }
 
+    FTS_INFO("Prepare to suspend device");
     /* Disable irq */
     fts_irq_disable();
+
+    FTS_INFO("Do reset on suspend");
+    fts_reset_proc(FTS_RESET_INTERVAL);
+
+    ret = fts_wait_tp_to_valid();
+    if (ret != 0) {
+        FTS_ERROR("Suspend has been cancelled by wake up timeout");
+        return ret;
+    }
+    FTS_INFO("Device has been reset");
 
     FTS_DEBUG("make TP enter into sleep mode");
     mutex_lock(&ts_data->reg_lock);
@@ -53,6 +119,10 @@ static int goog_fts_ts_suspend(struct device *dev)
     mutex_unlock(&ts_data->reg_lock);
     if (ret < 0)
       FTS_ERROR("set TP to sleep mode fail, ret=%d", ret);
+
+    ret = fts_pinctrl_select_suspend(ts_data);
+    if (ret < 0)
+      FTS_ERROR("set pinctrl suspend fail, ret=%d", ret);
 
     FTS_FUNC_EXIT();
     return 0;
@@ -64,21 +134,31 @@ static int goog_fts_ts_resume(struct device *dev)
     int ret = 0;
 
     FTS_FUNC_ENTER();
+    FTS_INFO("Prepare to resume device\n");
 
-    fts_reset_proc(FTS_RESET_INTERVAL);
+    ret = fts_pinctrl_select_normal(ts_data);
+    if (ret < 0)
+      FTS_ERROR("set pinctrl normal fail, ret=%d", ret);
 
-    ret = fts_wait_tp_to_valid();
-    if (ret != 0) {
+    ret = google_enter_normal_sensing(ts_data);
+    if (ret < 0) {
+      FTS_ERROR("Fail to enter normal power mode, trigger reset to recover\n");
+      fts_reset_proc(FTS_RESET_INTERVAL);
+
+      ret = fts_wait_tp_to_valid();
+      if (ret != 0) {
         FTS_ERROR("Resume has been cancelled by wake up timeout");
         return ret;
+      }
     }
 
-    ts_data->is_deepsleep = false;
-    fts_ex_mode_recovery(ts_data);
+    fts_update_feature_setting(ts_data);
 
+    ts_data->is_deepsleep = false;
     fts_irq_enable();
 
     FTS_FUNC_EXIT();
+    FTS_INFO("Device resumed");
     return 0;
 };
 
@@ -524,6 +604,7 @@ static int gti_get_irq_mode(void *private_data,
 static int gti_reset(void *private_data, struct gti_reset_cmd *cmd)
 {
     struct input_dev *input_dev = fts_data->input_dev;
+    struct fts_ts_data *ts_data = private_data;
     int ret = 0;
 
     mutex_lock(&input_dev->mutex);
@@ -539,15 +620,9 @@ static int gti_reset(void *private_data, struct gti_reset_cmd *cmd)
         FTS_ERROR("write 0x66 to reg 0xFC fails");
         goto exit;
       }
-    } else if (cmd->setting == GTI_RESET_MODE_HW) {
-
-      gpio_direction_output(fts_data->pdata->reset_gpio, 0);
-      /* The minimum reset duration is 1 ms. */
-      usleep_range(1000, 1100);
-      gpio_direction_output(fts_data->pdata->reset_gpio, 1);
-
-    } else if (cmd->setting == GTI_RESET_MODE_AUTO) {
+    } else if (cmd->setting == GTI_RESET_MODE_HW || cmd->setting == GTI_RESET_MODE_AUTO) {
       fts_reset_proc(0);
+      fts_update_feature_setting(ts_data);
     } else {
       ret = -EOPNOTSUPP;
     }

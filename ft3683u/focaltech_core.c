@@ -54,6 +54,10 @@
 #include <linux/types.h>
 #include "focaltech_core.h"
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#include <goog_touch_interface.h>
+#endif /* IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE) */
+
 /*****************************************************************************
 * Private constant and macro definitions using #define
 *****************************************************************************/
@@ -170,8 +174,6 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data)
     fts_wait_tp_to_valid();
     /* recover all firmware modes based on the settings of driver side. */
     fts_ex_mode_recovery(ts_data);
-    /* recover TP gesture state 0xD0 */
-    fts_gesture_recovery(ts_data);
     FTS_FUNC_EXIT();
 }
 
@@ -839,12 +841,14 @@ static void fts_update_abnormal_reset(struct fts_ts_data *data,
           return;
         case 1:
           FTS_ERROR("Touch ic reset: MCU watchdog");
+          fts_update_feature_setting(data);
           break;
         case 2:
           FTS_ERROR("Touch ic reset: Software reset");
           break;
         case 3:
           FTS_ERROR("Touch ic reset: AFE watchdog");
+          fts_update_feature_setting(data);
           break;
         case 4:
           FTS_ERROR("Touch ic reset: Hardware reset");
@@ -854,9 +858,11 @@ static void fts_update_abnormal_reset(struct fts_ts_data *data,
           break;
         case 6:
           FTS_ERROR("Touch ic reset: 6");
+          fts_update_feature_setting(data);
           break;
         case 7:
           FTS_ERROR("Touch ic reset: 7");
+          fts_update_feature_setting(data);
           break;
         default:
           return;
@@ -975,13 +981,11 @@ static int fts_read_touchdata(struct fts_ts_data *data)
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
     goog_handle_heatmap_format(data, buf, data->pnt_buf_size);
-
-    if (data->log_level == 3) {
-        fts_show_heatmap_buffer(data, buf, data->pnt_buf_size);
-    }
+    if (data->log_level == 4)
+      fts_show_heatmap_buffer(data, buf, data->pnt_buf_size);
 #endif // IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 
-    if (data->log_level >= 4)
+    if (data->log_level >= 5)
         fts_show_touch_buffer(buf, data->pnt_buf_size);
 
     return ret;
@@ -1386,7 +1390,7 @@ err_pinctrl_get:
     return ret;
 }
 
-static int fts_pinctrl_select_normal(struct fts_ts_data *ts)
+int fts_pinctrl_select_normal(struct fts_ts_data *ts)
 {
     int ret = 0;
     FTS_DEBUG("Pins control select normal");
@@ -1400,7 +1404,7 @@ static int fts_pinctrl_select_normal(struct fts_ts_data *ts)
     return ret;
 }
 
-static int fts_pinctrl_select_suspend(struct fts_ts_data *ts)
+int fts_pinctrl_select_suspend(struct fts_ts_data *ts)
 {
     int ret = 0;
     FTS_DEBUG("Pins control select suspend");
@@ -2438,11 +2442,12 @@ int fts_set_glove_mode(struct fts_ts_data *ts_data, bool en)
  */
 void fts_update_feature_setting(struct fts_ts_data *ts_data)
 {
-    fts_set_grip_mode(ts_data, ts_data->enable_fw_grip);
+    FTS_INFO("Restore touch feature settings.");
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+    struct gti_fw_status_data gti_status_data = { 0 };
 
-    fts_set_palm_mode(ts_data, ts_data->enable_fw_palm);
-
-    fts_set_glove_mode(ts_data, ts_data->glove_mode);
+    goog_notify_fw_status_changed(ts_data->gti, GTI_FW_STATUS_RESET, &gti_status_data);
+#endif /* IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE) */
 }
 
 static int fts_ts_suspend(struct device *dev)
@@ -2466,29 +2471,24 @@ static int fts_ts_suspend(struct device *dev)
     fts_esdcheck_suspend();
 #endif
 
-    if (ts_data->gesture_mode) {
-        fts_gesture_suspend(ts_data);
-    } else {
+    /* Disable irq */
+    fts_irq_disable();
 
-        /* Disable irq */
-        fts_irq_disable();
+    FTS_DEBUG("make TP enter into sleep mode");
+    mutex_lock(&ts_data->reg_lock);
+    ret = fts_write_reg(FTS_REG_POWER_MODE, FTS_REG_POWER_MODE_SLEEP);
+    ts_data->is_deepsleep = true;
+    mutex_unlock(&ts_data->reg_lock);
+    if (ret < 0)
+      FTS_ERROR("set TP to sleep mode fail, ret=%d", ret);
 
-        FTS_DEBUG("make TP enter into sleep mode");
-        mutex_lock(&ts_data->reg_lock);
-        ret = fts_write_reg(FTS_REG_POWER_MODE, FTS_REG_POWER_MODE_SLEEP);
-        ts_data->is_deepsleep = true;
-        mutex_unlock(&ts_data->reg_lock);
-        if (ret < 0)
-            FTS_ERROR("set TP to sleep mode fail, ret=%d", ret);
-
-        if (!ts_data->ic_info.is_incell) {
+    if (!ts_data->ic_info.is_incell) {
 #if FTS_POWER_SOURCE_CUST_EN
-            ret = fts_power_source_suspend(ts_data);
-            if (ret < 0) {
-                FTS_ERROR("power enter suspend fail");
-            }
+      ret = fts_power_source_suspend(ts_data);
+      if (ret < 0) {
+        FTS_ERROR("power enter suspend fail");
+      }
 #endif
-        }
     }
 
     fts_release_all_finger();
@@ -2618,11 +2618,7 @@ static int fts_ts_resume(struct device *dev)
     fts_esdcheck_resume();
 #endif
 
-    if (ts_data->gesture_mode) {
-        fts_gesture_resume(ts_data);
-    } else {
-        fts_irq_enable();
-    }
+    fts_irq_enable();
 
     ts_data->suspended = false;
     FTS_FUNC_EXIT();

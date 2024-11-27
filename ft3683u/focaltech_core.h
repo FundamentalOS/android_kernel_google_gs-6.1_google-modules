@@ -391,10 +391,7 @@ int fts_bus_set_speed(struct fts_ts_data *ts_data, u32 speed);
 /* Gesture functions */
 int fts_gesture_init(struct fts_ts_data *ts_data);
 int fts_gesture_exit(struct fts_ts_data *ts_data);
-void fts_gesture_recovery(struct fts_ts_data *ts_data);
 int fts_gesture_readdata(struct fts_ts_data *ts_data);
-int fts_gesture_suspend(struct fts_ts_data *ts_data);
-int fts_gesture_resume(struct fts_ts_data *ts_data);
 
 int fts_set_heatmap_mode(struct fts_ts_data *ts_data, u8 heatmap_mode);
 int fts_set_grip_mode(struct fts_ts_data *ts_datam, u8 grip_mode);
@@ -451,6 +448,12 @@ int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
 void fts_update_feature_setting(struct fts_ts_data *ts_data);
 void fts_irq_disable(void);
 void fts_irq_enable(void);
+
+/* Power Control */
+#if FTS_PINCTRL_EN
+int fts_pinctrl_select_normal(struct fts_ts_data *ts);
+int fts_pinctrl_select_suspend(struct fts_ts_data *ts);
+#endif /* FTS_PINCTRL_EN */
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 void fts_irq_read_report(void);
