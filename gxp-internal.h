@@ -327,4 +327,13 @@ bool gxp_is_direct_mode(struct gxp_dev *gxp);
  */
 enum gxp_chip_revision gxp_get_chip_revision(struct gxp_dev *gxp);
 
+#if IS_GXP_TEST
+/*
+ * Sets the fake TPU device to @gxp.
+ *
+ * It takes a refcount of the device which will be released when @gxp destroys.
+ */
+void gxp_set_fake_tpu_dev(struct gxp_dev *gxp, struct device *tpu_dev, phys_addr_t tpu_mbx_paddr);
+#endif /* IS_GXP_TEST */
+
 #endif /* __GXP_INTERNAL_H__ */

@@ -271,10 +271,8 @@ gxp_dci_handle_awaiter_arrived(struct gcip_mailbox *mailbox,
 	 */
 	async_resp->dest_queue = NULL;
 
-	if (async_resp->eventfd) {
+	if (async_resp->eventfd)
 		gxp_eventfd_signal(async_resp->eventfd);
-		gxp_eventfd_put(async_resp->eventfd);
-	}
 
 	wake_up(async_resp->dest_queue_waitq);
 
@@ -320,10 +318,8 @@ static void gxp_dci_handle_awaiter_timedout(struct gcip_mailbox *mailbox,
 		gxp_pm_update_requested_power_states(mbx->gxp, async_resp->requested_states,
 						     off_states);
 
-		if (async_resp->eventfd) {
+		if (async_resp->eventfd)
 			gxp_eventfd_signal(async_resp->eventfd);
-			gxp_eventfd_put(async_resp->eventfd);
-		}
 
 		wake_up(async_resp->dest_queue_waitq);
 	} else {
@@ -348,6 +344,8 @@ static void gxp_dci_release_awaiter_data(void *data)
 {
 	struct gxp_dci_async_response *async_resp = data;
 
+	if (async_resp->eventfd)
+		gxp_eventfd_put(async_resp->eventfd);
 	kfree(async_resp);
 }
 
@@ -555,6 +553,8 @@ int gxp_dci_execute_cmd_async(struct gxp_mailbox *mbx,
 err_free_resp:
 	gxp_pm_update_requested_power_states(mbx->gxp, requested_states,
 					     off_states);
+	if (async_resp->eventfd)
+		gxp_eventfd_put(async_resp->eventfd);
 	kfree(async_resp);
 	return ret;
 }
