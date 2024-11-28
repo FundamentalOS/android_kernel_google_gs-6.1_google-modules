@@ -99,6 +99,7 @@ struct vendor_task_struct {
 	u64 runnable_start_ns;
 	u64 prev_sum_exec_runtime;
 	u64 delta_exec;
+	u64 last_dequeue;
 	unsigned long util_enqueued;
 	unsigned long util_dequeued;
 	unsigned long prev_util_dequeued;
