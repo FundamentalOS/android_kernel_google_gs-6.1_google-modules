@@ -762,7 +762,8 @@ static inline void init_vendor_task_struct(struct vendor_task_struct *v_tsk)
 	v_tsk->runnable_start_ns = -1;
 	v_tsk->delta_exec = 0;
 	v_tsk->util_enqueued = 0;
-	v_tsk->prev_util_enqueued = 0;
+	v_tsk->util_dequeued = 0;
+	v_tsk->prev_util_dequeued = 0;
 	v_tsk->ignore_util_est_update = false;
 	v_tsk->rampup_multiplier = 1;
 	v_tsk->sched_qos_profile = SCHED_QOS_NONE;
@@ -1134,7 +1135,7 @@ static inline void __update_util_est_invariance(struct rq *rq,
 	vp->prev_sum_exec_runtime = se->sum_exec_runtime;
 
 	/* Is the task util increasing? */
-	if (task_util(p) < vp->util_enqueued + UTIL_EST_MARGIN)
+	if (task_util(p) < vp->util_dequeued + UTIL_EST_MARGIN)
 		return;
 
 	new_util_est = approximate_util_avg(vp->util_enqueued, vp->delta_exec);
