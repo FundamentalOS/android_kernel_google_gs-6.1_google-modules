@@ -270,6 +270,9 @@ static void google_bcl_release_throttling(struct bcl_zone *zone)
 	if (zone->idx == BATOILO && bcl_dev->config_modem)
 		gpio_set_value(bcl_dev->modem_gpio2_pin, 0);
 	update_tz(zone, zone->idx, false);
+
+	if (bcl_dev->bat_ktimer_en && zone->idx == BATOILO)
+		hrtimer_cancel(&(bcl_dev->hr_timer));
 }
 
 static void google_warn_work(struct work_struct *work)
@@ -705,8 +708,15 @@ static irqreturn_t vdroop_irq_thread_fn(int irq, void *data)
 	/* This is only BATOILO */
 	zone = bcl_dev->zone[BATOILO];
 	if (zone) {
+		if (bcl_dev->bat_ktimer_en)
+			hrtimer_start(&(bcl_dev->hr_timer),
+				      ktime_set(bcl_dev->bat_ktimer / 1000,
+						(bcl_dev->bat_ktimer % 1000) *
+							1000000),
+				      HRTIMER_MODE_REL);
 		atomic_inc(&zone->last_triggered.triggered_cnt[START]);
-		zone->last_triggered.triggered_time[START] = ktime_to_ms(ktime_get());
+		zone->last_triggered.triggered_time[START] =
+			ktime_to_ms(ktime_get());
 		queue_work(system_unbound_wq, &zone->irq_triggered_work);
 	}
 
@@ -1574,6 +1584,9 @@ static int google_set_intf_pmic(struct bcl_device *bcl_dev, struct platform_devi
 		bcl_dev->vimon_pwr_loop_cnt = ret ? DEFAULT_VIMON_PWR_LOOP_CNT : retval;
 		ret = of_property_read_u32(np, "vimon_pwr_loop_thresh", &retval);
 		bcl_dev->vimon_pwr_loop_thresh = ret ? DEFAULT_VIMON_PWR_LOOP_THRESH : retval;
+		bcl_dev->bat_ktimer_en = of_property_read_bool(np, "bat_ktimer_en");
+		ret = of_property_read_u32(np, "bat_ktimer", &retval);
+		bcl_dev->bat_ktimer = ret ? BAT_KTIMER_LIMIT_MS : retval;
 	}
 
 	if (bcl_dev->ifpmic == MAX77779) {
@@ -2284,6 +2297,18 @@ static void google_bcl_init_power_supply(struct bcl_device *bcl_dev)
 		thermal_zone_device_update(bcl_dev->soc_tz, THERMAL_DEVICE_UP);
 }
 
+static enum hrtimer_restart bcl_hrtimer_irq_handler(struct hrtimer *timer)
+{
+	panic("Kernel panic:  Sustained overcurrent detected; battery protection triggered.\n");
+	return HRTIMER_NORESTART;
+}
+
+static void google_bcl_setup_timer(struct bcl_device *bcl_dev)
+{
+	hrtimer_init(&(bcl_dev->hr_timer), CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	bcl_dev->hr_timer.function = bcl_hrtimer_irq_handler;
+}
+
 static int google_bcl_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -2338,6 +2363,10 @@ static int google_bcl_probe(struct platform_device *pdev)
 #if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 	google_bcl_setup_votable(bcl_dev);
 #endif
+
+	if(bcl_dev->bat_ktimer_en)
+		google_bcl_setup_timer(bcl_dev);
+
 	google_bcl_clk_div(bcl_dev);
 	google_bcl_parse_irq_config(bcl_dev);
 

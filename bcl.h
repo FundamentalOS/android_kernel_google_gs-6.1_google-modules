@@ -8,6 +8,7 @@
 #include <linux/power_supply.h>
 #include <linux/pm_qos.h>
 #include <linux/thermal.h>
+#include <linux/hrtimer.h>
 #include <linux/workqueue.h>
 #include <soc/google/exynos_pm_qos.h>
 #include <dt-bindings/power/s2mpg1x-power.h>
@@ -76,7 +77,7 @@
 #define DEFAULT_VIMON_PWR_LOOP_THRESH 20000
 #define MAX77779_VIMON_NV_PRE_LSB 78122
 #define MAX77779_VIMON_NA_PRE_LSB 781250
-
+#define BAT_KTIMER_LIMIT_MS 34
 
 #if IS_ENABLED(CONFIG_SOC_GS101)
 #define MAIN_OFFSRC1 S2MPG10_PM_OFFSRC
@@ -341,6 +342,8 @@ struct bcl_device {
 	struct power_supply *batt_psy;
 	struct power_supply *otg_psy;
 
+	struct hrtimer hr_timer;
+
 	struct notifier_block psy_nb;
 	struct bcl_zone *zone[TRIGGERED_SOURCE_MAX];
 	struct delayed_work soc_work;
@@ -471,6 +474,9 @@ struct bcl_device {
 	struct delayed_work qos_work;
 
 	bool usb_otg_conf;
+
+	bool bat_ktimer_en;
+	unsigned int bat_ktimer;
 };
 
 extern void google_bcl_irq_update_lvl(struct bcl_device *bcl_dev, int index, unsigned int lvl);
