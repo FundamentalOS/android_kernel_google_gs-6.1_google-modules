@@ -468,7 +468,7 @@ static int map_debug_dump_buffer(struct gxp_dev *gxp,
 		return 0;
 
 	return gxp_dma_map_allocated_coherent_buffer(
-		gxp, &gxp->debug_dump_mgr->buf, vd->domain, 0);
+		gxp, &gxp->debug_dump_mgr->core_buf, vd->domain, 0);
 }
 
 static void unmap_debug_dump_buffer(struct gxp_dev *gxp,
@@ -478,7 +478,7 @@ static void unmap_debug_dump_buffer(struct gxp_dev *gxp,
 		return;
 
 	gxp_dma_unmap_allocated_coherent_buffer(gxp, vd->domain,
-						&gxp->debug_dump_mgr->buf);
+						&gxp->debug_dump_mgr->core_buf);
 }
 
 static int assign_cores(struct gxp_virtual_device *vd)
@@ -1664,6 +1664,12 @@ void gxp_vd_release_vmbox(struct gxp_dev *gxp, struct gxp_virtual_device *vd)
 	uint core_list;
 	int ret;
 
+	/*
+	 * We should increase the refcount of @vd because @gxp->vd_semaphore may be released
+	 * by gxp_vd_generate_debug_dump() below and the client can release it asynchronously.
+	 */
+	vd = gxp_vd_get(vd);
+
 	if (vd->client_id < 0 || vd->mcu_crashed)
 		goto out;
 
@@ -1711,6 +1717,7 @@ void gxp_vd_release_vmbox(struct gxp_dev *gxp, struct gxp_virtual_device *vd)
 	}
 out:
 	vd->client_id = -1;
+	gxp_vd_put(vd);
 }
 
 void gxp_vd_unlink_offload_vmbox(struct gxp_dev *gxp, struct gxp_virtual_device *vd,

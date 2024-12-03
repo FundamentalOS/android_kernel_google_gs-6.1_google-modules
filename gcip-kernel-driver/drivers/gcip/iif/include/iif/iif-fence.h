@@ -39,6 +39,27 @@
 #include <iif/iif-manager.h>
 #include <iif/iif-shared.h>
 
+/*
+ * By default, the fence will retire if there are no outstanding signalers, waiters and FDs. Its
+ * purpose is to return the fence ID to the pool in early stage before the fence releases so that we
+ * can minimize the possibility of the lack of fence ID. Therefore, the retirement condition will be
+ * checked for each `signal()`, `waited()` and `close(fd)` call. However, when the user sets this
+ * flag to a fence, the fence will retire only when it releases.
+ *
+ * If there is a possibility of a race condition between the signaler and waiters, this flag can be
+ * considered to prevent the early fence retirement. For example, if the signaler signals a fence
+ * before any waiter starts waiting on the fence, the IIF driver will think there are no outstanding
+ * signalers and waiters, so it will let the fence retire. That means upcoming waiters may try to
+ * wait on the retired fence which is invalid.
+ *
+ * Normally, that race condition doesn't have to be considered since the runtime will always hold
+ * FDs while drivers/firmwares manipulating a fence and the fence won't retired in any case until
+ * the runtime closes FDs. However, if there is an use case that utilizing a fence which won't be
+ * exposed to the runtime (i.e., no FD is installed to the fence), this flag will be required to
+ * prevent the race condition.
+ */
+#define IIF_FLAGS_RETIRE_ON_RELEASE BIT(0)
+
 struct iif_fence;
 struct iif_fence_ops;
 struct iif_fence_poll_cb;
@@ -117,14 +138,6 @@ struct iif_fence {
 	uint16_t submitted_signalers;
 	/* The number of signaled signalers. */
 	uint16_t signaled_signalers;
-	/*
-	 * Protects @submitted_signalers, @signaled_signalers, @all_signaler_submitted_cb_list,
-	 * @all_signaler_submitted_error, @poll_cb_list and @signal_error.
-	 */
-	spinlock_t signalers_lock;
-#if IS_ENABLED(CONFIG_DEBUG_SPINLOCK)
-	struct lock_class_key signalers_key;
-#endif /* IS_ENABLED(CONFIG_DEBUG_SPINLOCK) */
 	/* The interrupt state before holding @signalers_lock. */
 	unsigned long signalers_lock_flags;
 	/* The number of outstanding waiters. */
@@ -134,10 +147,13 @@ struct iif_fence {
 	/* The number of outstanding wakelock holds per waiter IP. */
 	uint16_t outstanding_block_wakelock[IIF_IP_RESERVED];
 	/*
-	 * Protects @outstanding_waiters, @outstanding_waiters_per_ip and
-	 * @outstanding_block_wakelock.
+	 * Protects overall properties of the fence. (outstanding signalers / waiters, callbacks,
+	 * state, ...)
 	 */
-	spinlock_t waiters_lock;
+	rwlock_t fence_lock;
+#if IS_ENABLED(CONFIG_DEBUG_SPINLOCK)
+	struct lock_class_key fence_lock_key;
+#endif /* IS_ENABLED(CONFIG_DEBUG_SPINLOCK) */
 	/* Reference count. */
 	struct kref kref;
 	/* Operators. */
@@ -164,6 +180,8 @@ struct iif_fence {
 	struct work_struct waited_work;
 	/* Work decreasing the refcount of fence asynchronously. */
 	struct work_struct put_work;
+	/* Attributes. */
+	unsigned long flags;
 };
 
 /* Operators of `struct iif_fence`. */
@@ -189,6 +207,12 @@ struct iif_fence_ops {
 int iif_fence_init(struct iif_manager *mgr, struct iif_fence *fence,
 		   const struct iif_fence_ops *ops, enum iif_ip_type signaler_ip,
 		   uint16_t total_signalers);
+
+/* Sets the flags of @fence. */
+static inline void iif_fence_set_flags(struct iif_fence *fence, unsigned long flags)
+{
+	fence->flags = flags;
+}
 
 /*
  * Opens a file which syncs with @fence and returns its FD. The file will hold a reference to
@@ -394,6 +418,9 @@ bool iif_fence_remove_poll_callback(struct iif_fence *fence, struct iif_fence_po
  * Registers a callback which will be called when all signalers are submitted for @fence and
  * returns the number of remaining signalers to be submitted to @cb->remaining_signalers. Once the
  * callback is called, it will be automatically unregistered from @fence.
+ *
+ * Note that, as the callback can be invoked right after the registration, if the callback releases
+ * @cb internally, the caller should be careful of accessing @cb after the function returns.
  *
  * Returns 0 if succeeded. If all signalers are already submitted, returns -EPERM.
  */
