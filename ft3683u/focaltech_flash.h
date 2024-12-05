@@ -86,6 +86,8 @@
 #define FTS_APPINFO_APPLEN2_OFF                     0x12
 #define FTS_REG_UPGRADE                             0xFC
 #define FTS_REG_UPGRADE2                            0xBC
+#define FTS_REG_BOOTLOADER_PREOUT                   0xF1
+#define FTS_BOOTLOADER_PREOUT_A0                    0xA0
 #define FTS_UPGRADE_AA                              0xAA
 #define FTS_UPGRADE_55                              0x55
 #define FTS_DELAY_UPGRADE_AA                        10

@@ -112,6 +112,7 @@ Test Status
 #define FACTORY_REG_KEYSHORT_EN                 0x2E
 #define FACTORY_REG_KEYSHORT_STATE              0x2F
 #define FACTORY_REG_GCB                         0xBD
+#define FACTORY_REG_LOT_CODE                    0x63
 
 #define FACTORY_REG_LEFT_KEY                    0x1E
 #define FACTORY_REG_RIGHT_KEY                   0x1F
