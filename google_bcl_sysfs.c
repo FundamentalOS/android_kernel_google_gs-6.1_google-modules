@@ -19,18 +19,22 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include "bcl.h"
+#include "soc/google/debug-snapshot.h"
 #include <linux/regulator/pmic_class.h>
 #if IS_ENABLED(CONFIG_REGULATOR_S2MPG14)
 #include <dt-bindings/interrupt-controller/zuma.h>
+#include <linux/mfd/samsung/rtc-s2mpg14.h>
 #include <linux/mfd/samsung/s2mpg14-register.h>
 #include <linux/mfd/samsung/s2mpg15-register.h>
 #include <max77779_regs.h>
 #elif IS_ENABLED(CONFIG_REGULATOR_S2MPG12)
 #include <dt-bindings/interrupt-controller/gs201.h>
+#include <linux/mfd/samsung/rtc-s2mpg12.h>
 #include <linux/mfd/samsung/s2mpg12-register.h>
 #include <linux/mfd/samsung/s2mpg13-register.h>
 #elif IS_ENABLED(CONFIG_REGULATOR_S2MPG10)
 #include <dt-bindings/interrupt-controller/gs101.h>
+#include <linux/mfd/samsung/rtc-s2mpg10.h>
 #include <linux/mfd/samsung/s2mpg10-register.h>
 #include <linux/mfd/samsung/s2mpg11-register.h>
 #endif

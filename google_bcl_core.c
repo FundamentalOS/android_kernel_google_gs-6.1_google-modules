@@ -1830,6 +1830,7 @@ static int google_set_main_pmic(struct bcl_device *bcl_dev)
 
 	bcl_dev->main_irq_base = pdata_main->irq_base;
 	bcl_dev->main_pmic_i2c = main_dev->pmic;
+	bcl_dev->main_rtc_i2c = main_dev->rtc;
 	bcl_dev->main_meter_i2c = main_dev->meter;
 	bcl_dev->main_dev = main_dev->dev;
 	/* clear MAIN information every boot */
@@ -1841,6 +1842,7 @@ static int google_set_main_pmic(struct bcl_device *bcl_dev)
 	pmic_read(CORE_PMIC_MAIN, bcl_dev, MAIN_OFFSRC2, &val);
 	dev_info(bcl_dev->device, "MAIN OFFSRC2 : %#x\n", val);
 	bcl_dev->main_offsrc2 = val;
+	pmic_write(CORE_PMIC_MAIN_RTC, bcl_dev, RTC_SCRATCH1, 0);
 #endif
 	pmic_read(CORE_PMIC_MAIN, bcl_dev, MAIN_PWRONSRC, &val);
 	dev_info(bcl_dev->device, "MAIN PWRONSRC: %#x\n", val);
@@ -2360,7 +2362,7 @@ static int google_bcl_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto debug_init_fs;
 
-#if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
+#if IS_ENABLED(CONFIG_REGULATOR_S2MPG14) || IS_ENABLED(CONFIG_REGULATOR_S2MPG12)
 	google_bcl_setup_votable(bcl_dev);
 #endif
 
