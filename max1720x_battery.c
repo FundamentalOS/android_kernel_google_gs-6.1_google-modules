@@ -106,8 +106,6 @@ struct max1720x_rc_switch {
 #define DEFAULT_CAP_SETTLE_INTERVAL	3
 #define DEFAULT_CAP_FILTER_LENGTH	12
 
-#define BHI_CAP_FCN_COUNT	3
-
 #define DEFAULT_STATUS_CHARGE_MA	100
 
 struct max1720x_history {

@@ -48,8 +48,6 @@ enum max77779_fg_command_bits {
 	MAX77779_FG_COMMAND_HARDWARE_RESET = 0x000F,
 };
 
-#define BHI_CAP_FCN_COUNT	3
-
 #define DEFAULT_STATUS_CHARGE_MA	100
 
 /* No longer used in 79, used for taskperiod re-scaling in 59 */
