@@ -768,25 +768,25 @@ void goog_fts_input_report_b(struct fts_ts_data *data)
             goog_input_mt_slot(gti, input_dev, events[i].id);
             goog_input_mt_report_slot_state(gti, input_dev, MT_TOOL_FINGER, true);
 
-            if (events[i].area <= 0) {
-              events[i].area = 0x00;
-            }
             goog_input_report_abs(gti, input_dev, ABS_MT_TOUCH_MAJOR, events[i].major);
             goog_input_report_abs(gti, input_dev, ABS_MT_TOUCH_MINOR, events[i].minor);
             goog_input_report_abs(gti, input_dev, ABS_MT_POSITION_X, events[i].x);
             goog_input_report_abs(gti, input_dev, ABS_MT_POSITION_Y, events[i].y);
+            goog_input_report_abs(gti, input_dev, ABS_MT_ORIENTATION,
+                                  (s16) (((s8) events[i].orientation) * 2048 / 45));
 
             touchs |= BIT(events[i].id);
             data->touchs |= BIT(events[i].id);
             if ((data->log_level >= 2) ||
                 ((1 == data->log_level) && (FTS_TOUCH_DOWN == events[i].flag))) {
-              FTS_DEBUG("[B]P%d(%d, %d)[ma:%d,mi:%d,p:%d] DOWN!",
+              FTS_DEBUG("[B]P%d(%d, %d)[ma:%d(%d),mi:%d(%d),p:%d,o:%d] DOWN!",
                         events[i].id,
                         events[i].x,
                         events[i].y,
-                        events[i].major,
-                        events[i].minor,
-                        events[i].p);
+                        events[i].major, events[i].major / data->pdata->mm2px,
+                        events[i].minor, events[i].minor / data->pdata->mm2px,
+                        events[i].p,
+                        events[i].orientation);
             }
         } else {  //EVENT_UP
             goog_input_mt_slot(gti, input_dev, events[i].id);

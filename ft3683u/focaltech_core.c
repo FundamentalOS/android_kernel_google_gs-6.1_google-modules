@@ -561,9 +561,6 @@ static int fts_input_report_b(struct fts_ts_data *data)
 			events[i].p = 0x3F
             input_report_abs(data->input_dev, ABS_MT_PRESSURE, events[i].p);
 #endif
-            if (events[i].area <= 0) {
-                events[i].area = 0x00;
-            }
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, events[i].major);
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MINOR, events[i].minor);
             input_report_abs(data->input_dev, ABS_MT_POSITION_X, events[i].x);
@@ -573,13 +570,14 @@ static int fts_input_report_b(struct fts_ts_data *data)
             data->touchs |= BIT(events[i].id);
             if ((data->log_level >= 2) ||
                 ((1 == data->log_level) && (FTS_TOUCH_DOWN == events[i].flag))) {
-                FTS_DEBUG("[B]P%d(%d, %d)[ma:%d,mi:%d,p:%d] DOWN!",
+                FTS_DEBUG("[B]P%d(%d, %d)[ma:%d,mi:%d,p:%d,o:%d] DOWN!",
                           events[i].id,
                           events[i].x,
                           events[i].y,
                           events[i].major,
                           events[i].minor,
-                          events[i].p);
+                          events[i].p,
+                          events[i].orientation);
             }
         } else {  //EVENT_UP
             input_mt_slot(data->input_dev, events[i].id);
@@ -643,9 +641,6 @@ static int fts_input_report_a(struct fts_ts_data *data)
             }
             input_report_abs(data->input_dev, ABS_MT_PRESSURE, events[i].p);
 #endif
-            if (events[i].area <= 0) {
-                events[i].area = 0x00;
-            }
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, events[i].major);
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MINOR, events[i].minor);
             input_report_abs(data->input_dev, ABS_MT_POSITION_X, events[i].x);
@@ -1047,7 +1042,7 @@ static int fts_read_parse_touchdata(struct fts_ts_data *data)
 		data->touch_point = event_num;
 
 		for (i = 0; i < event_num; i++) {
-			base = FTS_ONE_TCH_LEN_V2 * i + 3;
+			base = FTS_ONE_TCH_LEN_V2 * i + 4;
 			pointid = (buf[FTS_TOUCH_OFF_ID_YH + base]) >> 4;
 			if (pointid >= max_touch_num) {
 				FTS_ERROR("touch point ID(%d) beyond max_touch_number(%d)",
@@ -1068,11 +1063,17 @@ static int fts_read_parse_touchdata(struct fts_ts_data *data)
 
 			events[i].x = FTS_TOUCH_HIRES(events[i].x);
 			events[i].y = FTS_TOUCH_HIRES(events[i].y);
-			events[i].area = buf[FTS_TOUCH_OFF_AREA + base];
-			events[i].minor = buf[FTS_TOUCH_OFF_MINOR + base];
-			events[i].p = 0x3F;
 
-			if (events[i].area <= 0) events[i].area = 0x09;
+			events[i].major = ((buf[FTS_TOUCH_OFF_MAJOR + base] >> 1) & 0x7F)
+                            * data->pdata->mm2px;
+			events[i].minor = ((buf[FTS_TOUCH_OFF_MINOR + base] >> 1) & 0x7F)
+                            * data->pdata->mm2px;
+			events[i].p = ((buf[FTS_TOUCH_OFF_MAJOR + base] & 0x01) << 1)
+                            + (buf[FTS_TOUCH_OFF_MINOR + base] & 0x01);
+
+			events[i].orientation = (s8)buf[FTS_TOUCH_OFF_ORIENTATION + base];
+
+			if (events[i].major <= 0) events[i].major = 0x09;
 			if (events[i].minor <= 0) events[i].minor = 0x09;
 
 		}

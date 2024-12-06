@@ -100,13 +100,14 @@
 #define FTS_MAX_COMMMAND_LENGTH             16
 
 
-#define FTS_TOUCH_OFF_E_XH                  1
-#define FTS_TOUCH_OFF_XL                    2
-#define FTS_TOUCH_OFF_ID_YH                 3
-#define FTS_TOUCH_OFF_YL                    4
-#define FTS_TOUCH_OFF_PRE                   5
-#define FTS_TOUCH_OFF_AREA                  6
-#define FTS_TOUCH_OFF_MINOR                 7
+#define FTS_TOUCH_OFF_E_XH                  0
+#define FTS_TOUCH_OFF_XL                    1
+#define FTS_TOUCH_OFF_ID_YH                 2
+#define FTS_TOUCH_OFF_YL                    3
+#define FTS_TOUCH_OFF_PRE                   4
+#define FTS_TOUCH_OFF_MAJOR                 5
+#define FTS_TOUCH_OFF_MINOR                 6
+#define FTS_TOUCH_OFF_ORIENTATION           7
 
 #define FTS_TOUCH_E_NUM                     1
 #define FTS_ONE_TCH_LEN_V2                  8
@@ -182,9 +183,9 @@ struct ts_event {
     int p;      /* pressure */
     int flag;   /* touch event flag: 0 -- down; 1-- up; 2 -- contact */
     int id;     /*touch ID */
-    int area;
     int major;
     int minor;
+    int orientation;
 };
 
 struct pen_event {
