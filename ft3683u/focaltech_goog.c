@@ -527,12 +527,32 @@ static int gti_reset(void *private_data, struct gti_reset_cmd *cmd)
     int ret = 0;
 
     mutex_lock(&input_dev->mutex);
-    if (cmd->setting == GTI_RESET_MODE_HW ||
-        cmd->setting == GTI_RESET_MODE_AUTO) {
+    if (cmd->setting == GTI_RESET_MODE_SW) {
+      ret = fts_write_reg(FTS_TMP_REG_SOFT_RESET, 0xAA);
+      if (ret < 0) {
+        FTS_ERROR("write 0xAA to reg 0xFC fails");
+        goto exit;
+      }
+
+      ret = fts_write_reg(FTS_TMP_REG_SOFT_RESET, 0x66);
+      if (ret < 0) {
+        FTS_ERROR("write 0x66 to reg 0xFC fails");
+        goto exit;
+      }
+    } else if (cmd->setting == GTI_RESET_MODE_HW) {
+
+      gpio_direction_output(fts_data->pdata->reset_gpio, 0);
+      /* The minimum reset duration is 1 ms. */
+      usleep_range(1000, 1100);
+      gpio_direction_output(fts_data->pdata->reset_gpio, 1);
+
+    } else if (cmd->setting == GTI_RESET_MODE_AUTO) {
       fts_reset_proc(0);
     } else {
       ret = -EOPNOTSUPP;
     }
+
+exit:
     mutex_unlock(&input_dev->mutex);
 
     return ret;
@@ -742,11 +762,11 @@ int goog_parse_dt(struct device_node *np, struct fts_ts_platform_data *pdata)
       return -EPROBE_DEFER;
 
     panel_id = goog_get_panel_id(np);
-
     if (panel_id < 0) {
         FTS_ERROR("Unable to get panel");
         return -EPROBE_DEFER;
     }
+    pdata->panel_id = panel_id;
 
     goog_get_firmware_name(np, panel_id, pdata->fw_name,
             sizeof(pdata->fw_name));

@@ -173,6 +173,7 @@ struct fts_ts_platform_data {
     u8 mm2px;
     char fw_name[FILE_NAME_LENGTH];
     char test_limits_name[FILE_NAME_LENGTH];
+    int panel_id;
 };
 
 struct ts_event {
@@ -202,24 +203,57 @@ struct pen_event {
 struct fts_gesture_st {
     union {
         struct {
-            u8 gesture_enable;
-            u8 point_id;
-            u8 point_num;
             u8 gesture_id;
-            u8 FOD_area;
-            u8 touch_area;
-            u8 major;
-            u8 minor;
             u8 coordinate_x_msb;
             u8 coordinate_x_lsb;
             u8 coordinate_y_msb;
             u8 coordinate_y_lsb;
-            u8 even;
             u8 orientation;
-        };
+            u8 major;
+            u8 minor;
+            u8 gesture_enable;
+            u8 point_id;
+            u8 point_num;
+            u8 FOD_area;
+            u8 touch_area;
+            u8 even;
+        } __attribute__((packed));
         u8 data[14];
     };
 };
+
+struct fw_status_ts {
+  union {
+    struct {
+      unsigned char B0_b0_abnormal_reset:3;
+      unsigned char B0_b3_water_state:1;
+      unsigned char B0_b4_grip_status:1;
+      unsigned char B0_b5_palm_status:1;
+      unsigned char B0_b6_edge_palm_status:1;
+      unsigned char B0_b7_reserved:1;
+
+      unsigned char B1_b0_baseline:3;
+      unsigned char B1_b3_noise_status:3;
+      unsigned char B1_b6_INT2_status:1;
+      unsigned char B1_b7_continuous_status:1;
+
+      unsigned char B2_b0_frequency_hopping:3;
+      unsigned char B2_b3_v_sync_status:1;
+      unsigned char B2_b4_reserved:4;
+
+      unsigned char B3_b0_glove_reg:1;
+      unsigned char B3_b1_grip_reg:1;
+      unsigned char B3_b2_palm_reg:1;
+      unsigned char B3_b3_reserved:1;
+      unsigned char B3_b4_continus_reg:1;
+      unsigned char B3_b5_reserved:1;
+      unsigned char B3_b6_heatmap_status:2;
+    } __attribute__((packed));
+    unsigned char data[4];
+  };
+};
+
+
 
 enum SS_TYPE {
     SS_NORMAL,
@@ -287,7 +321,7 @@ struct fts_ts_data {
     int point_num;
 
 #if GOOGLE_REPORT_MODE
-    u8 current_host_status[FTS_CUSTOMER_STATUS_LEN];
+    struct fw_status_ts current_host_status;
 #endif
 
     u8 work_mode;
@@ -323,29 +357,6 @@ enum FTS_BUS_TYPE {
     FTS_BUS_TYPE_SPI,
     FTS_BUS_TYPE_SPI_V2,
 };
-
-#if GOOGLE_REPORT_MODE
-enum FTS_CUSTOMER_STATUS {
-    STATUS_BASELINE_REFRESH_B0,
-    STATUS_BASELINE_REFRESH_B1,
-    STATUS_PALM,
-    STATUS_WATER,
-    STATUS_GRIP,
-    STATUS_GLOVE,
-    STATUS_EDGE_PALM,
-    STATUS_RESET,
-    STATUS_CNT_END,
-};
-
-enum FTS_FW_MODE_SETTING{
-    FW_GLOVE = 0,
-    FW_GRIP,
-    FW_PALM,
-    FW_HEATMAP,
-    FW_CONTINUOUS,
-    FW_CNT_END,
-};
-#endif
 
 enum _FTS_TOUCH_ETYPE {
     TOUCH_DEFAULT = 0x00,
