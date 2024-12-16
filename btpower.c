@@ -1504,6 +1504,7 @@ static struct platform_driver bt_power_driver = {
 		.of_match_table = bt_power_match_table,
 	},
 };
+MODULE_DEVICE_TABLE(of, bt_power_match_table);
 
 static int __init btpower_init(void)
 {
