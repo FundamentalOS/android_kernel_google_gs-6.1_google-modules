@@ -127,7 +127,7 @@ void rvh_sched_setaffinity_mod(void *data, struct task_struct *task,
 	block_affinity = disable_sched_setaffinity;
 	block_affinity |= vg[get_vendor_group(task)].disable_sched_setaffinity;
 
-	if (block_affinity && !check_cred()) {
+	if (block_affinity && !capable(CAP_SYS_NICE)) {
 		__reset_task_affinity(task);
 		*res = -EPERM;
 		return;
