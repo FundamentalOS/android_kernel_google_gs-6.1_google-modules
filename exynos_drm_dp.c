@@ -2144,7 +2144,7 @@ static void dp_work_hpd_irq(struct work_struct *work)
 
 	if (dp->dfp_count > 0) {
 		/* Sanity-check the sink count */
-		if (sink_count > dp->dfp_count) {
+		if (sink_count > dp->dfp_count + 1) {
 			dp_err(dp, "[HPD IRQ] invalid sink count, adjusting to 0\n");
 			sink_count = 0;
 		}
