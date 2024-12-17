@@ -5957,8 +5957,6 @@ static void batt_cycle_count_update(struct batt_drv *batt_drv, int soc)
 
 /* ------------------------------------------------------------------------- */
 
-#ifdef CONFIG_DEBUG_FS
-
 static ssize_t cycle_counts_store(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
@@ -5999,11 +5997,9 @@ static ssize_t cycle_counts_show(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR_RW(cycle_counts);
+static DEVICE_ATTR_RW(cycle_counts);
 
-static ssize_t resistance_show(struct device *dev,
-				   struct device_attribute *attr,
-				   char *buff)
+static ssize_t resistance_show(struct device *dev, struct device_attribute *attr, char *buff)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -6015,7 +6011,7 @@ static ssize_t resistance_show(struct device *dev,
 	return scnprintf(buff, PAGE_SIZE, "%d\n", value);
 }
 
-static const DEVICE_ATTR_RO(resistance);
+static DEVICE_ATTR_RO(resistance);
 
 static ssize_t resistance_avg_show(struct device *dev,
 				   struct device_attribute *attr,
@@ -6029,11 +6025,10 @@ static ssize_t resistance_avg_show(struct device *dev,
 			 batt_ravg_value(&batt_drv->health_data.bhi_data.res_state));
 }
 
-static const DEVICE_ATTR_RO(resistance_avg);
+static DEVICE_ATTR_RO(resistance_avg);
 
-static ssize_t charge_full_estimate_show(struct device *dev,
-				   struct device_attribute *attr,
-				   char *buff)
+static ssize_t charge_full_estimate_show(struct device *dev, struct device_attribute *attr,
+					 char *buff)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -6045,8 +6040,9 @@ static ssize_t charge_full_estimate_show(struct device *dev,
 	return scnprintf(buff, PAGE_SIZE, "%d\n", value);
 }
 
-static const DEVICE_ATTR_RO(charge_full_estimate);
+static DEVICE_ATTR_RO(charge_full_estimate);
 
+#ifdef CONFIG_DEBUG_FS
 
 static int cycle_count_bins_store(void *data, u64 val)
 {
@@ -6767,13 +6763,11 @@ static ssize_t chg_profile_switch_store(struct device *dev,
 	return count;
 }
 
-static const DEVICE_ATTR_RW(chg_profile_switch);
+static DEVICE_ATTR_RW(chg_profile_switch);
 
 
 /* TODO: add writes to restart pairing (i.e. provide key) */
-static ssize_t batt_pairing_state_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
+static ssize_t pairing_state_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -6785,10 +6779,9 @@ static ssize_t batt_pairing_state_show(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR(pairing_state, 0444, batt_pairing_state_show, NULL);
+static DEVICE_ATTR_RO(pairing_state);
 
-
-static ssize_t batt_ctl_chg_stats_actual(struct device *dev,
+static ssize_t charge_stats_actual_store(struct device *dev,
 					 struct device_attribute *attr,
 					 const char *buf, size_t count)
 {
@@ -6812,8 +6805,8 @@ static ssize_t batt_ctl_chg_stats_actual(struct device *dev,
 	return count;
 }
 
-static ssize_t batt_show_chg_stats_actual(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t charge_stats_actual_show(struct device *dev, struct device_attribute *attr,
+					char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -6828,11 +6821,9 @@ static ssize_t batt_show_chg_stats_actual(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR(charge_stats_actual, 0664,
-					     batt_show_chg_stats_actual,
-					     batt_ctl_chg_stats_actual);
+static DEVICE_ATTR_RW(charge_stats_actual);
 
-static ssize_t batt_ctl_chg_stats(struct device *dev,
+static ssize_t charge_stats_store(struct device *dev,
 				  struct device_attribute *attr,
 				  const char *buf, size_t count)
 {
@@ -6869,8 +6860,7 @@ static ssize_t batt_chg_qual_stats_cstr(char *buff, int size,
 	return len;
 }
 
-static ssize_t batt_show_chg_stats(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t charge_stats_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -6887,12 +6877,11 @@ static ssize_t batt_show_chg_stats(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR(charge_stats, 0664, batt_show_chg_stats,
-					     batt_ctl_chg_stats);
+static DEVICE_ATTR_RW(charge_stats);
 
 /* show current/active and qual data */
-static ssize_t batt_show_chg_details(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t charge_details_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -6952,12 +6941,10 @@ static ssize_t batt_show_chg_details(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR(charge_details, 0444, batt_show_chg_details,
-					       NULL);
+static DEVICE_ATTR_RO(charge_details);
 
 /* tier and soc details */
-static ssize_t batt_show_ttf_details(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t ttf_details_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = (struct batt_drv *)
@@ -6985,11 +6972,10 @@ static ssize_t batt_show_ttf_details(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR(ttf_details, 0444, batt_show_ttf_details, NULL);
+static DEVICE_ATTR_RO(ttf_details);
 
 /* house stats */
-static ssize_t batt_show_ttf_stats(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t ttf_stats_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -7016,9 +7002,9 @@ static ssize_t batt_show_ttf_stats(struct device *dev,
 }
 
 /* userspace restore the TTF data with this */
-static ssize_t batt_ctl_ttf_stats(struct device *dev,
-				  struct device_attribute *attr,
-				  const char *buf, size_t count)
+static ssize_t ttf_stats_store(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
 {
 	int res;
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
@@ -7049,13 +7035,11 @@ static ssize_t batt_ctl_ttf_stats(struct device *dev,
 	return count;
 }
 
-static const DEVICE_ATTR(ttf_stats, 0664, batt_show_ttf_stats,
-					  batt_ctl_ttf_stats);
+static DEVICE_ATTR_RW(ttf_stats);
 
 /* ------------------------------------------------------------------------- */
 
-static ssize_t chg_health_show_stage(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t charge_stage_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = (struct batt_drv *)
@@ -7085,11 +7069,9 @@ static ssize_t chg_health_show_stage(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", s);
 }
 
-static const DEVICE_ATTR(charge_stage, 0444, chg_health_show_stage, NULL);
+static DEVICE_ATTR_RO(charge_stage);
 
-static ssize_t chg_health_charge_limit_get(struct device *dev,
-					   struct device_attribute *attr,
-					   char *buf)
+static ssize_t charge_limit_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -7146,9 +7128,9 @@ static void batt_set_health_charge_limit(struct batt_drv *batt_drv,
 	mutex_unlock(&batt_drv->chg_lock);
 }
 
-static ssize_t chg_health_charge_limit_set(struct device *dev,
-					   struct device_attribute *attr,
-					   const char *buf, size_t count)
+static ssize_t charge_limit_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -7164,8 +7146,7 @@ static ssize_t chg_health_charge_limit_set(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(charge_limit, 0660, chg_health_charge_limit_get,
-		   chg_health_charge_limit_set);
+static DEVICE_ATTR_RW(charge_limit);
 
 static void batt_init_chg_health(struct batt_drv *batt_drv)
 {
@@ -7199,8 +7180,7 @@ static void batt_init_chg_health(struct batt_drv *batt_drv)
 			     batt_drv->chg_health.rest_rate_before_trigger);
 }
 
-static ssize_t batt_show_chg_deadline(struct device *dev,
-				      struct device_attribute *attr, char *buf)
+static ssize_t charge_deadline_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -7250,7 +7230,7 @@ static ssize_t batt_show_chg_deadline(struct device *dev,
 }
 
 /* userspace restore the TTF data with this */
-static ssize_t batt_set_chg_deadline(struct device *dev,
+static ssize_t charge_deadline_store(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t count)
 {
@@ -7290,8 +7270,7 @@ static ssize_t batt_set_chg_deadline(struct device *dev,
 	return count;
 }
 
-static const DEVICE_ATTR(charge_deadline, 0664, batt_show_chg_deadline,
-						batt_set_chg_deadline);
+static DEVICE_ATTR_RW(charge_deadline);
 
 static ssize_t charge_deadline_dryrun_store(struct device *dev,
 					    struct device_attribute *attr,
@@ -7365,9 +7344,9 @@ static ssize_t ssoc_details_show(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR_RO(ssoc_details);
+static DEVICE_ATTR_RO(ssoc_details);
 
-static ssize_t show_bd_trickle_enable(struct device *dev,
+static ssize_t bd_trickle_enable_show(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
 {
@@ -7378,9 +7357,9 @@ static ssize_t show_bd_trickle_enable(struct device *dev,
 			 batt_drv->ssoc_state.bd_trickle_enable);
 }
 
-static ssize_t set_bd_trickle_enable(struct device *dev,
-				     struct device_attribute *attr,
-				     const char *buf, size_t count)
+static ssize_t bd_trickle_enable_store(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7395,11 +7374,9 @@ static ssize_t set_bd_trickle_enable(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(bd_trickle_enable, 0660,
-		   show_bd_trickle_enable, set_bd_trickle_enable);
+static DEVICE_ATTR_RW(bd_trickle_enable);
 
-static ssize_t show_bd_trickle_cnt(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t bd_trickle_cnt_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7408,9 +7385,9 @@ static ssize_t show_bd_trickle_cnt(struct device *dev,
 			 batt_drv->ssoc_state.bd_trickle_cnt);
 }
 
-static ssize_t set_bd_trickle_cnt(struct device *dev,
-				  struct device_attribute *attr,
-				  const char *buf, size_t count)
+static ssize_t bd_trickle_cnt_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7425,10 +7402,9 @@ static ssize_t set_bd_trickle_cnt(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(bd_trickle_cnt, 0660,
-		   show_bd_trickle_cnt, set_bd_trickle_cnt);
+static DEVICE_ATTR_RW(bd_trickle_cnt);
 
-static ssize_t show_bd_trickle_recharge_soc(struct device *dev,
+static ssize_t bd_trickle_recharge_soc_show(struct device *dev,
 					    struct device_attribute *attr,
 					    char *buf)
 {
@@ -7441,9 +7417,9 @@ static ssize_t show_bd_trickle_recharge_soc(struct device *dev,
 
 #define BD_RL_SOC_FULL		100
 #define BD_RL_SOC_LOW		50
-static ssize_t set_bd_trickle_recharge_soc(struct device *dev,
-					   struct device_attribute *attr,
-					   const char *buf, size_t count)
+static ssize_t bd_trickle_recharge_soc_store(struct device *dev,
+					     struct device_attribute *attr,
+					     const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7461,10 +7437,9 @@ static ssize_t set_bd_trickle_recharge_soc(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(bd_trickle_recharge_soc, 0660,
-		   show_bd_trickle_recharge_soc, set_bd_trickle_recharge_soc);
+static DEVICE_ATTR_RW(bd_trickle_recharge_soc);
 
-static ssize_t show_bd_trickle_dry_run(struct device *dev,
+static ssize_t bd_trickle_dry_run_show(struct device *dev,
 				       struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
@@ -7474,9 +7449,9 @@ static ssize_t show_bd_trickle_dry_run(struct device *dev,
 			 batt_drv->ssoc_state.bd_trickle_dry_run);
 }
 
-static ssize_t set_bd_trickle_dry_run(struct device *dev,
-				      struct device_attribute *attr,
-				      const char *buf, size_t count)
+static ssize_t bd_trickle_dry_run_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7491,10 +7466,9 @@ static ssize_t set_bd_trickle_dry_run(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(bd_trickle_dry_run, 0660,
-		   show_bd_trickle_dry_run, set_bd_trickle_dry_run);
+static DEVICE_ATTR_RW(bd_trickle_dry_run);
 
-static ssize_t show_bd_trickle_reset_sec(struct device *dev,
+static ssize_t bd_trickle_reset_sec_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
@@ -7505,9 +7479,9 @@ static ssize_t show_bd_trickle_reset_sec(struct device *dev,
 			 batt_drv->ssoc_state.bd_trickle_reset_sec);
 }
 
-static ssize_t set_bd_trickle_reset_sec(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t count)
+static ssize_t bd_trickle_reset_sec_store(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7523,8 +7497,7 @@ static ssize_t set_bd_trickle_reset_sec(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(bd_trickle_reset_sec, 0660,
-		   show_bd_trickle_reset_sec, set_bd_trickle_reset_sec);
+static DEVICE_ATTR_RW(bd_trickle_reset_sec);
 
 static ssize_t bd_clear_store(struct device *dev,
 			      struct device_attribute *attr,
@@ -7546,7 +7519,7 @@ static ssize_t bd_clear_store(struct device *dev,
 
 static DEVICE_ATTR_WO(bd_clear);
 
-static ssize_t batt_show_time_to_ac(struct device *dev,
+static ssize_t time_to_ac_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
@@ -7570,10 +7543,9 @@ static ssize_t batt_show_time_to_ac(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%lld\n", (long long)estimate);
 }
 
-static const DEVICE_ATTR(time_to_ac, 0444, batt_show_time_to_ac, NULL);
+static DEVICE_ATTR_RO(time_to_ac);
 
-static ssize_t batt_show_ac_soc(struct device *dev,
-				    struct device_attribute *attr, char *buf)
+static ssize_t ac_soc_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv =(struct batt_drv *)
@@ -7583,7 +7555,7 @@ static ssize_t batt_show_ac_soc(struct device *dev,
 			 CHG_HEALTH_REST_SOC(&batt_drv->chg_health));
 }
 
-static const DEVICE_ATTR(ac_soc, 0444, batt_show_ac_soc, NULL);
+static DEVICE_ATTR_RO(ac_soc);
 
 static ssize_t charge_to_limit_store(struct device *dev,
 				     struct device_attribute *attr,
@@ -7641,10 +7613,9 @@ static ssize_t charge_to_limit_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", result);
 }
 
-static const DEVICE_ATTR_RW(charge_to_limit);
+static DEVICE_ATTR_RW(charge_to_limit);
 
-static ssize_t batt_show_charger_state(struct device *dev,
-				       struct device_attribute *attr, char *buf)
+static ssize_t charger_state_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7652,11 +7623,10 @@ static ssize_t batt_show_charger_state(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "0x%llx\n", batt_drv->chg_state.v);
 }
 
-static const DEVICE_ATTR(charger_state, 0444, batt_show_charger_state, NULL);
+static DEVICE_ATTR_RO(charger_state);
 
 
-static ssize_t batt_show_charge_type(struct device *dev,
-				       struct device_attribute *attr, char *buf)
+static ssize_t charge_type_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7664,11 +7634,10 @@ static ssize_t batt_show_charge_type(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->chg_state.f.chg_type);
 }
 
-static const DEVICE_ATTR(charge_type, 0444, batt_show_charge_type, NULL);
+static DEVICE_ATTR_RO(charge_type);
 
-
-static ssize_t batt_show_constant_charge_current(struct device *dev,
-				       struct device_attribute *attr, char *buf)
+static ssize_t constant_charge_current_show(struct device *dev,
+					    struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7676,12 +7645,11 @@ static ssize_t batt_show_constant_charge_current(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->cc_max);
 }
 
-static const DEVICE_ATTR(constant_charge_current, 0444,
-			 batt_show_constant_charge_current, NULL);
+static DEVICE_ATTR_RO(constant_charge_current);
 
 
-static ssize_t batt_show_constant_charge_voltage(struct device *dev,
-				       struct device_attribute *attr, char *buf)
+static ssize_t constant_charge_voltage_show(struct device *dev,
+					    struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7689,11 +7657,10 @@ static ssize_t batt_show_constant_charge_voltage(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->fv_uv);
 }
 
-static const DEVICE_ATTR(constant_charge_voltage, 0444,
-			 batt_show_constant_charge_voltage, NULL);
+static DEVICE_ATTR_RO(constant_charge_voltage);
 
-static ssize_t show_health_safety_margin(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t health_safety_margin_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7702,9 +7669,9 @@ static ssize_t show_health_safety_margin(struct device *dev,
 			 batt_drv->health_safety_margin);
 }
 
-static ssize_t set_health_safety_margin(struct device *dev,
-				  struct device_attribute *attr,
-				  const char *buf, size_t count)
+static ssize_t health_safety_margin_store(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7726,8 +7693,7 @@ static ssize_t set_health_safety_margin(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(health_safety_margin, 0660,
-		    show_health_safety_margin, set_health_safety_margin);
+static DEVICE_ATTR_RW(health_safety_margin);
 
 /* BPST ------------------------------------------------------------------- */
 
@@ -7841,8 +7807,7 @@ static ssize_t aacr_state_store(struct device *dev,
 	return count;
 }
 
-static ssize_t aacr_state_show(struct device *dev,
-			      struct device_attribute *attr, char *buf)
+static ssize_t aacr_state_show(struct device *dev,  struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7850,7 +7815,7 @@ static ssize_t aacr_state_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacr_state);
 }
 
-static const DEVICE_ATTR_RW(aacr_state);
+static DEVICE_ATTR_RW(aacr_state);
 
 
 static ssize_t aacr_cycle_grace_store(struct device *dev,
@@ -7875,8 +7840,7 @@ static ssize_t aacr_cycle_grace_store(struct device *dev,
 	return count;
 }
 
-static ssize_t aacr_cycle_grace_show(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t aacr_cycle_grace_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7884,8 +7848,7 @@ static ssize_t aacr_cycle_grace_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacr_cycle_grace);
 }
 
-static const DEVICE_ATTR_RW(aacr_cycle_grace);
-
+static DEVICE_ATTR_RW(aacr_cycle_grace);
 
 static ssize_t aacr_cycle_max_store(struct device *dev,
 				    struct device_attribute *attr,
@@ -7909,8 +7872,7 @@ static ssize_t aacr_cycle_max_store(struct device *dev,
 	return count;
 }
 
-static ssize_t aacr_cycle_max_show(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t aacr_cycle_max_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7918,10 +7880,9 @@ static ssize_t aacr_cycle_max_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacr_cycle_max);
 }
 
-static const DEVICE_ATTR_RW(aacr_cycle_max);
+static DEVICE_ATTR_RW(aacr_cycle_max);
 
-static ssize_t aacr_algo_show(struct device *dev,
-			      struct device_attribute *attr, char *buf)
+static ssize_t aacr_algo_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7929,11 +7890,11 @@ static ssize_t aacr_algo_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacr_algo);
 }
 
-static const DEVICE_ATTR_RO(aacr_algo);
+static DEVICE_ATTR_RO(aacr_algo);
 
 static ssize_t aacr_min_capacity_rate_store(struct device *dev,
-				       struct device_attribute *attr,
-				       const char *buf, size_t count)
+					    struct device_attribute *attr,
+					    const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7951,7 +7912,7 @@ static ssize_t aacr_min_capacity_rate_store(struct device *dev,
 }
 
 static ssize_t aacr_min_capacity_rate_show(struct device *dev,
-				      struct device_attribute *attr, char *buf)
+					   struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7959,11 +7920,11 @@ static ssize_t aacr_min_capacity_rate_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacr_min_capacity_rate);
 }
 
-static const DEVICE_ATTR_RW(aacr_min_capacity_rate);
+static DEVICE_ATTR_RW(aacr_min_capacity_rate);
 
 static ssize_t aacr_cliff_capacity_rate_store(struct device *dev,
-				       struct device_attribute *attr,
-				       const char *buf, size_t count)
+					      struct device_attribute *attr,
+					      const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7984,7 +7945,7 @@ static ssize_t aacr_cliff_capacity_rate_store(struct device *dev,
 }
 
 static ssize_t aacr_cliff_capacity_rate_show(struct device *dev,
-				      struct device_attribute *attr, char *buf)
+					     struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -7992,7 +7953,7 @@ static ssize_t aacr_cliff_capacity_rate_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacr_cliff_capacity_rate);
 }
 
-static const DEVICE_ATTR_RW(aacr_cliff_capacity_rate);
+static DEVICE_ATTR_RW(aacr_cliff_capacity_rate);
 
 static ssize_t aacr_profile_store(struct device *dev,
 				  struct device_attribute *attr,
@@ -8034,8 +7995,7 @@ static ssize_t aacr_profile_store(struct device *dev,
 	return count;
 }
 
-static ssize_t aacr_profile_show(struct device *dev,
-				      struct device_attribute *attr, char *buf)
+static ssize_t aacr_profile_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8058,7 +8018,7 @@ static ssize_t aacr_profile_show(struct device *dev,
 	return cnt;
 }
 
-static const DEVICE_ATTR_RW(aacr_profile);
+static DEVICE_ATTR_RW(aacr_profile);
 
 /* AAFV ------------------------------------------------------------------- */
 
@@ -8100,7 +8060,7 @@ static ssize_t aafv_state_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aafv_state);
 }
 
-static const DEVICE_ATTR_RW(aafv_state);
+static DEVICE_ATTR_RW(aafv_state);
 
 static ssize_t aafv_apply_max_store(struct device *dev,
 				     struct device_attribute *attr,
@@ -8131,7 +8091,7 @@ static ssize_t aafv_apply_max_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aafv_apply_max);
 }
 
-static const DEVICE_ATTR_RW(aafv_apply_max);
+static DEVICE_ATTR_RW(aafv_apply_max);
 
 static ssize_t aafv_max_offset_store(struct device *dev,
 				     struct device_attribute *attr,
@@ -8162,7 +8122,7 @@ static ssize_t aafv_max_offset_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aafv_max_offset);
 }
 
-static const DEVICE_ATTR_RW(aafv_max_offset);
+static DEVICE_ATTR_RW(aafv_max_offset);
 
 static ssize_t aafv_cliff_cycle_store(struct device *dev,
 				      struct device_attribute *attr,
@@ -8193,7 +8153,7 @@ static ssize_t aafv_cliff_cycle_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aafv_cliff_cycle);
 }
 
-static const DEVICE_ATTR_RW(aafv_cliff_cycle);
+static DEVICE_ATTR_RW(aafv_cliff_cycle);
 
 static ssize_t aafv_cliff_offset_store(struct device *dev,
 				       struct device_attribute *attr,
@@ -8227,7 +8187,7 @@ static ssize_t aafv_cliff_offset_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aafv_cliff_offset);
 }
 
-static const DEVICE_ATTR_RW(aafv_cliff_offset);
+static DEVICE_ATTR_RW(aafv_cliff_offset);
 
 static ssize_t aafv_profile_store(struct device *dev,
 				  struct device_attribute *attr,
@@ -8301,7 +8261,7 @@ static ssize_t aafv_profile_show(struct device *dev,
 	return count;
 }
 
-static const DEVICE_ATTR_RW(aafv_profile);
+static DEVICE_ATTR_RW(aafv_profile);
 
 
 static ssize_t aafv_offset_show(struct device *dev,
@@ -8313,7 +8273,7 @@ static ssize_t aafv_offset_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->chg_profile.aafv_offset);
 }
 
-static const DEVICE_ATTR_RO(aafv_offset);
+static DEVICE_ATTR_RO(aafv_offset);
 
 /* AACT ------------------------------------------------------------------- */
 
@@ -8375,7 +8335,7 @@ static ssize_t aact_state_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aact_state);
 }
 
-static const DEVICE_ATTR_RW(aact_state);
+static DEVICE_ATTR_RW(aact_state);
 
 /* AACP ------------------------------------------------------------------- */
 
@@ -8406,7 +8366,7 @@ static ssize_t aacp_version_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacp_version);
 }
 
-static const DEVICE_ATTR_RW(aacp_version);
+static DEVICE_ATTR_RW(aacp_version);
 
 /* AACC ------------------------------------------------------------------- */
 
@@ -8419,12 +8379,11 @@ static ssize_t aacc_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->aacc);
 }
 
-static const DEVICE_ATTR_RO(aacc);
+static DEVICE_ATTR_RO(aacc);
 
 /* Swelling  --------------------------------------------------------------- */
 
-static ssize_t swelling_data_show(struct device *dev,
-				 struct device_attribute *attr, char *buf)
+static ssize_t swelling_data_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8443,7 +8402,7 @@ static ssize_t swelling_data_show(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR_RO(swelling_data);
+static DEVICE_ATTR_RO(swelling_data);
 
 /* BHI --------------------------------------------------------------------- */
 
@@ -8457,10 +8416,9 @@ static ssize_t health_index_show(struct device *dev,
 			 BHI_ROUND_INDEX(batt_drv->health_data.bhi_index));
 }
 
-static const DEVICE_ATTR_RO(health_index);
+static DEVICE_ATTR_RO(health_index);
 
-static ssize_t health_status_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
+static ssize_t health_status_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8468,10 +8426,10 @@ static ssize_t health_status_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->health_data.bhi_status);
 }
 
-static const DEVICE_ATTR_RO(health_status);
+static DEVICE_ATTR_RO(health_status);
 
 static ssize_t health_impedance_index_show(struct device *dev,
-				      struct device_attribute *attr, char *buf)
+					   struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8480,10 +8438,10 @@ static ssize_t health_impedance_index_show(struct device *dev,
 			 BHI_ROUND_INDEX(batt_drv->health_data.bhi_imp_index));
 }
 
-static const DEVICE_ATTR_RO(health_impedance_index);
+static DEVICE_ATTR_RO(health_impedance_index);
 
 static ssize_t health_capacity_index_show(struct device *dev,
-				      struct device_attribute *attr, char *buf)
+					  struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8492,10 +8450,10 @@ static ssize_t health_capacity_index_show(struct device *dev,
 			 BHI_ROUND_INDEX(batt_drv->health_data.bhi_cap_index));
 }
 
-static const DEVICE_ATTR_RO(health_capacity_index);
+static DEVICE_ATTR_RO(health_capacity_index);
 
 static ssize_t health_index_stats_show(struct device *dev,
-				 struct device_attribute *attr, char *buf)
+				       struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8554,7 +8512,7 @@ static ssize_t health_index_stats_show(struct device *dev,
 	return len;
 }
 
-static const DEVICE_ATTR_RO(health_index_stats);
+static DEVICE_ATTR_RO(health_index_stats);
 
 static ssize_t health_algo_store(struct device *dev,
 				 struct device_attribute *attr,
@@ -8582,8 +8540,7 @@ static ssize_t health_algo_store(struct device *dev,
 	return count;
 }
 
-static ssize_t health_algo_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
+static ssize_t health_algo_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8591,7 +8548,7 @@ static ssize_t health_algo_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->health_data.bhi_algo);
 }
 
-static const DEVICE_ATTR_RW(health_algo);
+static DEVICE_ATTR_RW(health_algo);
 
 static ssize_t health_indi_cap_store(struct device *dev,
 				 struct device_attribute *attr,
@@ -8613,8 +8570,7 @@ static ssize_t health_indi_cap_store(struct device *dev,
 	return count;
 }
 
-static ssize_t health_indi_cap_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
+static ssize_t health_indi_cap_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8622,7 +8578,7 @@ static ssize_t health_indi_cap_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->health_data.bhi_indi_cap);
 }
 
-static const DEVICE_ATTR_RW(health_indi_cap);
+static DEVICE_ATTR_RW(health_indi_cap);
 
 static ssize_t manufacturing_date_show(struct device *dev,
 				       struct device_attribute *attr, char *buf)
@@ -8648,7 +8604,7 @@ static ssize_t manufacturing_date_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%lld\n", rtc_tm_to_time64(&tm));
 }
 
-static const DEVICE_ATTR_RO(manufacturing_date);
+static DEVICE_ATTR_RO(manufacturing_date);
 
 #define FIRST_USAGE_DATE_DEFAULT	1606780800 //2020-12-01
 #define FIRST_USAGE_DATE_MAX		2147483647 //2038-01-19
@@ -8754,7 +8710,7 @@ static ssize_t first_usage_date_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%lld\n", rtc_tm_to_time64(&tm));
 }
 
-static const DEVICE_ATTR_RW(first_usage_date);
+static DEVICE_ATTR_RW(first_usage_date);
 
 static int batt_get_charging_state(const struct batt_drv *batt_drv)
 {
@@ -8793,8 +8749,7 @@ static int batt_get_charging_state(const struct batt_drv *batt_drv)
 	return ret;
 }
 
-static ssize_t charging_state_show(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t charging_state_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8803,7 +8758,7 @@ static ssize_t charging_state_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", charging_state);
 }
 
-static const DEVICE_ATTR_RO(charging_state);
+static DEVICE_ATTR_RO(charging_state);
 
 static void batt_update_charging_policy(struct batt_drv *batt_drv)
 {
@@ -8878,8 +8833,7 @@ static ssize_t charging_policy_store(struct device *dev,
 	return count;
 }
 
-static ssize_t charging_policy_show(struct device *dev,
-				    struct device_attribute *attr, char *buf)
+static ssize_t charging_policy_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -8894,7 +8848,7 @@ static ssize_t charging_policy_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", value);
 }
 
-static const DEVICE_ATTR_RW(charging_policy);
+static DEVICE_ATTR_RW(charging_policy);
 
 static ssize_t health_set_cal_mode_store(struct device *dev,
 					 struct device_attribute *attr,
@@ -8946,7 +8900,7 @@ static ssize_t health_get_cal_state_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->health_data.cal_state);
 }
 
-static const DEVICE_ATTR_RO(health_get_cal_state);
+static DEVICE_ATTR_RO(health_get_cal_state);
 
 static ssize_t health_set_low_boundary_store(struct device *dev,
 					     struct device_attribute *attr,
@@ -9065,8 +9019,7 @@ static ssize_t health_set_low_boundary_show(struct device *dev, struct device_at
 	return pos;
 }
 
-static const DEVICE_ATTR_RW(health_set_low_boundary);
-
+static DEVICE_ATTR_RW(health_set_low_boundary);
 
 static int debug_bhi_cycle_grace_write(void *data, u64 val)
 {
@@ -9084,8 +9037,8 @@ DEFINE_SIMPLE_ATTRIBUTE(debug_bhi_cycle_grace_fops, NULL, debug_bhi_cycle_grace_
 /* CSI --------------------------------------------------------------------- */
 
 static ssize_t charging_speed_store(struct device *dev,
-				 struct device_attribute *attr,
-				 const char *buf, size_t count)
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -9101,8 +9054,7 @@ static ssize_t charging_speed_store(struct device *dev,
 	return count;
 }
 
-static ssize_t charging_speed_show(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static ssize_t charging_speed_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -9110,8 +9062,7 @@ static ssize_t charging_speed_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->csi_current_speed);
 }
 
-static const DEVICE_ATTR_RW(charging_speed);
-
+static DEVICE_ATTR_RW(charging_speed);
 
 static ssize_t csi_stats_store(struct device *dev, struct device_attribute *attr,
 			       const char *buf, size_t count)
@@ -9128,8 +9079,7 @@ static ssize_t csi_stats_store(struct device *dev, struct device_attribute *attr
 	return count;
 }
 
-static ssize_t csi_stats_show(struct device *dev,
-			      struct device_attribute *attr, char *buf)
+static ssize_t csi_stats_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
@@ -9153,7 +9103,7 @@ static ssize_t csi_stats_show(struct device *dev,
 			 (int)(stats->thermal_severity[4] * 100 / stats->time_sum));
 }
 
-static const DEVICE_ATTR_RW(csi_stats);
+static DEVICE_ATTR_RW(csi_stats);
 
 static ssize_t power_metrics_polling_rate_store(struct device *dev,
 						struct device_attribute *attr,
@@ -9182,7 +9132,7 @@ static ssize_t power_metrics_polling_rate_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->power_metrics.polling_rate);
 }
 
-static const DEVICE_ATTR_RW(power_metrics_polling_rate);
+static DEVICE_ATTR_RW(power_metrics_polling_rate);
 
 static ssize_t power_metrics_interval_store(struct device *dev,
 					    struct device_attribute *attr,
@@ -9212,7 +9162,7 @@ static ssize_t power_metrics_interval_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->power_metrics.interval);
 }
 
-static const DEVICE_ATTR_RW(power_metrics_interval);
+static DEVICE_ATTR_RW(power_metrics_interval);
 
 static long power_metrics_delta_cc(struct batt_drv *batt_drv, int idx1, int idx2)
 {
@@ -9292,7 +9242,7 @@ static ssize_t power_metrics_power_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%ld\n", power_avg / 1000000);
 }
 
-static const DEVICE_ATTR_RO(power_metrics_power);
+static DEVICE_ATTR_RO(power_metrics_power);
 
 static ssize_t power_metrics_current_show(struct device *dev,
 					  struct device_attribute *attr, char *buf)
@@ -9349,7 +9299,7 @@ static ssize_t power_metrics_current_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%ld\n", current_avg);
 }
 
-static const DEVICE_ATTR_RO(power_metrics_current);
+static DEVICE_ATTR_RO(power_metrics_current);
 
 static ssize_t dev_sn_store(struct device *dev,
 			    struct device_attribute *attr,
@@ -9374,7 +9324,7 @@ static ssize_t dev_sn_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%s\n", batt_drv->dev_sn);
 }
 
-static const DEVICE_ATTR_RW(dev_sn);
+static DEVICE_ATTR_RW(dev_sn);
 
 static ssize_t temp_filter_enable_store(struct device *dev,
 			    struct device_attribute *attr,
@@ -9410,266 +9360,94 @@ static ssize_t temp_filter_enable_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->temp_filter.enable);
 }
 
-static const DEVICE_ATTR_RW(temp_filter_enable);
+static DEVICE_ATTR_RW(temp_filter_enable);
 /* ------------------------------------------------------------------------- */
+
+static struct attribute *batt_attrs[] = {
+	&dev_attr_charge_stats.attr,
+	&dev_attr_charge_stats_actual.attr,
+	&dev_attr_charge_details.attr,
+	&dev_attr_ssoc_details.attr,
+	&dev_attr_charge_deadline.attr,
+	&dev_attr_charge_stage.attr,
+	&dev_attr_charge_limit.attr,
+	&dev_attr_time_to_ac.attr,
+	&dev_attr_ac_soc.attr,
+	&dev_attr_charge_deadline_dryrun.attr,
+	&dev_attr_charge_to_limit.attr,
+	&dev_attr_ttf_stats.attr,
+	&dev_attr_ttf_details.attr,
+	&dev_attr_bd_trickle_enable.attr,
+	&dev_attr_bd_trickle_cnt.attr,
+	&dev_attr_bd_trickle_recharge_soc.attr,
+	&dev_attr_bd_trickle_dry_run.attr,
+	&dev_attr_bd_trickle_reset_sec.attr,
+	&dev_attr_bd_clear.attr,
+	&dev_attr_pairing_state.attr,
+	&dev_attr_cycle_counts.attr,
+	&dev_attr_charge_full_estimate.attr,
+	&dev_attr_resistance_avg.attr,
+	&dev_attr_resistance.attr,
+	&dev_attr_charger_state.attr,
+	&dev_attr_charge_type.attr,
+	&dev_attr_constant_charge_current.attr,
+	&dev_attr_constant_charge_voltage.attr,
+	&dev_attr_health_safety_margin.attr,
+	&dev_attr_aacr_state.attr,
+	&dev_attr_aacr_cycle_grace.attr,
+	&dev_attr_aacr_cycle_max.attr,
+	&dev_attr_aacr_algo.attr,
+	&dev_attr_aacr_min_capacity_rate.attr,
+	&dev_attr_aacr_cliff_capacity_rate.attr,
+	&dev_attr_aacr_profile.attr,
+	&dev_attr_aafv_state.attr,
+	&dev_attr_aafv_apply_max.attr,
+	&dev_attr_aafv_max_offset.attr,
+	&dev_attr_aafv_cliff_cycle.attr,
+	&dev_attr_aafv_cliff_offset.attr,
+	&dev_attr_aafv_profile.attr,
+	&dev_attr_aafv_offset.attr,
+	&dev_attr_aact_state.attr,
+	&dev_attr_aacp_version.attr,
+	&dev_attr_aacc.attr,
+	&dev_attr_swelling_data.attr,
+	&dev_attr_health_index.attr,
+	&dev_attr_health_status.attr,
+	&dev_attr_health_capacity_index.attr,
+	&dev_attr_health_index_stats.attr,
+	&dev_attr_health_impedance_index.attr,
+	&dev_attr_health_algo.attr,
+	&dev_attr_health_indi_cap.attr,
+	&dev_attr_manufacturing_date.attr,
+	&dev_attr_first_usage_date.attr,
+	&dev_attr_charging_state.attr,
+	&dev_attr_charging_policy.attr,
+	&dev_attr_health_set_cal_mode.attr,
+	&dev_attr_health_get_cal_state.attr,
+	&dev_attr_health_set_low_boundary.attr,
+	&dev_attr_charging_speed.attr,
+	&dev_attr_csi_stats.attr,
+	&dev_attr_power_metrics_polling_rate.attr,
+	&dev_attr_power_metrics_interval.attr,
+	&dev_attr_power_metrics_power.attr,
+	&dev_attr_power_metrics_current.attr,
+	&dev_attr_dev_sn.attr,
+	&dev_attr_temp_filter_enable.attr,
+	&dev_attr_chg_profile_switch.attr,
+	NULL,
+};
+
+static const struct attribute_group batt_attr_grp = {
+	.attrs = batt_attrs,
+};
 
 static int batt_init_fs(struct batt_drv *batt_drv)
 {
 	int ret;
 
-	/* stats */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_stats);
+	ret = sysfs_create_group(&batt_drv->psy->dev.kobj, &batt_attr_grp);
 	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_stats\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_stats_actual);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_stats_actual\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_details);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_details\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_ssoc_details);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create ssoc_details\n");
-
-	/* adaptive charging */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_deadline);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create chg_deadline\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_stage);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_stage\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_limit);
-	if (ret != 0)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_limit\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_time_to_ac);
-	if (ret != 0)
-		dev_err(&batt_drv->psy->dev, "Failed to create time_to_ac\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_ac_soc);
-	if (ret != 0)
-		dev_err(&batt_drv->psy->dev, "Failed to create ac_soc\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_deadline_dryrun);
-	if (ret != 0)
-		dev_err(&batt_drv->psy->dev, "Failed to create chg_deadline_dryrun\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_to_limit);
-	if (ret != 0)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_to_limit\n");
-
-	/* time to full */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_ttf_stats);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create ttf_stats\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_ttf_details);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create ttf_details\n");
-
-	/* TRICKLE-DEFEND */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_bd_trickle_enable);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create bd_trickle_enable\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_bd_trickle_cnt);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create bd_trickle_cnt\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_bd_trickle_recharge_soc);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create bd_trickle_recharge_soc\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_bd_trickle_dry_run);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create bd_trickle_dry_run\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_bd_trickle_reset_sec);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create bd_trickle_reset_sec\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_bd_clear);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create bd_clear\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_pairing_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create pairing_state\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_cycle_counts);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create cycle_counts\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_full_estimate);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create chage_full_estimate\n");
-
-	/* google_resistance and resistance */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_resistance_avg);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create resistance_avg\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_resistance);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create resistance\n");
-
-	/* monitoring */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charger_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charger state\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charge_type);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charge_type\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_constant_charge_current);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create constant charge current\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_constant_charge_voltage);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create constant charge voltage\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_safety_margin);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health safety margin\n");
-	/* aacr */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr state\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_cycle_grace);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr cycle grace\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_cycle_max);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr cycle max\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_algo);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr algo\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_min_capacity_rate);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr min capacity rate\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_cliff_capacity_rate);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr cliff capacity rate\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacr_profile);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacr profile\n");
-	/* aafv */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv state\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_apply_max);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv apply max\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_max_offset);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv max offset\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_cliff_cycle);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv cliff cycle\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_cliff_offset);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv cliff offset\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_profile);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv profile\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aafv_offset);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aafv offset\n");
-	/* aact */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aact_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aact state\n");
-	/* aacp */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacp_version);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacp version\n");
-	/* aacc */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_aacc);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create aacc\n");
-
-	/* health and health index */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_swelling_data);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create swelling_data\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_index);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health index\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_status);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health status\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_capacity_index);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health capacity index\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_index_stats);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health index stats\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_impedance_index);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health perf index\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_algo);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health algo\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_indi_cap);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health individual capacity\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_manufacturing_date);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create manufacturing date\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_first_usage_date);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create first usage date\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charging_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charging state\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charging_policy);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charging policy\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_set_cal_mode);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health_set_cal_mode\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_get_cal_state);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health_get_cal_state\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_health_set_low_boundary);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create health_set_low_boundary\n");
-
-	/* csi */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_charging_speed);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create charging speed\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_csi_stats);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create csi_stats\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_power_metrics_polling_rate);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create power_metrics_polling_rate\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_power_metrics_interval);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create power_metrics_interval\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_power_metrics_power);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create power_metrics_power\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_power_metrics_current);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create power_metrics_current\n");
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_dev_sn);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create dev sn\n");
-
-	/* temperature filter */
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_temp_filter_enable);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create temp_filter_enable\n");
-
-	ret = device_create_file(&batt_drv->psy->dev, &dev_attr_chg_profile_switch);
-	if (ret)
-		dev_err(&batt_drv->psy->dev, "Failed to create chg_profile_switch\n");
+		dev_err(&batt_drv->psy->dev, "Failed to create sysfs group\n");
 
 	return 0;
 
