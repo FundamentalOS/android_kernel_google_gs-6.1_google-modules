@@ -405,6 +405,7 @@ static const struct of_device_id gs_governor_memlat_root_match[] = {
 	},
 	{}
 };
+MODULE_DEVICE_TABLE(of, gs_governor_memlat_root_match);
 
 static struct platform_driver gs_governor_memlat_platform_driver = {
 	.probe = gs_governor_memlat_driver_probe,

@@ -525,6 +525,7 @@ static const struct of_device_id gs_governor_dsulat_root_match[] = {
 	},
 	{}
 };
+MODULE_DEVICE_TABLE(of, gs_governor_dsulat_root_match);
 
 static struct platform_driver gs_governor_dsulat_platform_driver = {
 	.probe = gs_governor_dsulat_driver_probe,
