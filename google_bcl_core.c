@@ -2380,6 +2380,7 @@ static const struct of_device_id match_table[] = {
 	{ .compatible = "google,google-bcl"},
 	{},
 };
+MODULE_DEVICE_TABLE(of, match_table);
 
 static struct platform_driver google_bcl_driver = {
 	.probe  = google_bcl_probe,
