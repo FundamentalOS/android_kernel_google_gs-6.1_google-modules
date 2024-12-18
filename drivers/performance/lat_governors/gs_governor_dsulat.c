@@ -519,9 +519,12 @@ static int gs_governor_dsulat_driver_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id gs_governor_dsulat_root_match[] = { {
-	.compatible = "google,gs_governor_dsulat",
-} };
+static const struct of_device_id gs_governor_dsulat_root_match[] = {
+	{
+		.compatible = "google,gs_governor_dsulat",
+	},
+	{}
+};
 
 static struct platform_driver gs_governor_dsulat_platform_driver = {
 	.probe = gs_governor_dsulat_driver_probe,
