@@ -1048,7 +1048,8 @@ static int dp_link_up(struct dp_device *dp)
 	}
 
 	/* Get DFP count */
-	if (dpcd[DP_DOWNSTREAMPORT_PRESENT] & DP_DWN_STRM_PORT_PRESENT) {
+	if (drm_dp_is_branch(dpcd)) {
+		dp->branch_dev = true;
 		dp->dfp_count = dpcd[DP_DOWN_STREAM_PORT_COUNT] & DP_PORT_COUNT_MASK;
 		ret = drm_dp_dpcd_read(&dp->dp_aux, DP_DOWNSTREAM_PORT_0, dfp_info,
 				       DP_MAX_DOWNSTREAM_PORTS);
@@ -1070,6 +1071,7 @@ static int dp_link_up(struct dp_device *dp)
 			return -EINVAL;
 		}
 	} else {
+		dp->branch_dev = false;
 		dp->dfp_count = 0;
 		dp_info(dp, "DP Sink: sink count = %d\n", dp->sink_count);
 
@@ -2142,7 +2144,7 @@ static void dp_work_hpd_irq(struct work_struct *work)
 			dp_err(dp, "[HPD IRQ] cannot read link status\n");
 	}
 
-	if (dp->dfp_count > 0) {
+	if (dp->branch_dev) {
 		/* Sanity-check the sink count */
 		if (sink_count > dp->dfp_count + 1) {
 			dp_err(dp, "[HPD IRQ] invalid sink count, adjusting to 0\n");
