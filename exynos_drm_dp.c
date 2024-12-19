@@ -1814,15 +1814,16 @@ static void dp_automated_test_set_lane_req(struct dp_device *dp, u8 *val)
 
 static int dp_automated_test_irq_handler(struct dp_device *dp)
 {
-	u8 dpcd_test_req = 0, dpcd_test_res = 0;
-	u8 dpcd_req_lane[2] = { 0 }, dpcd_phy_test_pattern = 0;
+	u8 dpcd_test_req = 0;
+	u8 dpcd_test_res = DP_TEST_ACK;
+	u8 dpcd_req_lane[2] = { 0, 0 };
+	u8 dpcd_phy_test_pattern = 0;
 
 	drm_dp_dpcd_readb(&dp->dp_aux, DP_TEST_REQUEST, &dpcd_test_req);
 
-	dpcd_test_res = DP_TEST_ACK;
-	drm_dp_dpcd_writeb(&dp->dp_aux, DP_TEST_RESPONSE, dpcd_test_res);
-
 	if (dpcd_test_req & DP_TEST_LINK_PHY_TEST_PATTERN) {
+		dp_info(dp, "Automated Test: PHY Test Pattern\n");
+
 		dp_hw_stop();
 		msleep(120);
 
@@ -1852,14 +1853,50 @@ static int dp_automated_test_irq_handler(struct dp_device *dp)
 			dp_hw_set_quality_pattern(HBR2_COMPLIANCE, ENABLE_SCRAM);
 			break;
 		default:
-			dp_err(dp, "Not Supported PHY_TEST_PATTERN: %02x\n", dpcd_phy_test_pattern);
+			dp_err(dp, "Unsupported PHY Test Pattern: %02x\n", dpcd_phy_test_pattern);
+			dpcd_test_res = DP_TEST_NAK;
 			break;
 		}
+
+	} else if (dpcd_test_req & DP_TEST_LINK_EDID_READ) {
+		u8 data[EDID_LENGTH];
+		u8 ext_count;
+		u8 checksum;
+		u8 i;
+
+		dp_info(dp, "Automated Test: EDID Read\n");
+
+		/* read EDID block 0 */
+		dp_hw_read_edid(0, EDID_LENGTH, data);
+		dp_info(dp, "EDID: block 0\n");
+		print_hex_dump(KERN_INFO, "exynos-drmdp: ", DUMP_PREFIX_NONE, 16, 1,
+				data, EDID_LENGTH, true);
+
+		/* read all extension blocks */
+		ext_count = data[EDID_LENGTH - 2];
+		for (i = 1; i <= ext_count; i++) {
+			dp_hw_read_edid(i, EDID_LENGTH, data);
+			dp_info(dp, "EDID: block %u\n", i);
+			print_hex_dump(KERN_INFO, "exynos-drmdp: ", DUMP_PREFIX_NONE, 16, 1,
+					data, EDID_LENGTH, true);
+		}
+
+		/* re-calculate checksum from the last EDID block */
+		checksum = 0;
+		for (i = 0; i < EDID_LENGTH - 1; i++)
+			checksum += data[i];
+		checksum = -checksum;
+		dp_info(dp, "EDID: last block checksum = %02x\n", checksum);
+
+		drm_dp_dpcd_writeb(&dp->dp_aux, DP_TEST_EDID_CHECKSUM, checksum);
+		dpcd_test_res |= DP_TEST_EDID_CHECKSUM_WRITE;
+
 	} else {
-		dp_err(dp, "Not Supported AUTOMATED_TEST_REQUEST: %02x\n", dpcd_test_req);
-		return -EINVAL;
+		dp_err(dp, "Automated Test: Unsupported Request: %02x\n", dpcd_test_req);
+		dpcd_test_res = DP_TEST_NAK;
 	}
 
+	drm_dp_dpcd_writeb(&dp->dp_aux, DP_TEST_RESPONSE, dpcd_test_res);
 	return 0;
 }
 
