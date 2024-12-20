@@ -722,7 +722,7 @@ void gxp_debug_dump_invalidate_core_segments(struct gxp_dev *gxp, uint32_t core_
 void gxp_debug_dump_send_forced_debug_dump_request(struct gxp_dev *gxp,
 						   struct gxp_virtual_device *vd)
 {
-	uint phys_core;
+	uint core, phys_core;
 	uint generate_debug_dump;
 	uint debug_dump_generated;
 
@@ -730,8 +730,9 @@ void gxp_debug_dump_send_forced_debug_dump_request(struct gxp_dev *gxp,
 		if (!(vd->core_list & BIT(phys_core)))
 			continue;
 
-		generate_debug_dump = gxp_firmware_get_generate_debug_dump(gxp, vd, phys_core);
-		debug_dump_generated = gxp_firmware_get_debug_dump_generated(gxp, vd, phys_core);
+		core = hweight_long(vd->core_list & (BIT(phys_core) - 1));
+		generate_debug_dump = gxp_firmware_get_generate_debug_dump(gxp, vd, core);
+		debug_dump_generated = gxp_firmware_get_debug_dump_generated(gxp, vd, core);
 		/*
 		 * If neither the core has generated the debug dump nor has been requested to
 		 * generate the forced debug dump.
@@ -742,7 +743,7 @@ void gxp_debug_dump_send_forced_debug_dump_request(struct gxp_dev *gxp,
 				continue;
 			}
 			/* Send the interrupt to the core for requesting the forced debug dump. */
-			gxp_firmware_set_generate_debug_dump(gxp, vd, phys_core, 1);
+			gxp_firmware_set_generate_debug_dump(gxp, vd, core, 1);
 			gxp_notification_send(gxp, phys_core, CORE_NOTIF_GENERATE_DEBUG_DUMP);
 		}
 	}
