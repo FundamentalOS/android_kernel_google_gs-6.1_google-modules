@@ -1025,7 +1025,7 @@ void gxp_vd_check_and_wait_for_debug_dump(struct gxp_virtual_device *vd)
 {
 	struct gxp_dev *gxp = vd->gxp;
 	bool vd_crashed = 0;
-	uint phys_core;
+	uint core, phys_core;
 	uint remaining_time;
 
 	if (!gxp_is_direct_mode(gxp))
@@ -1039,24 +1039,26 @@ void gxp_vd_check_and_wait_for_debug_dump(struct gxp_virtual_device *vd)
 		if (!(vd->core_list & BIT(phys_core)))
 			continue;
 
-		vd_crashed |= gxp_firmware_get_generate_debug_dump(gxp, vd, phys_core) |
-			      gxp_firmware_get_debug_dump_generated(gxp, vd, phys_core);
+		core = hweight_long(vd->core_list & (BIT(phys_core) - 1));
+		vd_crashed |= gxp_firmware_get_generate_debug_dump(gxp, vd, core) |
+			      gxp_firmware_get_debug_dump_generated(gxp, vd, core);
 	}
 
 	if (vd_crashed) {
 		/*
-		 * Successive prccessing of debug dumps demand a delay a second. This
-		 * delay is due to the current implementation of the SSCD module which
-		 * generates the dump files whose names are at precision of a second i.e.
-		 * coredump_<SUBSYSTEM_NAME>_<%Y-%m-%d_%H-%M-%S>.bin Thus max wait time is
-		 * kept to be GXP_NUM_CORES seconds.
+		 * Successive prccessing of debug dumps demands a delay for a second. This delay
+		 * is due to the current implementation of the SSCD module which generates
+		 * the dump files whose names are at precision of a second i.e.
+		 * coredump_<SUBSYSTEM_NAME>_<%Y-%m-%d_%H-%M-%S>.bin. Thus max wait time is
+		 * kept to be number of seconds equivalent to number of cores for the given VD.
 		 */
 		remaining_time = wait_event_timeout(
 			vd->finished_dump_processing_waitq,
 			atomic_read(&vd->core_dump_generated_list) == vd->core_list,
-			msecs_to_jiffies(GXP_NUM_CORES * SSCD_REPORT_WAIT_TIME));
+			msecs_to_jiffies(hweight_long(vd->core_list) * SSCD_REPORT_WAIT_TIME));
 		if (!remaining_time)
-			dev_warn(gxp->dev, "Debug dump processing timedout.\n");
+			dev_warn(gxp->dev, "Debug dump processing timedout for vdid %d.\n",
+				 vd->vdid);
 	}
 }
 
