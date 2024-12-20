@@ -2104,9 +2104,10 @@ static void dp_work_hpd_irq(struct work_struct *work)
 		sink_count = drm_dp_read_sink_count(&dp->dp_aux);
 		dp_info(dp, "[HPD IRQ] sink count = %u\n", sink_count);
 
-		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR, &irq) == 1)
+		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR, &irq) == 1) {
 			dp_info(dp, "[HPD IRQ] device irq vector = %02x\n", irq);
-		else
+			drm_dp_dpcd_writeb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR, irq);
+		} else
 			dp_err(dp, "[HPD IRQ] cannot read DP_DEVICE_SERVICE_IRQ_VECTOR\n");
 
 		if (drm_dp_dpcd_read_link_status(&dp->dp_aux, link_status) == DP_LINK_STATUS_SIZE)
@@ -2121,19 +2122,22 @@ static void dp_work_hpd_irq(struct work_struct *work)
 		} else
 			dp_err(dp, "[HPD IRQ] cannot read DP_SINK_COUNT_ESI\n");
 
-		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI0, &irq) == 1)
+		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI0, &irq) == 1) {
 			dp_info(dp, "[HPD IRQ] device irq vector esi0 = %02x\n", irq);
-		else
+			drm_dp_dpcd_writeb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI0, irq);
+		} else
 			dp_err(dp, "[HPD IRQ] cannot read DP_DEVICE_SERVICE_IRQ_VECTOR_ESI0\n");
 
-		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI1, &irq2) == 1)
+		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI1, &irq2) == 1) {
 			dp_info(dp, "[HPD IRQ] device irq vector esi1 = %02x\n", irq2);
-		else
+			drm_dp_dpcd_writeb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI1, irq2);
+		} else
 			dp_err(dp, "[HPD IRQ] cannot read DP_DEVICE_SERVICE_IRQ_VECTOR_ESI1\n");
 
-		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_LINK_SERVICE_IRQ_VECTOR_ESI0, &irq3) == 1)
+		if (drm_dp_dpcd_readb(&dp->dp_aux, DP_LINK_SERVICE_IRQ_VECTOR_ESI0, &irq3) == 1) {
 			dp_info(dp, "[HPD IRQ] link irq vector esi0 = %02x\n", irq3);
-		else
+			drm_dp_dpcd_writeb(&dp->dp_aux, DP_LINK_SERVICE_IRQ_VECTOR_ESI0, irq3);
+		} else
 			dp_err(dp, "[HPD IRQ] cannot read DP_LINK_SERVICE_IRQ_VECTOR_ESI0\n");
 
 		if (drm_dp_dpcd_read(&dp->dp_aux, DP_LANE0_1_STATUS_ESI, link_status,
@@ -2174,13 +2178,16 @@ process_irq:
 	if (irq & DP_CP_IRQ) {
 		dp_info(dp, "[HPD IRQ] Content Protection\n");
 		hdcp_dplink_handle_irq();
-	} else if (irq & DP_AUTOMATED_TEST_REQUEST) {
+		irq &= ~DP_CP_IRQ;
+	}
+
+	if (irq & DP_AUTOMATED_TEST_REQUEST) {
 		dp_info(dp, "[HPD IRQ] Automated Test Request\n");
 		dp_automated_test_irq_handler(dp);
-	} else if (irq & DP_SINK_SPECIFIC_IRQ) {
-		dp_info(dp, "[HPD IRQ] Sink Specific\n");
-		dp_link_down_event_handler(dp);
-	} else
+		irq &= ~DP_AUTOMATED_TEST_REQUEST;
+	}
+
+	if (irq)
 		dp_info(dp, "[HPD IRQ] unknown IRQ (0x%X)\n", irq);
 
 release_irq_resource:
