@@ -1973,6 +1973,7 @@ static void dp_work_hpd(enum hotplug_state state)
 	struct exynos_drm_private *private = drm_to_exynos_dev(dev);
 	enum link_training_status link_status = LINK_TRAINING_UNKNOWN;
 	int ret;
+	u8 irq = 0;
 
 	if (dp->restart_pending) {
 		dp_debug(dp, "%s: ignored, because of restart_pending", __func__);
@@ -2023,6 +2024,15 @@ static void dp_work_hpd(enum hotplug_state state)
 			dp_update_link_status(dp, LINK_TRAINING_SUCCESS);
 			dp_on_by_hpd_plug(dp);
 		}
+
+		/* check for automated test request and schedule HPD_IRQ to handle it */
+		if (dp->sink.revision <= DP_DPCD_REV_12)
+			drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR, &irq);
+		else
+			drm_dp_dpcd_readb(&dp->dp_aux, DP_DEVICE_SERVICE_IRQ_VECTOR_ESI0, &irq);
+
+		if (irq & DP_AUTOMATED_TEST_REQUEST)
+			queue_work(dp->dp_wq, &dp->hpd_irq_work);
 
 		dp_info(dp, "[HPD_PLUG done]\n");
 
