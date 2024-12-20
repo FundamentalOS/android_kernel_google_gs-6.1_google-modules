@@ -737,7 +737,9 @@ static inline void init_vendor_task_struct(struct vendor_task_struct *v_tsk)
 	v_tsk->auto_uclamp_max = false;
 	v_tsk->prefer_high_cap = false;
 	v_tsk->rampup_multiplier = 1;
+	v_tsk->sched_qos_profile = SCHED_QOS_NONE;
 	v_tsk->sched_qos_user_defined_flag = 0;
+	v_tsk->prev_sched_qos_user_defined_flag = 0;
 	init_vendor_inheritance_struct(&v_tsk->vi);
 	v_tsk->adpf_adj = 0;
 	v_tsk->real_cap_avg = 0;
