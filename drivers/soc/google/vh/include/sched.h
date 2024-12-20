@@ -104,16 +104,8 @@ struct vendor_task_struct {
 	bool ignore_util_est_update;
 
 	/* sched qos attributes */
-	bool boost_prio;
-	bool prefer_fit;
-	bool prefer_idle;
-	bool adpf;
-	bool preempt_wakeup;
-	bool auto_uclamp_max;
-	bool prefer_high_cap;
 	unsigned int rampup_multiplier;
 	enum vendor_sched_qos sched_qos_profile;
-
 	unsigned long sched_qos_user_defined_flag;
 	unsigned long prev_sched_qos_user_defined_flag;
 

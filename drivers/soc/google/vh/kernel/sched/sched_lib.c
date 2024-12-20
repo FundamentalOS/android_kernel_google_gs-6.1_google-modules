@@ -203,7 +203,8 @@ int set_prefer_idle_task_name(void)
 			rcu_read_lock();
 			for_each_process_thread(p, t) {
 				if (strstr(t->comm, tok) != NULL) {
-					get_vendor_task_struct(t)->prefer_idle = true;
+					get_vendor_task_struct(t)->sched_qos_user_defined_flag |=
+						SCHED_QOS_PREFER_IDLE_BIT;
 					ret = 0;
 					break;
 				}
