@@ -5461,6 +5461,7 @@ static void aact_reset(struct gbms_chg_profile *profile)
 {
 	profile->aact_nb_limits = 0;
 	profile->aact_idx = 0;
+	profile->aact_cccm_limits = 0;
 }
 
 /* call holding mutex_lock(&batt_drv->aact_state_lock); */
@@ -5483,7 +5484,7 @@ static int aact_update_chg_table(struct batt_drv *batt_drv)
 
 	if (!profile->aact_init_profile && batt_drv->aact_state == BATT_AACT_ENABLED) {
 		/* init AACT charge table */
-		ret = gbms_init_aact_profile(profile, node);
+		ret = gbms_init_aact_profile(profile, node, true);
 		if (ret < 0)
 			return ret;
 
@@ -6404,7 +6405,7 @@ static ssize_t debug_get_chg_raw_profile(struct file *filp,
 			goto exit_done;
 
 		if (batt_drv->aact_state == BATT_AACT_ENABLED) {
-			len = gbms_init_aact_profile(&profile, batt_drv->device->of_node);
+			len = gbms_init_aact_profile(&profile, batt_drv->device->of_node, true);
 			if (len < 0)
 				goto exit_done;
 
@@ -8252,7 +8253,8 @@ static ssize_t aafv_profile_store(struct device *dev,
 
 	is_valid = gbms_aafv_offset_is_valid(profile, of[nb_limits - 1], (u32)nb_limits);
 
-	if (batt_id == batt_drv->batt_id && is_valid) {
+	/* support id 0 as a common profile for all batteries */
+	if ((batt_id == 0 || batt_id == batt_drv->batt_id) && is_valid) {
 		mutex_lock(&batt_drv->aafv_state_lock);
 		memcpy(&profile->aafv_cycles, cc, sizeof(cc));
 		memcpy(&profile->aafv_offsets, of, sizeof(of));
@@ -8366,6 +8368,299 @@ static ssize_t aact_state_show(struct device *dev,
 }
 
 static DEVICE_ATTR_RW(aact_state);
+
+static int aact_load_profile(struct batt_drv *batt_drv)
+{
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	struct device_node *node = batt_drv->device->of_node;
+	int ret;
+
+	if (!profile->aact_cccm_limits && batt_drv->aact_state == BATT_AACT_DISABLED) {
+		ret = gbms_init_aact_profile(profile, node, false);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+static ssize_t aact_cv_limits_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	u32 tmp[GBMS_CHG_VOLT_NB_LIMITS_MAX] = { 0 };
+	int cnt = 0, ret;
+
+	/* can only be updated when AACT is disabled */
+	if (batt_drv->aact_state != BATT_AACT_DISABLED)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	cnt = sscanf(buf, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+		     &tmp[0], &tmp[1], &tmp[2], &tmp[3], &tmp[4], &tmp[5],
+		     &tmp[6], &tmp[7], &tmp[8], &tmp[9]);
+	memcpy(profile->aact_volt_limits, tmp, sizeof(tmp));
+	profile->aact_volt_nb_limits = (u32)cnt;
+
+	gbms_logbuffer_prlog(batt_drv->bd_log, LOGLEVEL_INFO, 0, LOGLEVEL_INFO,
+			     "AACT: update aact_cv_limits, cnt=%d", cnt);
+
+	return count;
+}
+
+static ssize_t aact_cv_limits_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	ssize_t count = 0;
+	int ret, i;
+
+	if (batt_drv->aact_state < 0)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < profile->aact_volt_nb_limits ; i++) {
+		const int cccm_limit = profile->aact_volt_limits[i];
+
+		if (i == profile->aact_volt_nb_limits - 1)
+			count += sysfs_emit_at(buf, count, "%u\n", cccm_limit);
+		else
+			count += sysfs_emit_at(buf, count, "%u, ", cccm_limit);
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(aact_cv_limits);
+
+static ssize_t aact_temp_limits_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	u32 tmp[GBMS_CHG_TEMP_NB_LIMITS_MAX] = { 0 };
+	int cnt = 0, ret;
+
+	/* can only be updated when AACT is disabled */
+	if (batt_drv->aact_state != BATT_AACT_DISABLED)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	cnt = sscanf(buf, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+		     &tmp[0], &tmp[1], &tmp[2], &tmp[3], &tmp[4], &tmp[5],
+		     &tmp[6], &tmp[7], &tmp[8], &tmp[9]);
+	memcpy(profile->aact_temp_limits, tmp, sizeof(tmp));
+	profile->aact_temp_nb_limits = (u32)cnt;
+
+	gbms_logbuffer_prlog(batt_drv->bd_log, LOGLEVEL_INFO, 0, LOGLEVEL_INFO,
+			     "AACT: update aact_temp_limits, cnt=%d", cnt);
+
+	return count;
+}
+
+static ssize_t aact_temp_limits_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	ssize_t count = 0;
+	int ret, i;
+
+	if (batt_drv->aact_state < 0)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < profile->aact_temp_nb_limits ; i++) {
+		const int cccm_limit = profile->aact_temp_limits[i];
+
+		if (i == profile->aact_temp_nb_limits - 1)
+			count += sysfs_emit_at(buf, count, "%u\n", cccm_limit);
+		else
+			count += sysfs_emit_at(buf, count, "%u, ", cccm_limit);
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(aact_temp_limits);
+
+static ssize_t aact_chg_ecc_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	u32 tmp[GBMS_AACT_NB_LIMITS_MAX] = { 0 };
+	int cnt = 0, ret;
+
+	/* can only be updated when AACT is disabled */
+	if (batt_drv->aact_state != BATT_AACT_DISABLED)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	cnt = sscanf(buf, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u",
+		     &tmp[0], &tmp[1], &tmp[2], &tmp[3], &tmp[4], &tmp[5],
+		     &tmp[6], &tmp[7], &tmp[8], &tmp[9]);
+	memcpy(profile->aact_limits, tmp, sizeof(tmp));
+	profile->aact_nb_limits = (u32)cnt;
+
+	gbms_logbuffer_prlog(batt_drv->bd_log, LOGLEVEL_INFO, 0, LOGLEVEL_INFO,
+			     "AACT: update aact_chg_ecc, cnt=%d", cnt);
+
+	return count;
+}
+
+static ssize_t aact_chg_ecc_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	ssize_t count = 0;
+	int ret, i;
+
+	if (batt_drv->aact_state < 0)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < profile->aact_nb_limits ; i++) {
+		const int cccm_limit = profile->aact_limits[i];
+
+		if (i == profile->aact_nb_limits - 1)
+			count += sysfs_emit_at(buf, count, "%u\n", cccm_limit);
+		else
+			count += sysfs_emit_at(buf, count, "%u, ", cccm_limit);
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(aact_chg_ecc);
+
+static ssize_t aact_profile_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	u32 pf[GBMS_AACT_PROFILE_MAX] = { 0 };
+	int cnt = 0, ret;
+	u32 cccm_array_size;
+
+	/* can only be updated when AACT is disabled */
+	if (batt_drv->aact_state != BATT_AACT_DISABLED)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	cccm_array_size = (profile->aact_temp_nb_limits - 1)
+			  * profile->aact_volt_nb_limits
+			  * profile->aact_nb_limits;
+
+	cnt = sscanf(buf, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u, \
+		     %u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u, \
+		     %u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u, \
+		     %u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u, \
+		     %u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u, \
+		     %u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u, \
+		     %u,%u,%u,%u",
+		     &pf[0], &pf[1], &pf[2], &pf[3], &pf[4], &pf[5], &pf[6], &pf[7],
+		     &pf[8], &pf[9], &pf[10], &pf[11], &pf[12], &pf[13], &pf[14], &pf[15],
+		     &pf[16], &pf[17], &pf[18], &pf[19], &pf[20], &pf[21], &pf[22], &pf[23],
+		     &pf[24], &pf[25], &pf[26], &pf[27], &pf[28], &pf[29], &pf[30], &pf[31],
+		     &pf[32], &pf[33], &pf[34], &pf[35], &pf[36], &pf[37], &pf[38], &pf[39],
+		     &pf[40], &pf[41], &pf[42], &pf[43], &pf[44], &pf[45], &pf[46], &pf[47],
+		     &pf[48], &pf[49], &pf[50], &pf[51], &pf[52], &pf[53], &pf[54], &pf[55],
+		     &pf[56], &pf[57], &pf[58], &pf[59], &pf[60], &pf[61], &pf[62], &pf[63],
+		     &pf[64], &pf[65], &pf[66], &pf[67], &pf[68], &pf[69], &pf[70], &pf[71],
+		     &pf[72], &pf[73], &pf[74], &pf[75], &pf[76], &pf[77], &pf[78], &pf[79],
+		     &pf[80], &pf[81], &pf[82], &pf[83], &pf[84], &pf[85], &pf[86], &pf[87],
+		     &pf[88], &pf[89], &pf[90], &pf[91], &pf[92], &pf[93], &pf[94], &pf[95],
+		     &pf[96], &pf[97], &pf[98], &pf[99]);
+
+	if (cnt != cccm_array_size)
+		return -ERANGE;
+
+	memcpy(profile->aact_cccm_limits, pf, sizeof(pf));
+	profile->aact_update_profile = true;
+
+	gbms_logbuffer_prlog(batt_drv->bd_log, LOGLEVEL_INFO, 0, LOGLEVEL_INFO,
+			     "AACT: update aact_profile, cnt=%d", cnt);
+
+	return count;
+}
+
+static ssize_t aact_profile_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	ssize_t count = 0;
+	u32 cccm_array_size;
+	int ret, i;
+
+	if (batt_drv->aact_state < 0)
+		return count;
+
+	/* init aact profile */
+	ret = aact_load_profile(batt_drv);
+	if (ret < 0)
+		return ret;
+
+	cccm_array_size = (profile->aact_temp_nb_limits - 1)
+			  * profile->aact_volt_nb_limits
+			  * profile->aact_nb_limits;
+
+	for (i = 0; i < cccm_array_size ; i++) {
+		const int cccm_limit = profile->aact_cccm_limits[i];
+
+		if (i == cccm_array_size - 1)
+			count += sysfs_emit_at(buf, count, "%u\n", cccm_limit);
+		else
+			count += sysfs_emit_at(buf, count, "%u, ", cccm_limit);
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(aact_profile);
 
 /* AACP ------------------------------------------------------------------- */
 
@@ -9441,6 +9736,10 @@ static struct attribute *batt_attrs[] = {
 	&dev_attr_aafv_profile.attr,
 	&dev_attr_aafv_offset.attr,
 	&dev_attr_aact_state.attr,
+	&dev_attr_aact_cv_limits.attr,
+	&dev_attr_aact_temp_limits.attr,
+	&dev_attr_aact_chg_ecc.attr,
+	&dev_attr_aact_profile.attr,
 	&dev_attr_aacp_version.attr,
 	&dev_attr_aacc.attr,
 	&dev_attr_swelling_data.attr,
