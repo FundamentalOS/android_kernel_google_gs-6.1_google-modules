@@ -38,6 +38,7 @@ struct device_node;
 #define GBMS_AACR_DATA_MAX 10
 #define GBMS_AAFV_DATA_MAX 16
 #define GBMS_AACT_NB_LIMITS_MAX 10
+#define GBMS_AACT_PROFILE_MAX 100
 
 struct gbms_chg_profile {
 	const char *owner_name;
@@ -80,10 +81,16 @@ struct gbms_chg_profile {
 	u32 aafv_offset;
 
 	/* AACT feature */
+	int aact_temp_nb_limits;
+	s32 aact_temp_limits[GBMS_CHG_TEMP_NB_LIMITS_MAX];
+	int aact_volt_nb_limits;
+	s32 aact_volt_limits[GBMS_CHG_VOLT_NB_LIMITS_MAX];
 	int aact_nb_limits;
 	s32 aact_limits[GBMS_AACT_NB_LIMITS_MAX];
 	int aact_idx;
 	bool aact_init_profile;
+	bool aact_update_profile;
+	u32 *aact_cccm_limits;
 
 	bool debug_chg_profile;
 	bool enable_switch_chg_profile;
@@ -470,9 +477,9 @@ int gbms_init_chg_profile_internal(struct gbms_chg_profile *profile,
 #define gbms_init_chg_profile(p, n) \
 	gbms_init_chg_profile_internal(p, n, KBUILD_MODNAME)
 int gbms_init_aact_profile_internal(struct gbms_chg_profile *profile,
-			  struct device_node *node, const char *owner_name);
-#define gbms_init_aact_profile(p, n) \
-	gbms_init_aact_profile_internal(p, n, KBUILD_MODNAME)
+			  struct device_node *node, bool is_enabled, const char *owner_name);
+#define gbms_init_aact_profile(p, n, i) \
+	gbms_init_aact_profile_internal(p, n, i, KBUILD_MODNAME)
 int gbms_aact_get_index(const struct gbms_chg_profile *profile, const int cycles);
 
 void gbms_init_chg_table(struct gbms_chg_profile *profile,
