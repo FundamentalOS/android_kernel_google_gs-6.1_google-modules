@@ -5103,7 +5103,8 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 	 * 1. The battery ID cannot be read.
 	 * 2. The battery ID is not in supported specifications.
 	 */
-	if (!chip->batt_id_defer_cnt || !max1720x_find_batt_node(chip)) {
+	if (!chip->batt_id_defer_cnt ||
+	   (chip->gauge_type == MAX_M5_GAUGE_TYPE && !max1720x_find_batt_node(chip))) {
 		chip->batt_id = DEFAULT_BATTERY_ID;
 		dev_info(chip->dev, "default device battery ID = %d\n", chip->batt_id);
 	}
