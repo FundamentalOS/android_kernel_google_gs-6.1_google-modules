@@ -876,4 +876,39 @@ static inline int tcpm_update_sink_capabilities(struct tcpm_port *port,
 #define GBMS_TP_LOWER_TRIGGER 'F'
 #define GBMS_TP_UPPER_TRIGGER 'C'
 
+
+enum monitor_log_tags {
+	MONITOR_TAG_AB = 0x4142, /* registers snapshot by abnormal event */
+	MONITOR_TAG_FU = 0x4655, /* result of firmware update */
+	MONITOR_TAG_HV = 0x4856, /* result of EEPROM history validation */
+	MONITOR_TAG_LH = 0x4C48, /* registers snapshot by learning event */
+	MONITOR_TAG_RM = 0x524D, /* registers snapshot by regular monitor */
+};
+
+/* BMS firmware update */
+enum gbms_fwupdate_msg_type {
+	FWU_MSG_TYPE_ERROR = -1,
+	FWU_MSG_TYPE_UNKNOWN = 0,
+	FWU_MSG_TYPE_UPDATE_START = 1,
+	FWU_MSG_TYPE_UPDATE_END = 2,
+	FWU_MSG_TYPE_DOWNLOAD_START = 3,
+	FWU_MSG_TYPE_DOWNLOAD_END = 4,
+};
+
+enum gbms_fwupdate_msg_category {
+	FWU_MSG_CATEGORY_UNKNOWN = 0,
+	FWU_MSG_CATEGORY_RX = 1,
+	FWU_MSG_CATEGORY_TX = 2,
+	FWU_MSG_CATEGORY_MCU = 3,
+	FWU_MSG_CATEGORY_MAX77779 = 4,
+};
+
+enum gbms_fwupdate_max77779_err_code {
+	FWU_MAX77779_ERR_POST_STATUS_CHECK = -3,
+	FWU_MAX77779_ERR_DATA_TRANSFER = -2,
+	FWU_MAX77779_ERR_PREPARE = -1,
+	FWU_MAX77779_ERR_UNKNOWN = 0,
+	FWU_MAX77779_ERR_NONE = 1,
+};
+
 #endif  /* __GOOGLE_BMS_H_ */
