@@ -7130,6 +7130,9 @@ wl_cfgvendor_nan_stop_handler(struct wiphy *wiphy,
 	}
 exit:
 	mutex_unlock(&cfg->if_sync);
+	if (cmd_data) {
+		MFREE(cfg->osh, cmd_data, sizeof(*cmd_data));
+	}
 	NAN_DBG_EXIT();
 	return ret;
 }
