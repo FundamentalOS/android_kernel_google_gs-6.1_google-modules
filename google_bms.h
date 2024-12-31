@@ -604,27 +604,20 @@ void ttf_soc_init(struct ttf_soc_stats *dst);
 
 int ttf_tier_cstr(char *buff, int size, const struct ttf_tier_stat *t_stat);
 
-int ttf_tier_estimate(ktime_t *res,
-		      const struct batt_ttf_stats *ttf_stats,
-		      int temp_idx, int vbatt_idx,
-		      int capacity, int full_capacity);
+int ttf_tier_estimate(ktime_t *res, const struct batt_ttf_stats *ttf_stats,
+		      int temp_idx, int vbatt_idx, int capacity, int full_capacity);
 
-int ttf_stats_init(struct batt_ttf_stats *stats,
-		   struct device *device,
-		   int capacity_ma);
+int ttf_stats_init(struct batt_ttf_stats *stats, struct device_node *node, int capacity_ma);
 
 void ttf_stats_update(struct batt_ttf_stats *stats,
 	 	      struct gbms_charging_event *ce_data,
 		      bool force);
 
-int ttf_stats_cstr(char *buff, int size, const struct batt_ttf_stats *stats,
-		   bool verbose);
+int ttf_stats_cstr(char *buff, int size, const struct batt_ttf_stats *stats, bool verbose);
 
-int ttf_stats_sscan(struct batt_ttf_stats *stats,
-		    const char *buff, size_t size);
+int ttf_stats_sscan(struct batt_ttf_stats *stats, const char *buff, size_t size);
 
-struct batt_ttf_stats *ttf_stats_dup(struct batt_ttf_stats *dst,
-				     const struct batt_ttf_stats *src);
+struct batt_ttf_stats *ttf_stats_dup(struct batt_ttf_stats *dst, const struct batt_ttf_stats *src);
 
 __printf(2, 3)
 void ttf_log(const struct batt_ttf_stats *stats, const char *fmt, ...);
