@@ -29,6 +29,10 @@
 #include <linux/kfifo.h>
 #include <linux/poll.h>
 #include <linux/input.h>
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#include <goog_touch_interface.h>
+#include <linux/notifier.h>
+#endif
 #include "fps_touch_handler.h"
 
 #define FTH_DEV "fth"
@@ -167,8 +171,6 @@ static void fth_touch_disconnect(struct input_handle *handle)
 static void fth_touch_report_event(struct input_handle *handle,
 	unsigned int type, unsigned int code, int value)
 {
-	int touch_width = 1;
-	int display_width = 1;
 	struct fth_drvdata *drvdata = handle->handler->private;
 	struct finger_detect_touch *fd_touch = &drvdata->fd_touch;
 	struct touch_event *event = NULL;
@@ -191,11 +193,6 @@ static void fth_touch_report_event(struct input_handle *handle,
 		return;
 	}
 
-	if (drvdata->input_touch_dev) {
-		touch_width = input_abs_get_max(drvdata->input_touch_dev, ABS_MT_POSITION_X) + 1;
-		display_width = fd_touch->config.left + fd_touch->config.right;
-	}
-
 	event = &fd_touch->current_events[fd_touch->current_slot];
 	switch (code) {
 	case ABS_MT_SLOT:
@@ -209,22 +206,18 @@ static void fth_touch_report_event(struct input_handle *handle,
 		report_event = false;
 		break;
 	case ABS_MT_POSITION_X:
-		value = value * display_width / touch_width;
 		event->X = abs(value);
 		report_event = false;
 		break;
 	case ABS_MT_POSITION_Y:
-		value = value * display_width / touch_width;
 		event->Y = abs(value);
 		report_event = false;
 		break;
 	case ABS_MT_TOUCH_MAJOR:
-		value = value * display_width / touch_width;
 		event->major = value;
 		report_event = false;
 		break;
 	case ABS_MT_TOUCH_MINOR:
-		value = value * display_width / touch_width;
 		event->minor = value;
 		report_event = false;
 		break;
@@ -812,6 +805,55 @@ err_alloc:
 	return ret;
 }
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+/**
+ * @brief Called to report a lptw gesture as a touch.
+ *
+ * @param state 0 = up, 1 = down, 2 = move
+ * @param x x coordinate of the lptw gesture centroid.
+ * @param y y coordinate of the lptw gesture centroid.
+ * @param major major of the lptw gesture centroid.
+ * @param minor minor of the lptw gesture centroid.
+ * @param orientation orientation of the lptw gesture centroid.
+ */
+static void fth_lptw_report_event(int state, int x, int y, int major, int minor,
+	int orientation) {
+	struct fth_touch_event_v6 event;
+	struct fth_drvdata *drvdata = fth_touch_handler.private;
+
+	memset(&event, 0, sizeof(event));
+
+	event.state = state;
+	event.X[0] = abs(x);
+	event.Y[0] = abs(y);
+	event.major = major;
+	event.minor = minor;
+	event.orientation = orientation;
+	// Use a unique finger slot so LPTW touches can be recognized.
+	event.slot = FTH_LPTW_FINGER_SLOT;
+	event.touch_valid = true;
+	event.time_us = ktime_to_us(ktime_get());
+	pr_info("lptw touch: state=%d params=(%d, %d, %d, %d, %d) time_us=%lld",
+		state, event.X[0], event.Y[0], event.major, event.minor,
+		event.orientation, event.time_us);
+
+	fth_fd_report_event(drvdata, &event);
+}
+
+static int fth_lptw_notifier_callback(struct notifier_block *nb,
+		unsigned long action, void *data)
+{
+	int *lptw_param = data;
+	fth_lptw_report_event(action, lptw_param[0], lptw_param[1],
+		lptw_param[2], lptw_param[3], lptw_param[4]);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block fth_notifier_block = {
+	.notifier_call = fth_lptw_notifier_callback,
+};
+#endif
+
 /**
  * fth_probe() - Function loads hardware config from device tree
  * @pdev:	ptr to platform device object
@@ -851,6 +893,10 @@ static int fth_probe(struct platform_device *pdev)
 	rc = input_register_handler(&fth_touch_handler);
 	if (rc < 0)
 		pr_err("Failed to register input handler: %d\n", rc);
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_lptw_notifier_register(&fth_notifier_block, true);
+#endif
 end:
 	pr_debug("exit : %d\n", rc);
 	return rc;
@@ -859,6 +905,9 @@ end:
 static int fth_remove(struct platform_device *pdev)
 {
 	struct fth_drvdata *drvdata = platform_get_drvdata(pdev);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_lptw_notifier_register(&fth_notifier_block, false);
+#endif
 	mutex_destroy(&drvdata->mutex);
 	mutex_destroy(&drvdata->fd_events_mutex);
 	device_destroy(drvdata->fth_class, drvdata->fth_fd_cdev.dev);
