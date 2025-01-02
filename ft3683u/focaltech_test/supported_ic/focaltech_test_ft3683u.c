@@ -1010,16 +1010,17 @@ static int ft5672_low_high_freq_rawdata_test(struct fts_test *tdata, bool *test_
     int tx_num = 0;
     int rx_num = 0;
     bool result2 = false;
+    bool result3 = false;
 
     int *rawdata_max = NULL;
     int *rawdata_min = NULL;
     bool tx_check = 0;
     bool rx_check = 0;
 
-    int tx_max = 0;
-    int tx_min = 0;
-    int rx_max = 0;
-    int rx_min = 0;
+    int *tx_max = NULL;
+    int *tx_min = NULL;
+    int *rx_max = NULL;
+    int *rx_min = NULL;
 
     bool result = false;
     struct mc_sc_threshold *thr = &tdata->ic.mc_sc.thr;
@@ -1093,14 +1094,17 @@ static int ft5672_low_high_freq_rawdata_test(struct fts_test *tdata, bool *test_
         switch (k)
             {
             case 0:
-                FTS_TEST_INFO("switch to low freq teste rawdata");
+            FTS_TEST_INFO("switch to low freq teste rawdata");
                 if (thr->basic.low_freq_uniformity_check_en) {
                     rl_cnt = 0;
                     rawdata_max = thr->low_freq_rawdata_max;
                     rawdata_min = thr->low_freq_rawdata_min;
 
-                    tx_max = thr->basic.low_freq_uniformity_tx_hol;
-                    rx_max = thr->basic.low_freq_uniformity_rx_hol;
+                    tx_max = thr->low_freq_rawdata_tx_linearity_max;
+                    rx_max = thr->low_freq_rawdata_rx_linearity_max;
+
+                    tx_min = thr->low_freq_rawdata_tx_linearity_min;
+                    rx_min = thr->low_freq_rawdata_rx_linearity_min;
                 
                     off_rawdata = rawdata_linearity;
                     rawdata = off_rawdata;
@@ -1117,14 +1121,17 @@ static int ft5672_low_high_freq_rawdata_test(struct fts_test *tdata, bool *test_
                 }
                 break;
             case 1:
-                FTS_TEST_INFO("switch to high freq teste rawdata");
                 if (thr->basic.high_freq_uniformity_check_en) {
+                    FTS_TEST_INFO("switch to high freq teste rawdata");
                     rl_cnt = 0;
                     rawdata_max = thr->high_freq_rawdata_max;
                     rawdata_min = thr->high_freq_rawdata_min;
 
-                    tx_max = thr->basic.high_freq_uniformity_tx_hol;
-                    rx_max = thr->basic.high_freq_uniformity_rx_hol;
+                    tx_max = thr->high_freq_rawdata_tx_linearity_max;
+                    rx_max = thr->high_freq_rawdata_rx_linearity_max;
+
+                    tx_min = thr->high_freq_rawdata_tx_linearity_min;
+                    rx_min = thr->high_freq_rawdata_rx_linearity_min;
 
                     off_rawdata = rawdata_linearity + tdata->node.node_num * 3;
                     rawdata = off_rawdata;
@@ -1219,11 +1226,9 @@ static int ft5672_low_high_freq_rawdata_test(struct fts_test *tdata, bool *test_
             FTS_TEST_SAVE_INFO("\n" );
 
             /* compare */
-            result = compare_data(rl_tmp,
+            result2 = compare_array(rl_tmp,
                                    tx_min,
                                    tx_max,
-                                   0,
-                                   0,
                                    false);
 
             rl_cnt += tdata->node.node_num;
@@ -1250,11 +1255,9 @@ static int ft5672_low_high_freq_rawdata_test(struct fts_test *tdata, bool *test_
             FTS_TEST_SAVE_INFO("\n");
 
             /* compare */
-            result2 = compare_data(rl_tmp,
+            result3 = compare_array(rl_tmp,
                                     rx_min,
                                     rx_max,
-                                    0,
-                                    0,
                                     false);
             rl_cnt += tdata->node.node_num;
         }
@@ -2434,37 +2437,37 @@ static int param_init_ft5672(void)
     get_value_basic("High_Fre_RawDataTest_Max", &thr->basic.high_freq_uniformity_max);
     get_value_basic("High_Fre_RawDataTest_Min", &thr->basic.high_freq_uniformity_min);
 
-    get_value_basic("Low_Fre_RawdtaUniformityTest_Low_Fre_En",
+    get_value_basic("Low_Fre_RawdtaUniformityTest_Low_Fre_En", 
         &thr->basic.low_freq_uniformity_check_en);
-    get_value_basic("High_Fre_RawdtaUniformityTest_Fre_En",
+    get_value_basic("High_Fre_RawdtaUniformityTest_Fre_En", 
         &thr->basic.high_freq_uniformity_check_en);
-
-    get_value_basic("Low_Fre_RawdataUniformityTest_Check_Tx",
+    
+    get_value_basic("Low_Fre_RawdataUniformityTest_Check_Tx", 
         &thr->basic.low_freq_uniformity_check_tx);
-    get_value_basic("Low_Fre_RawdataUniformityTest_Check_Rx",
+    get_value_basic("Low_Fre_RawdataUniformityTest_Check_Rx", 
         &thr->basic.low_freq_uniformity_check_rx);
-    get_value_basic("High_Fre_RawdataUniformityTest_Check_Tx",
+    get_value_basic("High_Fre_RawdataUniformityTest_Check_Tx", 
         &thr->basic.high_freq_uniformity_check_tx);
-    get_value_basic("High_Fre_RawdataUniformityTest_Check_Rx",
+    get_value_basic("High_Fre_RawdataUniformityTest_Check_Rx", 
         &thr->basic.high_freq_uniformity_check_rx);
 
-    get_value_basic("Low_Fre_RawdataUniformityTest_Tx_Hole",
+    get_value_basic("Low_Fre_RawdataUniformityTest_Tx_Hole", 
         &thr->basic.low_freq_uniformity_tx_hol);
-    get_value_basic("Low_Fre_RawdataUniformityTest_Rx_Hole",
+    get_value_basic("Low_Fre_RawdataUniformityTest_Rx_Hole", 
         &thr->basic.low_freq_uniformity_rx_hol);
-    get_value_basic("High_Fre_RawdataUniformityTest_Tx_Hole",
+    get_value_basic("High_Fre_RawdataUniformityTest_Tx_Hole", 
         &thr->basic.high_freq_uniformity_tx_hol);
-    get_value_basic("High_Fre_RawdataUniformityTest_Rx_Hole",
+    get_value_basic("High_Fre_RawdataUniformityTest_Rx_Hole", 
         &thr->basic.high_freq_uniformity_rx_hol);
+    //fts_ftest->ic.mc_sc.u.item.low_fre_rawdata_uniformity_test = 1;
 
-    thr->basic.low_freq_uniformity_check_en = 1;
+    /*thr->basic.low_freq_uniformity_check_en = 1;
     thr->basic.high_freq_uniformity_check_en = 1;
-    fts_ftest->ic.mc_sc.u.item.low_fre_rawdata_uniformity_test = 1;
     thr->basic.low_freq_uniformity_check_tx = 1;
     thr->basic.low_freq_uniformity_check_rx = 1;
     thr->basic.high_freq_uniformity_check_tx = 1;
-    thr->basic.high_freq_uniformity_check_rx = 1;
-
+    thr->basic.high_freq_uniformity_check_rx = 1;*/
+    
 
     return 0;
 }
@@ -4160,10 +4163,10 @@ int fts_get_low_high_freq_rawdata(struct fts_test *tdata, int *data,
     bool tx_check = 0;
     bool rx_check = 0;
 
-    int tx_max = 0;
-    int tx_min = 0;
-    int rx_max = 0;
-    int rx_min = 0;
+    int *tx_max = NULL;
+    int *tx_min = NULL;
+    int *rx_max = NULL;
+    int *rx_min = NULL;
 
     bool result1 = true;
     bool result2 = true;
@@ -4244,18 +4247,21 @@ int fts_get_low_high_freq_rawdata(struct fts_test *tdata, int *data,
         switch (k)
             {
             case 0:
-                FTS_TEST_INFO("switch to low freq teste rawdata");
                 if (thr->basic.low_freq_uniformity_check_en) {
+                    FTS_TEST_INFO("switch to low freq teste rawdata");
                     rl_cnt = 0;
                     rawdata_max = thr->low_freq_rawdata_max;
                     rawdata_min = thr->low_freq_rawdata_min;
 
-                    tx_max = thr->basic.low_freq_uniformity_tx_hol;
-                    rx_max = thr->basic.low_freq_uniformity_rx_hol;
+                    tx_max = thr->low_freq_rawdata_tx_linearity_max;
+                    rx_max = thr->low_freq_rawdata_rx_linearity_max;
 
+                    tx_min = thr->low_freq_rawdata_tx_linearity_min;
+                    rx_min = thr->low_freq_rawdata_rx_linearity_min;
+                
                     off_rawdata = rawdata_linearity;
                     rawdata = off_rawdata;
-
+                    
                     tx_check = thr->basic.low_freq_uniformity_check_tx;
                     rx_check = thr->basic.low_freq_uniformity_check_rx;
 
@@ -4275,8 +4281,11 @@ int fts_get_low_high_freq_rawdata(struct fts_test *tdata, int *data,
                     rawdata_max = thr->high_freq_rawdata_max;
                     rawdata_min = thr->high_freq_rawdata_min;
 
-                    tx_max = thr->basic.high_freq_uniformity_tx_hol;
-                    rx_max = thr->basic.high_freq_uniformity_rx_hol;
+                    tx_max = thr->high_freq_rawdata_tx_linearity_max;
+                    rx_max = thr->high_freq_rawdata_rx_linearity_max;
+
+                    tx_min = thr->high_freq_rawdata_tx_linearity_min;
+                    rx_min = thr->high_freq_rawdata_rx_linearity_min;
 
                     off_rawdata = rawdata_linearity + tdata->node.node_num * 3;
                     rawdata = off_rawdata;
@@ -4295,21 +4304,18 @@ int fts_get_low_high_freq_rawdata(struct fts_test *tdata, int *data,
             }
 
             fts_test_write(0x5E, scan_freq_temp, 2);
-            msleep(18);
             ret = wait_state_update(TEST_RETVAL_AA);
             if (ret < 0) {
                 FTS_TEST_SAVE_ERR("wait state update fail\n");
                 goto restore_reg;
             }
             fts_test_write_reg(0x23, shift_temp);
-            msleep(18);
             ret = wait_state_update(TEST_RETVAL_AA);
             if (ret < 0) {
                 FTS_TEST_SAVE_ERR("wait state update fail\n");
                 goto restore_reg;
             }
             fts_test_write_reg(0x22, vamu_temp);
-            msleep(18);
             ret = wait_state_update(TEST_RETVAL_AA);
             if (ret < 0) {
                 FTS_TEST_SAVE_ERR("wait state update fail\n");
@@ -4402,11 +4408,9 @@ int fts_get_low_high_freq_rawdata(struct fts_test *tdata, int *data,
                 }
             }
             /* compare */
-            result2 = compare_data(rl_tmp,
+            result2 = compare_array(rl_tmp,
                                    tx_min,
                                    tx_max,
-                                   0,
-                                   0,
                                    false);
 
             FTS_TEST_SAVE_INFO("%s Freq Rawdata Uniformity TX %s\n",
@@ -4452,11 +4456,9 @@ int fts_get_low_high_freq_rawdata(struct fts_test *tdata, int *data,
                 }
             }
             /* compare */
-            result3 = compare_data(rl_tmp,
+            result3 = compare_array(rl_tmp,
                                     rx_min,
                                     rx_max,
-                                    0,
-                                    0,
                                     false);
 
             FTS_TEST_SAVE_INFO("%s Freq Rawdata Uniformity RX %s\n",

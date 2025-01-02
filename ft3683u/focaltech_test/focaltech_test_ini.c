@@ -940,6 +940,26 @@ static int get_test_threshold_mc_sc(void)
     fts_init_buffer(thr->high_freq_rawdata_max, 
         thr->basic.high_freq_uniformity_max, node_num, false, 0, 0);
 
+    fts_init_buffer(thr->high_freq_rawdata_rx_linearity_max, 
+        thr->basic.high_freq_uniformity_rx_hol, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->high_freq_rawdata_rx_linearity_min, 0, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->high_freq_rawdata_tx_linearity_max, 
+        thr->basic.high_freq_uniformity_tx_hol, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->high_freq_rawdata_tx_linearity_min, 0, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->low_freq_rawdata_rx_linearity_max, 
+        thr->basic.low_freq_uniformity_rx_hol, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->low_freq_rawdata_rx_linearity_min, 0, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->low_freq_rawdata_tx_linearity_max, 
+        thr->basic.low_freq_uniformity_tx_hol, node_num, false, 0, 0);
+    
+    fts_init_buffer(thr->low_freq_rawdata_tx_linearity_min, 0, node_num, false, 0, 0);
+
     /* detail threshold */
     get_detail_threshold("RawData_Min_High_Tx", true, thr->rawdata_h_min, node_num);
     get_detail_threshold("RawData_Max_High_Tx", true, thr->rawdata_h_max, node_num);
@@ -968,6 +988,22 @@ static int get_test_threshold_mc_sc(void)
     get_detail_threshold("Panel_Differ_Min_Tx", true, thr->panel_differ_min, node_num);
     get_detail_threshold("Panel_Differ_Max_Tx", true, thr->panel_differ_max, node_num);
     get_detail_threshold("NoistTestCoefficient_Tx", true, thr->noise_max, node_num);
+
+    get_detail_threshold("High_Fre_RawData_Min_Tx", true, thr->low_freq_rawdata_min, node_num);
+    get_detail_threshold("High_Fre_RawData_Max_Tx", true, thr->low_freq_rawdata_max, node_num);
+    get_detail_threshold("Low_Fre_RawData_Min_Tx", true, thr->high_freq_rawdata_min, node_num);
+    get_detail_threshold("Low_Fre_RawData_Max_Tx", true, thr->high_freq_rawdata_max, node_num);
+
+    
+    get_detail_threshold("High_Fre_Rawdata_Rx_Linearity_Max_Tx", true, 
+        thr->high_freq_rawdata_rx_linearity_max, node_num);
+    get_detail_threshold("High_Fre_Rawdata_Tx_Linearity_Max_Tx", true, 
+        thr->high_freq_rawdata_tx_linearity_max, node_num);
+    
+    get_detail_threshold("Low_Fre_Rawdata_Rx_Linearity_Max_Tx", true, 
+        thr->low_freq_rawdata_rx_linearity_max, node_num);
+    get_detail_threshold("Low_Fre_Rawdata_Tx_Linearity_Max_Tx", true, 
+        thr->low_freq_rawdata_tx_linearity_max, node_num);
 
     return 0;
 }
