@@ -27,6 +27,10 @@
 #include <linux/kfifo.h>
 #include <linux/poll.h>
 #include <linux/input.h>
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#include <goog_touch_interface.h>
+#include <linux/notifier.h>
+#endif
 #include "qbt_handler.h"
 #define QBT_DEV "qbt"
 #define MAX_FW_EVENTS 128
@@ -991,6 +995,22 @@ void qbt_lptw_report_event(int x, int y, int state) {
 	qbt_fd_report_event(drvdata, &event);
 }
 EXPORT_SYMBOL_GPL(qbt_lptw_report_event);
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+static int qbt_lptw_notifier_callback(struct notifier_block *nb,
+		unsigned long action, void *data)
+{
+	int *lptw_coord = data;
+
+	qbt_lptw_report_event(lptw_coord[0], lptw_coord[1], action);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block qbt_notifier_block = {
+	.notifier_call = qbt_lptw_notifier_callback,
+};
+#endif
+
 static void qbt_gpio_work_func(struct work_struct *work)
 {
 	int state;
@@ -1202,6 +1222,7 @@ static int qbt_read_device_tree(struct platform_device *pdev,
 end:
 	return rc;
 }
+
 /**
  * qbt_probe() - Function loads hardware config from device tree
  * @pdev:	ptr to platform device object
@@ -1260,6 +1281,10 @@ static int qbt_probe(struct platform_device *pdev)
 	rc = input_register_handler(&qbt_touch_handler);
 	if (rc < 0)
 		pr_err("Failed to register input handler: %d\n", rc);
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_lptw_notifier_register(&qbt_notifier_block, true);
+#endif
 end:
 	pr_debug("exit : %d\n", rc);
 	return rc;
@@ -1267,6 +1292,9 @@ end:
 static int qbt_remove(struct platform_device *pdev)
 {
 	struct qbt_drvdata *drvdata = platform_get_drvdata(pdev);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_lptw_notifier_register(&qbt_notifier_block, false);
+#endif
 	mutex_destroy(&drvdata->mutex);
 	mutex_destroy(&drvdata->fd_events_mutex);
 	mutex_destroy(&drvdata->ipc_events_mutex);
