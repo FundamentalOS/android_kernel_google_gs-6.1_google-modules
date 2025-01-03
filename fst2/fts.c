@@ -1453,7 +1453,7 @@ static int fts_probe(struct spi_device *client)
 	snprintf(fts_ts_phys, sizeof(fts_ts_phys), "%s/input0",
 		 info->input_dev->name);
 	info->input_dev->phys = fts_ts_phys;
-	info->input_dev->uniq = "fts";
+	info->input_dev->uniq = "google_touchscreen";
 	info->input_dev->id.bustype = bus_type;
 	info->input_dev->id.vendor = 0x0001;
 	info->input_dev->id.product = 0x0002;
