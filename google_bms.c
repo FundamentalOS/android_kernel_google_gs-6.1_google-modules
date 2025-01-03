@@ -632,7 +632,6 @@ static int gbms_read_aact_cccm_limits(struct gbms_chg_profile *profile,
 
 int gbms_init_aact_profile_internal(struct gbms_chg_profile *profile,
 				    struct device_node *node,
-				    bool is_enabled,
 				    const char *owner_name)
 {
 	int ret;
@@ -641,13 +640,8 @@ int gbms_init_aact_profile_internal(struct gbms_chg_profile *profile,
 	profile->owner_name = owner_name;
 
 	/* Don't reinit aact_profile that has been updated in aact_profile_store */
-	if (profile->aact_update_profile) {
-		cccm_array_size = (profile->aact_temp_nb_limits - 1)
-				  * profile->aact_volt_nb_limits
-				  * profile->aact_nb_limits;
-		mem_size = sizeof(s32) * cccm_array_size;
-		goto done;
-	}
+	if (profile->aact_update_profile)
+		return 0;
 
 	ret = gbms_read_aact_cccm_limits(profile, node);
 	if (ret < 0)
@@ -673,27 +667,36 @@ int gbms_init_aact_profile_internal(struct gbms_chg_profile *profile,
 		return -EINVAL;
 	}
 
-done:
-	/* when aact is enabled, save aact_profile back to charge_profile */
-	if (is_enabled) {
-		u32 temp_size = sizeof(s32) * profile->aact_temp_nb_limits;
-		u32 volt_size = sizeof(s32) * profile->aact_volt_nb_limits;
-
-		profile->cccm_limits = kzalloc(mem_size, GFP_KERNEL);
-		if (!profile->cccm_limits)
-			return -ENOMEM;
-
-		memcpy(profile->cccm_limits, profile->aact_cccm_limits, mem_size);
-		memcpy(profile->temp_limits, profile->aact_temp_limits, temp_size);
-		memcpy(profile->volt_limits, profile->aact_volt_limits, volt_size);
-		profile->temp_nb_limits = profile->aact_temp_nb_limits;
-		profile->volt_nb_limits = profile->aact_volt_nb_limits;
-		profile->aact_init_profile = true;
-	}
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(gbms_init_aact_profile_internal);
+
+int gbms_update_chg_profile_from_aact(struct gbms_chg_profile *profile)
+{
+	u32 cccm_array_size, mem_size;
+	u32 temp_size = sizeof(s32) * profile->aact_temp_nb_limits;
+	u32 volt_size = sizeof(s32) * profile->aact_volt_nb_limits;
+
+	cccm_array_size = (profile->aact_temp_nb_limits - 1)
+			  * profile->aact_volt_nb_limits
+			  * profile->aact_nb_limits;
+	mem_size = sizeof(s32) * cccm_array_size;
+
+	profile->cccm_limits = kzalloc(mem_size, GFP_KERNEL);
+	if (!profile->cccm_limits)
+		return -ENOMEM;
+
+	/* copy aact_profile back to charge_profile */
+	memcpy(profile->cccm_limits, profile->aact_cccm_limits, mem_size);
+	memcpy(profile->temp_limits, profile->aact_temp_limits, temp_size);
+	memcpy(profile->volt_limits, profile->aact_volt_limits, volt_size);
+	profile->temp_nb_limits = profile->aact_temp_nb_limits;
+	profile->volt_nb_limits = profile->aact_volt_nb_limits;
+	profile->aact_init_profile = true;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(gbms_update_chg_profile_from_aact);
 
 int gbms_aact_get_index(const struct gbms_chg_profile *profile, const int cycles)
 {
