@@ -3469,6 +3469,7 @@ static struct of_device_id nvt_match_table[] = {
 	{ .compatible = "novatek,NVT-ts-spi",},
 	{ },
 };
+MODULE_DEVICE_TABLE(of, nvt_match_table);
 #endif
 
 #if defined(CONFIG_PM) && defined(CONFIG_SOC_GOOGLE)
