@@ -651,6 +651,7 @@ static struct pci_device_id pld_pcie_id_table[] = {
 #endif
 	{ 0 }
 };
+MODULE_DEVICE_TABLE(pci, pld_pcie_id_table);
 
 #ifdef MULTI_IF_NAME
 #define PLD_PCIE_OPS_NAME "pld_pcie_" MULTI_IF_NAME
