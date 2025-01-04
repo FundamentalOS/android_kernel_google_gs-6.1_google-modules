@@ -6334,6 +6334,7 @@ static const struct of_device_id sec_ts_match_table[] = {
 	{ .compatible = "sec,sec_ts",},
 	{ },
 };
+MODULE_DEVICE_TABLE(of, sec_ts_match_table);
 #else
 #define sec_ts_match_table NULL
 #endif
