@@ -1049,6 +1049,7 @@ static const struct of_device_id aoc_match[] = {
 	},
 	{},
 };
+MODULE_DEVICE_TABLE(of, aoc_match);
 
 static struct platform_driver aoc_driver = {
 	.probe = aoc_platform_probe,
