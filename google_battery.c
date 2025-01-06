@@ -5489,10 +5489,12 @@ static int aact_update_chg_table(struct batt_drv *batt_drv)
 
 	if (!profile->aact_init_profile && batt_drv->aact_state == BATT_AACT_ENABLED) {
 		/* init AACT charge table */
-		ret = gbms_init_aact_profile(profile, node, true);
+		ret = gbms_init_aact_profile(profile, node);
 		if (ret < 0)
 			return ret;
-
+		ret = gbms_update_chg_profile_from_aact(profile);
+		if (ret < 0)
+			return ret;
 		gbms_init_chg_table(profile, node, batt_drv->battery_capacity);
 	} else if (profile->aact_init_profile && batt_drv->aact_state == BATT_AACT_DISABLED) {
 		/* reset AACT */
@@ -6410,10 +6412,12 @@ static ssize_t debug_get_chg_raw_profile(struct file *filp,
 			goto exit_done;
 
 		if (batt_drv->aact_state == BATT_AACT_ENABLED) {
-			len = gbms_init_aact_profile(&profile, batt_drv->device->of_node, true);
+			len = gbms_init_aact_profile(&profile, batt_drv->device->of_node);
 			if (len < 0)
 				goto exit_done;
-
+			len = gbms_update_chg_profile_from_aact(&profile);
+			if (len < 0)
+				goto exit_done;
 			profile.aact_idx = aact_get_index(batt_drv);
 		}
 
@@ -8378,16 +8382,14 @@ static int aact_load_profile(struct batt_drv *batt_drv)
 {
 	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
 	struct device_node *node = batt_drv->device->of_node;
-	int ret;
 
-	if (!profile->aact_cccm_limits && batt_drv->aact_state == BATT_AACT_DISABLED) {
-		ret = gbms_init_aact_profile(profile, node, false);
-		if (ret < 0)
-			return ret;
-	}
+	/* No need to reload if aact profile exist */
+	if (profile->aact_cccm_limits)
+		return 0;
 
-	return 0;
+	return gbms_init_aact_profile(profile, node);
 }
+
 static ssize_t aact_cv_limits_store(struct device *dev,
 				    struct device_attribute *attr,
 				    const char *buf, size_t count)

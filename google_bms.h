@@ -477,9 +477,10 @@ int gbms_init_chg_profile_internal(struct gbms_chg_profile *profile,
 #define gbms_init_chg_profile(p, n) \
 	gbms_init_chg_profile_internal(p, n, KBUILD_MODNAME)
 int gbms_init_aact_profile_internal(struct gbms_chg_profile *profile,
-			  struct device_node *node, bool is_enabled, const char *owner_name);
-#define gbms_init_aact_profile(p, n, i) \
-	gbms_init_aact_profile_internal(p, n, i, KBUILD_MODNAME)
+			  struct device_node *node, const char *owner_name);
+#define gbms_init_aact_profile(p, n) \
+	gbms_init_aact_profile_internal(p, n, KBUILD_MODNAME)
+int gbms_update_chg_profile_from_aact(struct gbms_chg_profile *profile);
 int gbms_aact_get_index(const struct gbms_chg_profile *profile, const int cycles);
 
 void gbms_init_chg_table(struct gbms_chg_profile *profile,
