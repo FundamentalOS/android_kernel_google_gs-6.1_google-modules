@@ -134,7 +134,6 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define NVT_TOUCH_SUPPORT_HW_RST 1
 
 //---Customerized func.---
-#define NVT_TOUCH_PROC 1
 #define NVT_TOUCH_EXT_PROC 1
 #define NVT_TOUCH_EXT_API 1
 #define REPORT_PROTOCOL_A 1
@@ -428,12 +427,6 @@ struct nvt_ts_data {
 	u16 point_data_alloc_sz;
 
 };
-
-#if NVT_TOUCH_PROC
-struct nvt_flash_data {
-	rwlock_t lock;
-};
-#endif
 
 #if SPI_FLASH
 typedef struct gcm_transfer {
