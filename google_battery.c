@@ -8009,7 +8009,8 @@ static ssize_t aacr_profile_store(struct device *dev,
 			return -ERANGE;
 	}
 
-	if (batt_id == batt_drv->batt_id) {
+	/* 0 means force setting the profile */
+	if (batt_id == batt_drv->batt_id || batt_id == 0) {
 		mutex_lock(&batt_drv->aacp_state_lock);
 		memcpy(&profile->aacr_reference_cycles, cc, sizeof(cc));
 		memcpy(&profile->aacr_reference_fade10, fd, sizeof(fd));
