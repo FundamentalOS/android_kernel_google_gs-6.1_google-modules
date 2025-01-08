@@ -387,7 +387,7 @@ enum vendor_procfs_type {
 		PROC_OPS_WO(__attr##_clear);
 
 #define PER_TASK_UINT_ATTRIBUTE(__attr)						      \
-		static ssize_t __attr##_set##_store(struct file *filp, \
+		static ssize_t __attr##_store(struct file *filp, \
 			const char __user *ubuf, \
 			size_t count, loff_t *pos) \
 		{									      \
@@ -398,25 +398,10 @@ enum vendor_procfs_type {
 			if (copy_from_user(buf, ubuf, count))	\
 				return -EFAULT;	\
 			buf[count] = '\0';	\
-			ret = update_##__attr(buf, true, count);   \
+			ret = update_##__attr(buf, count);   \
 			return ret ?: count;						      \
 		}									      \
-		PROC_OPS_WO(__attr##_set);	\
-		static ssize_t __attr##_clear##_store(struct file *filp, \
-			const char __user *ubuf, \
-			size_t count, loff_t *pos) \
-		{									      \
-			char buf[MAX_PROC_SIZE];	\
-			int ret;	\
-			if (count >= sizeof(buf))	\
-				return -EINVAL;	\
-			if (copy_from_user(buf, ubuf, count))	\
-				return -EFAULT;	\
-			buf[count] = '\0';	\
-			ret = update_##__attr(buf, false, count);   \
-			return ret ?: count;						      \
-		}									      \
-		PROC_OPS_WO(__attr##_clear);
+		PROC_OPS_WO(__attr);
 
 
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)
@@ -1664,7 +1649,10 @@ static int update_prefer_high_cap(const char *buf, bool val)
 	return 0;
 }
 
-static int update_rampup_multiplier(const char *buf, bool set, int count)
+/*
+ * To set per task rampup multiplier, write the format of pid:multiplier.
+ */
+static int update_rampup_multiplier_set(const char *buf, int count)
 {
 	struct vendor_task_struct *vp;
 	struct task_struct *p;
@@ -1673,78 +1661,86 @@ static int update_rampup_multiplier(const char *buf, bool set, int count)
 	char *str1, *str2, *pid_str, *multiplier_str;
 	int ret = 0;
 
-	if (set) {
-		str1 = kstrndup(buf, count, GFP_KERNEL);
-		if (!str1)
-			return -ENOMEM;
+	str1 = kstrndup(buf, count, GFP_KERNEL);
+	if (!str1)
+		return -ENOMEM;
 
-		str2 = str1;
-		pid_str = strsep(&str2, ":");
-		multiplier_str = str2;
+	str2 = str1;
+	pid_str = strsep(&str2, ":");
+	multiplier_str = str2;
 
-		if (pid_str == NULL || multiplier_str == NULL) {
-			ret = -EINVAL;
-			goto error_free;
-		}
-
-		if (kstrtouint(pid_str, 0, &pid) || kstrtouint(multiplier_str, 0, &multiplier)) {
-			ret = -EINVAL;
-			goto error_free;
-		}
-
-		rcu_read_lock();
-		p = find_task_by_vpid(pid);
-		if (!p) {
-			ret = -ESRCH;
-			goto error_unlock_set;
-		}
-
-		get_task_struct(p);
-
-		if (!check_cred(p)) {
-			ret = -EACCES;
-			goto error_put_task_set;
-		}
-
-		vp = get_vendor_task_struct(p);
-		vp->rampup_multiplier = multiplier;
-		vp->sched_qos_user_defined_flag |= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
-error_put_task_set:
-		put_task_struct(p);
-error_unlock_set:
-		rcu_read_unlock();
-error_free:
-		kfree(str1);
-
-	} else {
-
-		if (kstrtoint(buf, 0, &pid) || pid <= 0)
-			return -EINVAL;
-
-		rcu_read_lock();
-		p = find_task_by_vpid(pid);
-		if (!p) {
-			ret = -ESRCH;
-			goto error_unlock_clear;
-		}
-
-		get_task_struct(p);
-
-		if (!check_cred(p)) {
-			ret = -EACCES;
-			goto error_put_task_clear;
-		}
-
-		vp = get_vendor_task_struct(p);
-		vp->rampup_multiplier = 1;
-		vp->sched_qos_user_defined_flag &= ~SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
-error_put_task_clear:
-		put_task_struct(p);
-error_unlock_clear:
-		rcu_read_unlock();
+	if (pid_str == NULL || multiplier_str == NULL) {
+		ret = -EINVAL;
+		goto error_free;
 	}
 
+	if (kstrtouint(pid_str, 0, &pid) || kstrtouint(multiplier_str, 0, &multiplier)) {
+		ret = -EINVAL;
+		goto error_free;
+	}
+
+	rcu_read_lock();
+	p = find_task_by_vpid(pid);
+	if (!p) {
+		ret = -ESRCH;
+		goto error_unlock;
+	}
+
+	get_task_struct(p);
+
+	if (!check_cred(p)) {
+		ret = -EACCES;
+		goto error_put_task;
+	}
+
+	vp = get_vendor_task_struct(p);
+	vp->rampup_multiplier = multiplier;
+	vp->sched_qos_user_defined_flag |= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+error_put_task:
+	put_task_struct(p);
+error_unlock:
+	rcu_read_unlock();
+error_free:
+	kfree(str1);
+
 	return ret;
+}
+
+/*
+ * To clear per task rampup multiplier, just write pid.
+ */
+static int update_rampup_multiplier_clear(const char *buf, int count)
+{
+	struct vendor_task_struct *vp;
+	struct task_struct *p;
+	pid_t pid;
+
+	if (kstrtoint(buf, 0, &pid) || pid <= 0)
+		return -EINVAL;
+
+	rcu_read_lock();
+	p = find_task_by_vpid(pid);
+	if (!p) {
+		rcu_read_unlock();
+		return -ESRCH;
+	}
+
+	get_task_struct(p);
+
+	if (!check_cred(p)) {
+		put_task_struct(p);
+		rcu_read_unlock();
+		return -EACCES;
+	}
+
+	vp = get_vendor_task_struct(p);
+	vp->rampup_multiplier = 1;
+	vp->sched_qos_user_defined_flag &= ~SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+
+	put_task_struct(p);
+	rcu_read_unlock();
+
+	return 0;
 }
 
 static inline void migrate_boost_prio(struct task_struct *p, unsigned int old, unsigned int new)
@@ -1978,7 +1974,8 @@ PER_TASK_BOOL_ATTRIBUTE(adpf);
 PER_TASK_BOOL_ATTRIBUTE(preempt_wakeup);
 PER_TASK_BOOL_ATTRIBUTE(auto_uclamp_max);
 PER_TASK_BOOL_ATTRIBUTE(prefer_high_cap);
-PER_TASK_UINT_ATTRIBUTE(rampup_multiplier);
+PER_TASK_UINT_ATTRIBUTE(rampup_multiplier_set);
+PER_TASK_UINT_ATTRIBUTE(rampup_multiplier_clear);
 
 static int dump_task_show(struct seq_file *m, void *v)
 {
