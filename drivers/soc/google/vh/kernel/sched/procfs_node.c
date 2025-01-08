@@ -1518,6 +1518,7 @@ static int update_adpf(const char *buf, bool val)
 	struct vendor_task_struct *vp;
 	struct task_struct *p;
 	pid_t pid;
+	bool old_adpf;
 
 	if (kstrtoint(buf, 0, &pid) || pid <= 0)
 		return -EINVAL;
@@ -1538,11 +1539,25 @@ static int update_adpf(const char *buf, bool val)
 	}
 
 	vp = get_vendor_task_struct(p);
+	raw_spin_lock(&p->pi_lock);
 
-	if (val)
-		set_bit(SCHED_QOS_ADPF_BIT, &vp->sched_qos_user_defined_flag);
-	else
-		clear_bit(SCHED_QOS_ADPF_BIT, &vp->sched_qos_user_defined_flag);
+	old_adpf = !!(vp->sched_qos_user_defined_flag & SCHED_QOS_ADPF_BIT);
+
+	if (old_adpf != val) {
+		if (val)
+			set_bit(SCHED_QOS_ADPF_BIT, &vp->sched_qos_user_defined_flag);
+		else
+			clear_bit(SCHED_QOS_ADPF_BIT, &vp->sched_qos_user_defined_flag);
+
+		if (task_on_rq_queued(p)) {
+			if (old_adpf && !get_adpf(p, true))
+				dec_adpf_counter(p, task_rq(p));
+			else if (!old_adpf && get_adpf(p, true))
+				inc_adpf_counter(p, task_rq(p));
+		}
+	}
+
+	raw_spin_unlock(&p->pi_lock);
 
 	put_task_struct(p);
 	rcu_read_unlock();
