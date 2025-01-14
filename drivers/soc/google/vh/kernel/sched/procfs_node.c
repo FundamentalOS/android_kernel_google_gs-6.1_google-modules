@@ -89,15 +89,15 @@ static const unsigned int SCHED_QOS_PROFILES[SCHED_QOS_MAX] = {
 	/* SCHED_QOS_NONE */
 	0,
 	/* SCHED_QOS_POWER_EFFICIENCY */
-	SCHED_QOS_AUTO_UCLAMP_MAX_BIT,
+	BIT(SCHED_QOS_AUTO_UCLAMP_MAX_BIT),
 	/* SCHED_QOS_SENSITIVE_STANDARD */
-	SCHED_QOS_ADPF_BIT | SCHED_QOS_PREFER_IDLE_BIT | SCHED_QOS_PREFER_FIT_BIT,
+	BIT(SCHED_QOS_ADPF_BIT) | BIT(SCHED_QOS_PREFER_IDLE_BIT) | BIT(SCHED_QOS_PREFER_FIT_BIT),
 	/* SCHED_QOS_SENSITIVE_HIGH */
-	SCHED_QOS_ADPF_BIT | SCHED_QOS_PREFER_IDLE_BIT | SCHED_QOS_PREFER_FIT_BIT |
-	SCHED_QOS_PREEMPT_WAKEUP_BIT,
+	BIT(SCHED_QOS_ADPF_BIT) | BIT(SCHED_QOS_PREFER_IDLE_BIT) | BIT(SCHED_QOS_PREFER_FIT_BIT) |
+	BIT(SCHED_QOS_PREEMPT_WAKEUP_BIT),
 	/* SCHED_QOS_SENSITIVE_EXTREME */
-	SCHED_QOS_ADPF_BIT | SCHED_QOS_PREFER_IDLE_BIT | SCHED_QOS_PREFER_FIT_BIT |
-	SCHED_QOS_PREEMPT_WAKEUP_BIT | SCHED_QOS_BOOST_PRIO_BIT };
+	BIT(SCHED_QOS_ADPF_BIT) | BIT(SCHED_QOS_PREFER_IDLE_BIT) | BIT(SCHED_QOS_PREFER_FIT_BIT) |
+	BIT(SCHED_QOS_PREEMPT_WAKEUP_BIT) | BIT(SCHED_QOS_BOOST_PRIO_BIT) };
 
 enum vendor_procfs_type {
 	DEFAULT_TYPE = 0,
@@ -1450,7 +1450,7 @@ static int update_boost_prio(const char *buf, bool val)
 	}
 
 	vp = get_vendor_task_struct(p);
-	prev_boost_prio = !!(vp->sched_qos_user_defined_flag & SCHED_QOS_BOOST_PRIO_BIT);
+	prev_boost_prio = !!(vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_BOOST_PRIO_BIT));
 
 	if (val)
 		set_bit(SCHED_QOS_BOOST_PRIO_BIT, &vp->sched_qos_user_defined_flag);
@@ -1541,7 +1541,7 @@ static int update_adpf(const char *buf, bool val)
 	vp = get_vendor_task_struct(p);
 	raw_spin_lock(&p->pi_lock);
 
-	old_adpf = !!(vp->sched_qos_user_defined_flag & SCHED_QOS_ADPF_BIT);
+	old_adpf = !!(vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_ADPF_BIT));
 
 	if (old_adpf != val) {
 		if (val)
@@ -1781,8 +1781,8 @@ static void update_sched_qos_profiles(struct task_struct *p, struct vendor_task_
 	bool old, new;
 
 	/* boost prio */
-	old = !!(vp->prev_sched_qos_user_defined_flag & SCHED_QOS_BOOST_PRIO_BIT);
-	new = !!(vp->sched_qos_user_defined_flag & SCHED_QOS_BOOST_PRIO_BIT);
+	old = !!(vp->prev_sched_qos_user_defined_flag & BIT(SCHED_QOS_BOOST_PRIO_BIT));
+	new = !!(vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_BOOST_PRIO_BIT));
 
 	if (old != new) {
 		/* Only boost task prio when both new and group qos_boost_prio_enable are true. */
@@ -1828,7 +1828,7 @@ static int update_sched_qos_none(const char *buf, int count)
 	/*
 	 * Clear all bits except SCHED_QOS_RAMPUP_MULTIPLIER_BIT.
 	 */
-	vp->sched_qos_user_defined_flag &= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+	vp->sched_qos_user_defined_flag &= BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT);
 	update_sched_qos_profiles(p, vp);
 
 	put_task_struct(p);
@@ -1867,7 +1867,7 @@ static int update_sched_qos_power_efficiency(const char *buf, int count)
 	/*
 	 Clear all bits except SCHED_QOS_RAMPUP_MULTIPLIER_BIT.
 	*/
-	vp->sched_qos_user_defined_flag &= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+	vp->sched_qos_user_defined_flag &= BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT);
 
 	vp->sched_qos_user_defined_flag |= SCHED_QOS_PROFILES[SCHED_QOS_POWER_EFFICIENCY];
 	update_sched_qos_profiles(p, vp);
@@ -1908,7 +1908,7 @@ static int update_sched_qos_sensitive_standard(const char *buf, int count)
 	/*
 	 Clear all bits except SCHED_QOS_RAMPUP_MULTIPLIER_BIT.
 	*/
-	vp->sched_qos_user_defined_flag &= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+	vp->sched_qos_user_defined_flag &= BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT);
 
 	vp->sched_qos_user_defined_flag |= SCHED_QOS_PROFILES[SCHED_QOS_SENSITIVE_STANDARD];
 	update_sched_qos_profiles(p, vp);
@@ -1949,7 +1949,7 @@ static int update_sched_qos_sensitive_high(const char *buf, int count)
 	/*
 	 Clear all bits except SCHED_QOS_RAMPUP_MULTIPLIER_BIT.
 	*/
-	vp->sched_qos_user_defined_flag &= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+	vp->sched_qos_user_defined_flag &= BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT);
 
 	vp->sched_qos_user_defined_flag |= SCHED_QOS_PROFILES[SCHED_QOS_SENSITIVE_HIGH];
 	update_sched_qos_profiles(p, vp);
@@ -1990,7 +1990,7 @@ static int update_sched_qos_sensitive_extreme(const char *buf, int count)
 	/*
 	 Clear all bits except SCHED_QOS_RAMPUP_MULTIPLIER_BIT.
 	*/
-	vp->sched_qos_user_defined_flag &= SCHED_QOS_RAMPUP_MULTIPLIER_BIT;
+	vp->sched_qos_user_defined_flag &= BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT);
 
 	vp->sched_qos_user_defined_flag |= SCHED_QOS_PROFILES[SCHED_QOS_SENSITIVE_EXTREME];
 	update_sched_qos_profiles(p, vp);
@@ -2007,7 +2007,7 @@ static inline void migrate_boost_prio(struct task_struct *p, unsigned int old, u
 	struct rq *rq;
 	struct vendor_task_struct *vp = get_vendor_task_struct(p);
 
-	if (vp->sched_qos_user_defined_flag & SCHED_QOS_BOOST_PRIO_BIT &&
+	if (vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_BOOST_PRIO_BIT) &&
 	    vg[old].qos_boost_prio_enable != vg[new].qos_boost_prio_enable) {
 		/* Boost prio to 100. */
 		if (vg[new].qos_boost_prio_enable) {
