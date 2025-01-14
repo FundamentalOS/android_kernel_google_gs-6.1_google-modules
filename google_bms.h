@@ -359,6 +359,8 @@ enum gbms_stats_tier_idx_t {
 	GBMS_STATS_BD_TI_DOCK = 113,
 	GBMS_STATS_BD_TI_TEMP_PRETRIGGER = 114,
 	GBMS_STATS_BD_TI_TEMP_RESUME = 115,
+	GBMS_STATS_BD_TI_POLICY_LONGLIFE = 116,
+	GBMS_STATS_BD_TI_POLICY_FORCE_TO_FULL = 117,
 
 	GBMS_STATS_BD_TI_TRICKLE_CLEARED = 122,
 	GBMS_STATS_BD_TI_DOCK_CLEARED = 123,
@@ -434,6 +436,8 @@ struct gbms_charging_event {
 	struct gbms_ce_tier_stats cc_lvl_stats;
 	struct gbms_ce_tier_stats trickle_stats;
 	struct gbms_ce_tier_stats temp_filter_stats;
+	struct gbms_ce_tier_stats policy_longlife_stats;
+	struct gbms_ce_tier_stats policy_force_full_stats;
 };
 
 #define GBMS_CCCM_LIMITS_SET(profile, ti, vi) \

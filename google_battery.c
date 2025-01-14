@@ -1894,6 +1894,8 @@ static void cev_stats_init(struct gbms_charging_event *ce_data,
 	gbms_tier_stats_init(&ce_data->cc_lvl_stats, GBMS_STATS_BD_TI_CUSTOM_LEVELS);
 	gbms_tier_stats_init(&ce_data->trickle_stats, GBMS_STATS_BD_TI_TRICKLE_CLEARED);
 	gbms_tier_stats_init(&ce_data->temp_filter_stats, GBMS_STATS_TEMP_FILTER);
+	gbms_tier_stats_init(&ce_data->policy_longlife_stats, GBMS_STATS_BD_TI_POLICY_LONGLIFE);
+	gbms_tier_stats_init(&ce_data->policy_force_full_stats, GBMS_STATS_BD_TI_POLICY_FORCE_TO_FULL);
 }
 
 static void batt_chg_stats_start(struct batt_drv *batt_drv)
@@ -2088,8 +2090,18 @@ static void batt_chg_stats_update(struct batt_drv *batt_drv, int temp_idx,
 		tier = NULL;
 	}
 
-	/* custom charge levels (DWELL-DEFEND or RETAIL) */
-	if (batt_drv->chg_state.f.flags & GBMS_CS_FLAG_CCLVL) {
+	/* custom charge levels (DWELL-DEFEND or RETAIL or LONGLIFE) */
+	if (batt_drv->vote_force_full_charge) {
+		gbms_stats_update_tier(temp_idx, ibatt_ma, temp, elap, cc,
+				       &batt_drv->chg_state, msc_state, soc_in,
+				       &ce_data->policy_force_full_stats);
+		tier = NULL;
+	} else if (batt_drv->charging_policy == CHARGING_POLICY_VOTE_LONGLIFE) {
+		gbms_stats_update_tier(temp_idx, ibatt_ma, temp, elap, cc,
+				       &batt_drv->chg_state, msc_state, soc_in,
+				       &ce_data->policy_longlife_stats);
+		tier = NULL;
+	} else if (batt_drv->chg_state.f.flags & GBMS_CS_FLAG_CCLVL) {
 		gbms_stats_update_tier(temp_idx, ibatt_ma, temp, elap, cc,
 				       &batt_drv->chg_state, msc_state, soc_in,
 				       &ce_data->cc_lvl_stats);
@@ -2477,6 +2489,16 @@ static int batt_chg_stats_cstr(char *buff, int size,
 	if (ce_data->temp_filter_stats.soc_in != -1)
 		len += gbms_tier_stats_cstr(&buff[len], size - len,
 					    &ce_data->temp_filter_stats,
+					    verbose);
+
+	if (ce_data->policy_longlife_stats.soc_in != -1)
+		len += gbms_tier_stats_cstr(&buff[len], size - len,
+					    &ce_data->policy_longlife_stats,
+					    verbose);
+
+	if (ce_data->policy_force_full_stats.soc_in != -1)
+		len += gbms_tier_stats_cstr(&buff[len], size - len,
+					    &ce_data->policy_force_full_stats,
 					    verbose);
 
 	/* If bd_clear triggers, we need to know about it even if trickle hasn't
