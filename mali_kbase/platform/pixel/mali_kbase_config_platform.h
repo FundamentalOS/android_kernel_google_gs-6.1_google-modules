@@ -234,9 +234,6 @@ struct gpu_dvfs_qos_vote;
 struct gpu_dvfs_metrics_uid_stats;
 #endif /* CONFIG_MALI_MIDGARD_DVFS */
 
-/* Forward declaration of gpu_uevent_ctx */
-struct gpu_uevent_ctx;
-
 /**
  * struct pixel_context - Pixel GPU context
  *
