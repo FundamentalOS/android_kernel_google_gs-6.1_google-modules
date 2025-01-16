@@ -483,6 +483,7 @@ struct bcl_device {
 
 	bool bat_ktimer_en;
 	unsigned int bat_ktimer;
+	struct wakeup_source *ws;
 };
 
 extern void google_bcl_irq_update_lvl(struct bcl_device *bcl_dev, int index, unsigned int lvl);
