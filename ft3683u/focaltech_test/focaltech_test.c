@@ -1637,6 +1637,16 @@ static int fts_test_malloc_free_mc_sc(struct fts_test *tdata, bool allocate)
         fts_malloc_r(thr->low_freq_rawdata_max, buflen);
         fts_malloc_r(thr->high_freq_rawdata_min, buflen);
         fts_malloc_r(thr->high_freq_rawdata_max, buflen);
+
+        fts_malloc_r(thr->low_freq_rawdata_tx_linearity_max, buflen);
+        fts_malloc_r(thr->low_freq_rawdata_rx_linearity_max, buflen);
+        fts_malloc_r(thr->low_freq_rawdata_tx_linearity_min, buflen);
+        fts_malloc_r(thr->low_freq_rawdata_rx_linearity_min, buflen);
+
+        fts_malloc_r(thr->high_freq_rawdata_tx_linearity_max, buflen);
+        fts_malloc_r(thr->high_freq_rawdata_rx_linearity_max, buflen);
+        fts_malloc_r(thr->high_freq_rawdata_tx_linearity_min, buflen);
+        fts_malloc_r(thr->high_freq_rawdata_rx_linearity_min, buflen);
     } else {
         fts_free(thr->rawdata_h_min);
         fts_free(thr->rawdata_h_max);
@@ -1677,6 +1687,16 @@ static int fts_test_malloc_free_mc_sc(struct fts_test *tdata, bool allocate)
         fts_free(thr->low_freq_rawdata_max);
         fts_free(thr->high_freq_rawdata_min);
         fts_free(thr->high_freq_rawdata_max);
+
+        fts_free(thr->low_freq_rawdata_tx_linearity_max);
+        fts_free(thr->low_freq_rawdata_rx_linearity_max);
+        fts_free(thr->low_freq_rawdata_tx_linearity_min);
+        fts_free(thr->low_freq_rawdata_rx_linearity_min);
+
+        fts_free(thr->high_freq_rawdata_tx_linearity_max);
+        fts_free(thr->high_freq_rawdata_rx_linearity_max);
+        fts_free(thr->high_freq_rawdata_tx_linearity_min);
+        fts_free(thr->high_freq_rawdata_rx_linearity_min);
     }
 
     return 0;

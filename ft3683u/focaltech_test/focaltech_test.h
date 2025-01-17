@@ -447,6 +447,16 @@ struct mc_sc_threshold {
     int *low_freq_rawdata_max;
     int *high_freq_rawdata_min;
     int *high_freq_rawdata_max;
+
+    int *low_freq_rawdata_tx_linearity_max;
+    int *low_freq_rawdata_rx_linearity_max;
+    int *low_freq_rawdata_tx_linearity_min;
+    int *low_freq_rawdata_rx_linearity_min;
+    
+    int *high_freq_rawdata_tx_linearity_max;
+    int *high_freq_rawdata_rx_linearity_max;
+    int *high_freq_rawdata_tx_linearity_min;
+    int *high_freq_rawdata_rx_linearity_min;
 };
 
 struct mc_sc_test {
