@@ -644,7 +644,7 @@ static int cmd_device_enable(struct lwis_client *lwis_client, struct lwis_cmd_pk
 		return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 	}
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	if (lwis_dev->enabled > 0 && lwis_dev->enabled < INT_MAX) {
 		lwis_dev->enabled++;
 		lwis_client->is_enabled = true;
@@ -670,7 +670,7 @@ static int cmd_device_enable(struct lwis_client *lwis_client, struct lwis_cmd_pk
 	lwis_client->is_enabled = true;
 	lwis_dev->is_suspended = lwis_dev->power_up_to_suspend;
 exit_locked:
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	header->ret_code = ret;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 }
@@ -686,10 +686,10 @@ static int cmd_device_disable(struct lwis_client *lwis_client, struct lwis_cmd_p
 		return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 	}
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	/* Clear event states for this client */
 	lwis_client_event_states_clear(lwis_client);
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 
 	/* Flush all periodic io to complete */
 	ret = lwis_periodic_io_client_flush(lwis_client);
@@ -704,7 +704,7 @@ static int cmd_device_disable(struct lwis_client *lwis_client, struct lwis_cmd_p
 	/* Run cleanup transactions. */
 	lwis_transaction_client_cleanup(lwis_client);
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	if (lwis_dev->enabled > 1) {
 		lwis_dev->enabled--;
 		lwis_client->is_enabled = false;
@@ -728,7 +728,7 @@ static int cmd_device_disable(struct lwis_client *lwis_client, struct lwis_cmd_p
 	lwis_dev->is_suspended = false;
 	dev_info(lwis_dev->dev, "Device disabled\n");
 exit_locked:
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	header->ret_code = ret;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 }
@@ -788,12 +788,12 @@ static int cmd_device_reset(struct lwis_client *lwis_client, struct lwis_cmd_pkt
 		goto soft_reset_exit;
 
 	/* Clear event states, event queues and transactions for this client */
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	lwis_client_event_states_clear(lwis_client);
 	lwis_client_event_queue_clear(lwis_client);
 	lwis_client_error_event_queue_clear(lwis_client);
 	device_enabled = lwis_dev->enabled;
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 
 	/* Flush all periodic io to complete */
 	ret = lwis_periodic_io_client_flush(lwis_client);
@@ -813,9 +813,9 @@ static int cmd_device_reset(struct lwis_client *lwis_client, struct lwis_cmd_pkt
 		dev_warn(lwis_dev->dev,
 			 "Device is not enabled, IoEntries will not be executed in DEVICE_RESET\n");
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	lwis_device_event_states_clear_locked(lwis_dev);
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 soft_reset_exit:
 	if (k_entries)
 		lwis_allocator_free(lwis_dev, k_entries);
@@ -846,10 +846,10 @@ static int cmd_device_suspend(struct lwis_client *lwis_client, struct lwis_cmd_p
 		return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 	}
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	/* Clear event states for this client */
 	lwis_client_event_states_clear(lwis_client);
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 
 	/* Flush all periodic io to complete */
 	ret = lwis_periodic_io_client_flush(lwis_client);
@@ -864,7 +864,7 @@ static int cmd_device_suspend(struct lwis_client *lwis_client, struct lwis_cmd_p
 	/* Run cleanup transactions. */
 	lwis_transaction_client_cleanup(lwis_client);
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	ret = lwis_dev_process_power_sequence(lwis_dev, lwis_dev->suspend_sequence,
 					      /*set_active=*/false, /*skip_error=*/false);
 	if (ret) {
@@ -877,7 +877,7 @@ static int cmd_device_suspend(struct lwis_client *lwis_client, struct lwis_cmd_p
 	lwis_dev->is_suspended = true;
 	dev_info(lwis_dev->dev, "Device suspended\n");
 exit_locked:
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	header->ret_code = ret;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 }
@@ -899,7 +899,7 @@ static int cmd_device_resume(struct lwis_client *lwis_client, struct lwis_cmd_pk
 		return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 	}
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	/* Clear event queues to make sure there is no stale event from
 	 * previous session
 	 */
@@ -916,7 +916,7 @@ static int cmd_device_resume(struct lwis_client *lwis_client, struct lwis_cmd_pk
 	lwis_dev->is_suspended = false;
 	dev_info(lwis_dev->dev, "Device resumed\n");
 exit_locked:
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	header->ret_code = ret;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 }
@@ -926,10 +926,10 @@ static int cmd_dump_debug_state(struct lwis_client *lwis_client, struct lwis_cmd
 {
 	struct lwis_device *lwis_dev = lwis_client->lwis_dev;
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	/* Dump lwis device crash info */
 	lwis_debug_crash_info_dump(lwis_dev);
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 
 	header->ret_code = 0;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
@@ -947,7 +947,7 @@ static int cmd_get_device_enable_state(struct lwis_client *lwis_client, struct l
 		return -EFAULT;
 	}
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	if (lwis_dev->enabled) {
 		if (lwis_dev->is_suspended)
 			enable_state.state = DEVICE_ENABLE_STATE_SUSPEND;
@@ -956,7 +956,7 @@ static int cmd_get_device_enable_state(struct lwis_client *lwis_client, struct l
 	} else {
 		enable_state.state = DEVICE_ENABLE_STATE_DISABLE;
 	}
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	enable_state.header.ret_code = 0;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)&enable_state, sizeof(enable_state));
 }
@@ -1317,14 +1317,14 @@ static int cmd_event_dequeue(struct lwis_client *lwis_client, struct lwis_cmd_pk
 		return -EFAULT;
 	}
 
-	mutex_lock(&lwis_dev->client_lock);
+	mutex_lock(&lwis_dev->interclient_lock);
 	/* Peek at the front element of error event queue first */
 	ret = lwis_client_error_event_peek_front(lwis_client, &event);
 	if (ret == 0) {
 		is_error_event = true;
 	} else if (ret != -ENOENT) {
 		dev_err(lwis_dev->dev, "Error dequeueing error event: %d\n", ret);
-		mutex_unlock(&lwis_dev->client_lock);
+		mutex_unlock(&lwis_dev->interclient_lock);
 		header->ret_code = ret;
 		return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 	} else {
@@ -1333,7 +1333,7 @@ static int cmd_event_dequeue(struct lwis_client *lwis_client, struct lwis_cmd_pk
 		if (ret) {
 			if (ret != -ENOENT)
 				dev_err(lwis_dev->dev, "Error dequeueing event: %d\n", ret);
-			mutex_unlock(&lwis_dev->client_lock);
+			mutex_unlock(&lwis_dev->interclient_lock);
 			header->ret_code = ret;
 			return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 		}
@@ -1358,7 +1358,7 @@ static int cmd_event_dequeue(struct lwis_client *lwis_client, struct lwis_cmd_pk
 					 event->event_info.payload_size)) {
 				dev_err(lwis_dev->dev, "Failed to copy %zu bytes to user\n",
 					event->event_info.payload_size);
-				mutex_unlock(&lwis_dev->client_lock);
+				mutex_unlock(&lwis_dev->interclient_lock);
 				return -EFAULT;
 			}
 		}
@@ -1376,12 +1376,12 @@ static int cmd_event_dequeue(struct lwis_client *lwis_client, struct lwis_cmd_pk
 
 		if (ret) {
 			dev_err(lwis_dev->dev, "Error dequeueing event: %d\n", ret);
-			mutex_unlock(&lwis_dev->client_lock);
+			mutex_unlock(&lwis_dev->interclient_lock);
 			header->ret_code = ret;
 			return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 		}
 	}
-	mutex_unlock(&lwis_dev->client_lock);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	/* Now let's copy the actual info struct back to user */
 	info.header.ret_code = err;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)&info, sizeof(info));
@@ -2177,9 +2177,9 @@ static int ioctl_handle_cmd_pkt(struct lwis_client *lwis_client,
 			return -EFAULT;
 		}
 
-		mutex_lock(&lwis_dev->client_lock);
+		mutex_lock(&lwis_dev->interclient_lock);
 		device_disabled = (lwis_dev->enabled == 0);
-		mutex_unlock(&lwis_dev->client_lock);
+		mutex_unlock(&lwis_dev->interclient_lock);
 		if (lwis_dev->type != DEVICE_TYPE_TOP && device_disabled &&
 		    (header.cmd_id == LWIS_CMD_ID_DMA_BUFFER_ALLOC ||
 		     header.cmd_id == LWIS_CMD_ID_REG_IO ||
