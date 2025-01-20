@@ -1852,7 +1852,7 @@ static int max1720x_get_cycle_count_offset(struct max1720x_chip *chip)
 static int max1720x_get_cycle_count(struct max1720x_chip *chip)
 {
 	/* return 0 if cycles register not restored or fixed */
-	if (!chip->cycle_reg_ok)
+	if (!chip->cycle_reg_ok && chip->gauge_type == MAX_M5_GAUGE_TYPE)
 		return 0;
 
 	return chip->cycle_count;
@@ -5294,6 +5294,9 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 		chip->reg_prop_capacity_raw = MAX1720X_REPSOC;
 	}
 
+	/* MW has its own update flow */
+	if (chip->gauge_type != MAX_M5_GAUGE_TYPE)
+		max1720x_update_cycle_count(chip);
 
 	max1720x_restore_battery_qh_capacity(chip);
 
