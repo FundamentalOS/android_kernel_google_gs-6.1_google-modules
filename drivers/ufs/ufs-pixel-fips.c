@@ -984,12 +984,10 @@ static int __init ufs_pixel_fips_init(void)
 	}
 	pr_info("Verify self HMAC passed\n");
 
-	ret = use_hw_keys ? register_trace_android_vh_ufs_fill_prdt(
-				    ufs_pixel_fips_crypto_fill_prdt_hw_key_mode,
-				    NULL) :
-			    register_trace_android_vh_ufs_fill_prdt(
-				    ufs_pixel_fips_crypto_fill_prdt_sw_key_mode,
-				    NULL);
+	ret = register_trace_android_vh_ufs_fill_prdt(
+		use_hw_keys ? ufs_pixel_fips_crypto_fill_prdt_hw_key_mode :
+			      ufs_pixel_fips_crypto_fill_prdt_sw_key_mode,
+		NULL);
 	if (ret)
 		pr_err("Failed to register ufs_pixel_fips_crypto_fill_prdt\n");
 
