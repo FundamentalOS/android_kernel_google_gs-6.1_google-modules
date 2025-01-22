@@ -1306,13 +1306,16 @@ static int cmd_event_control_set(struct lwis_client *lwis_client, struct lwis_cm
 		}
 	}
 
+	mutex_lock(&lwis_dev->interclient_lock);
 	if (lwis_dev->irqs) {
 		ret = lwis_interrupt_write_combined_mask_value(lwis_dev->irqs);
 		if (ret) {
 			dev_err(lwis_dev->dev, "Failed to write combined mask value: %d\n", ret);
-			goto exit;
+			goto exit_locked;
 		}
 	}
+exit_locked:
+	mutex_unlock(&lwis_dev->interclient_lock);
 exit:
 	kfree(k_event_controls);
 	header->ret_code = ret;
@@ -2080,16 +2083,12 @@ static int handle_cmd_pkt(struct lwis_client *lwis_client, struct lwis_cmd_pkt *
 				    (struct lwis_cmd_io_entries_v2 __user *)user_msg);
 		break;
 	case LWIS_CMD_ID_EVENT_CONTROL_GET:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_event_control_get(lwis_client, header,
 					    (struct lwis_cmd_event_control_get __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_EVENT_CONTROL_SET:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_event_control_set(lwis_client, header,
 					    (struct lwis_cmd_event_control_set __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_EVENT_DEQUEUE:
 		ret = cmd_event_dequeue(lwis_client, header,
