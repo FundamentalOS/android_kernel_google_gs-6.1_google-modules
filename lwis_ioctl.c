@@ -1409,14 +1409,20 @@ static int cmd_fake_event_inject(struct lwis_client *lwis_client, struct lwis_cm
 {
 	int ret = 0;
 	struct lwis_device *lwis_dev = lwis_client->lwis_dev;
-	struct lwis_interrupt_list *list = lwis_dev->irqs;
 	int rt_irq;
 
-	if (lwis_dev->type != DEVICE_TYPE_TEST || list->count != TEST_DEVICE_IRQ_CNT)
+	mutex_lock(&lwis_dev->interclient_lock);
+	struct lwis_interrupt_list *list = lwis_dev->irqs;
+
+	if (lwis_dev->type != DEVICE_TYPE_TEST || list->count != TEST_DEVICE_IRQ_CNT) {
+		mutex_unlock(&lwis_dev->interclient_lock);
 		return -EINVAL;
+	}
 
 	/* Fake Event Injection */
 	rt_irq = lwis_fake_event_inject(&list->irq[0]);
+	mutex_unlock(&lwis_dev->interclient_lock);
+
 	if (rt_irq != TEST_DEVICE_FAKE_INJECTION_IRQ) {
 		dev_err(lwis_dev->dev, "Error fake injection: rt_irq = %d, expect rt_irq = %d\n",
 			rt_irq, TEST_DEVICE_FAKE_INJECTION_IRQ);
@@ -1649,7 +1655,9 @@ static int cmd_periodic_io_submit(struct lwis_client *client, struct lwis_cmd_pk
 	if (lwis_dev->type == DEVICE_TYPE_TOP)
 		create_top_device_worker_thread(client);
 
+	mutex_lock(&client->lock);
 	ret = lwis_periodic_io_submit(client, k_periodic_io);
+
 	k_periodic_io_info.info = k_periodic_io->info;
 	if (ret) {
 		k_periodic_io_info.info.id = LWIS_ID_INVALID;
@@ -1657,6 +1665,7 @@ static int cmd_periodic_io_submit(struct lwis_client *client, struct lwis_cmd_pk
 		goto err_exit;
 	}
 
+	mutex_unlock(&client->lock);
 	k_periodic_io_info.header.cmd_id = header->cmd_id;
 	k_periodic_io_info.header.next = header->next;
 	k_periodic_io_info.header.ret_code = ret;
@@ -1664,6 +1673,7 @@ static int cmd_periodic_io_submit(struct lwis_client *client, struct lwis_cmd_pk
 				sizeof(k_periodic_io_info));
 
 err_exit:
+	mutex_unlock(&client->lock);
 	header->ret_code = ret;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
 }
@@ -1680,7 +1690,9 @@ static int cmd_periodic_io_cancel(struct lwis_client *client, struct lwis_cmd_pk
 		return -EFAULT;
 	}
 
+	mutex_lock(&client->lock);
 	ret = lwis_periodic_io_cancel(client, k_msg.id);
+	mutex_unlock(&client->lock);
 	if (ret) {
 		dev_err_ratelimited(lwis_dev->dev, "Failed to clear periodic io id 0x%llx\n",
 				    k_msg.id);
@@ -2103,16 +2115,12 @@ static int handle_cmd_pkt(struct lwis_client *lwis_client, struct lwis_cmd_pkt *
 					     (struct lwis_cmd_transaction_cancel __user *)user_msg);
 		break;
 	case LWIS_CMD_ID_PERIODIC_IO_SUBMIT:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_periodic_io_submit(lwis_client, header,
 					     (struct lwis_cmd_periodic_io_info __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_PERIODIC_IO_CANCEL:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_periodic_io_cancel(lwis_client, header,
 					     (struct lwis_cmd_periodic_io_cancel __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_DPM_CLK_UPDATE:
 		ret = cmd_dpm_clk_update(lwis_dev, header,
@@ -2143,10 +2151,8 @@ static int handle_cmd_pkt(struct lwis_client *lwis_client, struct lwis_cmd_pkt *
 				       (struct lwis_cmd_fence_create __user *)user_msg);
 		break;
 	case LWIS_CMD_ID_EVENT_INJECTION:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_fake_event_inject(lwis_client, header,
 					    (struct lwis_cmd_pkt __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	default:
 		header->ret_code = -ENOSYS;
