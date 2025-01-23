@@ -1722,7 +1722,9 @@ static int cmd_dpm_clk_update(struct lwis_device *lwis_dev, struct lwis_cmd_pkt 
 		goto exit;
 	}
 
+	mutex_lock(&lwis_dev->interclient_lock);
 	ret = lwis_dpm_update_clock(lwis_dev, clk_settings, k_msg.settings.num_settings);
+	mutex_unlock(&lwis_dev->interclient_lock);
 	kfree(clk_settings);
 exit:
 	header->ret_code = ret;
@@ -1768,6 +1770,7 @@ static int cmd_dpm_qos_update(struct lwis_device *lwis_dev, struct lwis_cmd_pkt 
 		goto exit;
 	}
 
+	mutex_lock(&lwis_dev->interclient_lock);
 	for (i = 0; i < k_msg.reqs.num_settings; i++) {
 		struct lwis_qos_setting_v3 k_qos_setting_v3;
 
@@ -1778,10 +1781,12 @@ static int cmd_dpm_qos_update(struct lwis_device *lwis_dev, struct lwis_cmd_pkt 
 		if (ret) {
 			dev_err(lwis_dev->dev, "Failed to apply qos setting, ret: %d\n", ret);
 			kfree(k_qos_settings);
-			goto exit;
+			goto exit_locked;
 		}
 	}
 	kfree(k_qos_settings);
+exit_locked:
+	mutex_unlock(&lwis_dev->interclient_lock);
 exit:
 	header->ret_code = ret;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)header, sizeof(*header));
@@ -1930,7 +1935,9 @@ static int cmd_dpm_get_clock(struct lwis_device *lwis_dev, struct lwis_cmd_pkt *
 		goto err_exit;
 	}
 
+	mutex_lock(&target_device->interclient_lock);
 	current_setting.setting.frequency_hz = (int64_t)lwis_dpm_read_clock(target_device);
+	mutex_unlock(&target_device->interclient_lock);
 	current_setting.header.ret_code = 0;
 	return copy_pkt_to_user(lwis_dev, u_msg, (void *)&current_setting, sizeof(current_setting));
 
@@ -2108,34 +2115,24 @@ static int handle_cmd_pkt(struct lwis_client *lwis_client, struct lwis_cmd_pkt *
 		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_DPM_CLK_UPDATE:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_dpm_clk_update(lwis_dev, header,
 					 (struct lwis_cmd_dpm_clk_update __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_DPM_QOS_UPDATE:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_dpm_qos_update(lwis_dev, header,
 					 (struct lwis_cmd_dpm_qos_update __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_DPM_QOS_UPDATE_V2:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_dpm_qos_update_v2(lwis_dev, header,
 					    (struct lwis_cmd_dpm_qos_update_v2 __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_DPM_QOS_UPDATE_V3:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_dpm_qos_update_v3(lwis_dev, header,
 					    (struct lwis_cmd_dpm_qos_update_v3 __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_DPM_GET_CLOCK:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_dpm_get_clock(lwis_dev, header,
 					(struct lwis_cmd_dpm_clk_get __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_FENCE_CREATE_V0:
 		ret = cmd_fence_create_v0(lwis_dev, header,
