@@ -1179,8 +1179,10 @@ static int cmd_reg_io(struct lwis_device *lwis_dev, struct lwis_cmd_pkt *header,
 		goto reg_io_exit;
 
 	/* Walk through and execute the entries */
+	mutex_lock(&lwis_dev->interclient_lock);
 	ret = synchronous_process_io_entries(lwis_dev, k_msg.io.num_io_entries, k_entries,
 					     k_msg.io.io_entries, k_msg.skip_error);
+	mutex_unlock(&lwis_dev->interclient_lock);
 
 reg_io_exit:
 	if (k_entries)
@@ -1212,9 +1214,11 @@ static int cmd_reg_io_v2(struct lwis_device *lwis_dev, struct lwis_cmd_pkt *head
 	if (ret)
 		goto reg_io_exit;
 
+	mutex_lock(&lwis_dev->interclient_lock);
 	/* Walk through and execute the entries */
 	ret = synchronous_process_io_entries(lwis_dev, k_msg.io.num_io_entries, k_entries,
 					     k_msg.io.io_entries, k_msg.skip_error);
+	mutex_unlock(&lwis_dev->interclient_lock);
 
 reg_io_exit:
 	if (k_entries)
@@ -2051,15 +2055,11 @@ static int handle_cmd_pkt(struct lwis_client *lwis_client, struct lwis_cmd_pkt *
 					  (struct lwis_cmd_dma_buffer_free __user *)user_msg);
 		break;
 	case LWIS_CMD_ID_REG_IO:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_reg_io(lwis_dev, header, (struct lwis_cmd_io_entries __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_REG_IO_V2:
-		mutex_lock(&lwis_client->lock);
 		ret = cmd_reg_io_v2(lwis_dev, header,
 				    (struct lwis_cmd_io_entries_v2 __user *)user_msg);
-		mutex_unlock(&lwis_client->lock);
 		break;
 	case LWIS_CMD_ID_EVENT_CONTROL_GET:
 		mutex_lock(&lwis_client->lock);
