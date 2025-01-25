@@ -675,7 +675,6 @@ static void google_irq_triggered_work(struct work_struct *work)
 
 	if (zone->irq_type == IF_PMIC) {
 		update_irq_start_times(bcl_dev, idx);
-		bcl_req_vimon_conv(bcl_dev, idx);
 	}
 
 	if (idx == BATOILO && bcl_dev->config_modem)
@@ -1617,6 +1616,13 @@ static int google_set_intf_pmic(struct bcl_device *bcl_dev, struct platform_devi
 		bcl_dev->vimon_dev = max77779_get_dev(bcl_dev->device, "google,vimon");
 		if (!bcl_dev->vimon_dev) {
 			dev_err(bcl_dev->device, "Cannot find max77779 vimon\n");
+			return -ENODEV;
+		}
+		if (!bcl_dev->vimon_pwr_loop_en)
+			return 0;
+		ret = max77779_vimon_register_callback(bcl_dev);
+		if (ret < 0) {
+			dev_err(bcl_dev->device, "Cannot register max77779 vimon\n");
 			return -ENODEV;
 		}
 #endif

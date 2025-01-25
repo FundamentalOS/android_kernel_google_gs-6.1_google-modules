@@ -41,10 +41,7 @@
 #define bcl_cb_clr_irq(bcl, v) (((bcl)->ifpmic == MAX77759) ? \
         max77759_clr_irq(bcl, v) : max77779_clr_irq(bcl, v))
 #define bcl_vimon_read(bcl) (((bcl)->ifpmic == MAX77759) ? \
-       max77759_vimon_read(bcl) : max77779_vimon_read(bcl))
-#define bcl_req_vimon_conv(bcl, idx) (((bcl)->ifpmic == MAX77759) ? \
-				max77759_req_vimon_conv(bcl, idx) :\
-				max77779_req_vimon_conv(bcl, idx))
+	max77759_vimon_read(bcl) : max77779_vimon_read(bcl))
 
 #define DELTA_5MS			(5 * NSEC_PER_MSEC)
 #define DELTA_10MS			(10 * NSEC_PER_MSEC)
@@ -527,7 +524,7 @@ int google_pwr_loop_trigger_mitigation(struct bcl_device *bcl_dev);
 int max77759_vimon_read(struct bcl_device *bcl_dev);
 int max77779_vimon_read(struct bcl_device *bcl_dev);
 int max77759_req_vimon_conv(struct bcl_device *bcl_dev, int idx);
-int max77779_req_vimon_conv(struct bcl_device *bcl_dev, int idx);
+int max77779_vimon_register_callback(struct bcl_device *bcl_dev);
 
 #if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 int max77779_adjust_bat_open_to(struct bcl_device *bcl_dev, bool enable);
