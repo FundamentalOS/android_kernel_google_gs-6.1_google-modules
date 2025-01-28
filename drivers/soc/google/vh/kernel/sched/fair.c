@@ -2925,9 +2925,14 @@ void rvh_enqueue_task_fair_pixel_mod(void *data, struct rq *rq, struct task_stru
 		return;
 
 	if (!task_on_rq_migrating(p)) {
+		u64 dequeue_time_ns = sched_clock() - vp->last_dequeue;
+		bool dequeued_enough = dequeue_time_ns >= NSEC_PER_MSEC;
+		bool util_reduced;
+
 		vp->prev_sum_exec_runtime = p->se.sum_exec_runtime;
-		vp->util_enqueued = task_util(p);
 		vp->ignore_util_est_update = true;
+		vp->util_enqueued = task_util(p);
+		vp->prev_util = vp->util_dequeued;
 
 		/*
 		 * If the utilization is rising, keep accounting for delta_exec
@@ -2943,7 +2948,9 @@ void rvh_enqueue_task_fair_pixel_mod(void *data, struct rq *rq, struct task_stru
 		 * util_est we're building up, so set a flag to ignore it. But
 		 * allow us to latch back to util_avg once we have settled.
 		 */
-		if (vp->util_enqueued < vp->prev_util_enqueued) {
+		util_reduced = abs(vp->util_dequeued - vp->prev_util_dequeued) <= UTIL_EST_MARGIN;
+		util_reduced |= vp->util_dequeued + UTIL_EST_MARGIN <= vp->prev_util_dequeued;
+		if (dequeued_enough && util_reduced) {
 			vp->delta_exec = 0;
 			vp->ignore_util_est_update = false;
 		}
@@ -2985,7 +2992,9 @@ void rvh_dequeue_task_fair_pixel_mod(void *data, struct rq *rq, struct task_stru
 
 	if (!task_on_rq_migrating(p)) {
 		vp->prev_sum_exec_runtime = p->se.sum_exec_runtime;
-		vp->prev_util_enqueued = vp->util_enqueued;
+		vp->prev_util_dequeued = vp->util_dequeued;
+		vp->util_dequeued = task_util(p);
+		vp->last_dequeue = sched_clock();
 	}
 
 	if (get_adpf(p, true))

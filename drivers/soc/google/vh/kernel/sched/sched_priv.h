@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+#include <linux/sched/clock.h>
 #include "../../include/sched.h"
 #include "binder_internal.h"
 #include <asm/atomic.h>
@@ -762,7 +763,8 @@ static inline void init_vendor_task_struct(struct vendor_task_struct *v_tsk)
 	v_tsk->runnable_start_ns = -1;
 	v_tsk->delta_exec = 0;
 	v_tsk->util_enqueued = 0;
-	v_tsk->prev_util_enqueued = 0;
+	v_tsk->util_dequeued = 0;
+	v_tsk->prev_util_dequeued = 0;
 	v_tsk->ignore_util_est_update = false;
 	v_tsk->rampup_multiplier = 1;
 	v_tsk->sched_qos_profile = SCHED_QOS_NONE;
@@ -1106,12 +1108,15 @@ static inline void __update_util_est_invariance(struct rq *rq,
 {
 	struct vendor_task_struct *vp = get_vendor_task_struct(p);
 	unsigned long se_enqueued, cfs_rq_enqueued, new_util_est;
+	unsigned long util = task_util(p);
 	struct cfs_rq *cfs_rq = &rq->cfs;
 	struct sched_entity *se = &p->se;
 	unsigned int rampup_multiplier;
-	u64 delta_exec;
 	int __maybe_unused group;
 	unsigned long irqflags;
+	u64 dequeue_time_ns;
+	u64 delta_exec;
+	bool do_update;
 
 	if (!static_branch_likely(&auto_dvfs_headroom_enable))
 		return;
@@ -1133,11 +1138,29 @@ static inline void __update_util_est_invariance(struct rq *rq,
 	vp->delta_exec += delta_exec;
 	vp->prev_sum_exec_runtime = se->sum_exec_runtime;
 
-	/* Is the task util increasing? */
-	if (task_util(p) < vp->util_enqueued + UTIL_EST_MARGIN)
-		return;
-
+	dequeue_time_ns = sched_clock() - vp->last_dequeue;
 	new_util_est = approximate_util_avg(vp->util_enqueued, vp->delta_exec);
+
+	/* Is the task util increasing? */
+	do_update = util > vp->util_dequeued + UTIL_EST_MARGIN;
+
+	/*
+	 * Due to invariance util can be stuck at the same value for extended
+	 * period of time. Check if this is the case and try to rampup quickly
+	 * if it is. To avoid triggering the logic against higher util values
+	 * that naturally can linger, check if new_util_est has actually grown
+	 * too.
+	 */
+	do_update |= util == vp->prev_util &&
+		dequeue_time_ns >= NSEC_PER_MSEC && new_util_est > vp->util_dequeued + UTIL_EST_MARGIN;
+
+	if (util != vp->prev_util) {
+		vp->last_dequeue = sched_clock();
+		vp->prev_util = util;
+	}
+
+	if (!do_update)
+		return;
 
 	se_enqueued = READ_ONCE(se->avg.util_est.enqueued) & ~UTIL_AVG_UNCHANGED;
 	se_enqueued = max_t(unsigned long, se->avg.util_est.ewma, se_enqueued);
