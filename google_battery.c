@@ -4209,25 +4209,27 @@ static int hist_get_index(int cycle_count, const struct batt_drv *batt_drv)
 static int bhi_cap_data_update(struct bhi_data *bhi_data, struct batt_drv *batt_drv)
 {
 	struct power_supply *fg_psy = batt_drv->fg_psy;
-	int rc, rc_fcr;
+	int rc, rc_fcr, tmp_cap_uah;
 	const int fade_rate = GPSY_GET_INT_PROP(fg_psy, GBMS_PROP_CAPACITY_FADE_RATE, &rc);
 	const int fade_rate_fcr =
 			GPSY_GET_INT_PROP(fg_psy, GBMS_PROP_CAPACITY_FADE_RATE_FCR, &rc_fcr);
-	const int designcap = GPSY_GET_PROP(fg_psy, POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN);
+	const int designcap_uah = GPSY_GET_PROP(fg_psy, POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN);
+	const int full_capacity = 100;
+	const int pack_capacity_uah = bhi_data->pack_capacity * 1000;
 
 	/* GBMS_PROP_CAPACITY_FADE_RATE is in percent */
-	if (designcap < 0)
+	if (designcap_uah < 0)
 		return -ENODATA;
 	if (bhi_data->pack_capacity <= 0)
 		return -EINVAL;
-	if (rc && rc_fcr)
+	if (rc || rc_fcr)
 		return -EINVAL;
 
-	if (rc == 0)
-		bhi_data->capacity_fade = fade_rate * designcap / (bhi_data->pack_capacity * 1000);
-	if (rc_fcr == 0)
-		bhi_data->capacity_fade_fcr =
-			fade_rate_fcr * designcap / (bhi_data->pack_capacity * 1000);
+	tmp_cap_uah = (full_capacity - fade_rate) * designcap_uah;
+	bhi_data->capacity_fade = full_capacity - (tmp_cap_uah / pack_capacity_uah);
+
+	tmp_cap_uah = (full_capacity - fade_rate_fcr) * designcap_uah;
+	bhi_data->capacity_fade_fcr = full_capacity - (tmp_cap_uah / pack_capacity_uah);
 
 	pr_debug("%s: cap_fade=%d, cap_fade_fcr=%d, cycle_count=%d\n", __func__,
 		 bhi_data->capacity_fade, bhi_data->capacity_fade_fcr, bhi_data->cycle_count);
