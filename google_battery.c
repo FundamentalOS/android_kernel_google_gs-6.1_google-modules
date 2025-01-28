@@ -4934,7 +4934,7 @@ static int batt_init_aafv_profile(struct batt_drv *batt_drv)
 static u32 aafv_update_state(struct batt_drv *batt_drv)
 {
 	int cycle_count = batt_drv->aacc;
-	int offset, aafv_offset = 0;
+	int aafv_offset = 0;
 
 	mutex_lock(&batt_drv->aacp_state_lock);
 
@@ -4945,22 +4945,23 @@ static u32 aafv_update_state(struct batt_drv *batt_drv)
 		cycle_count = batt_drv->fake_aafv_cc;
 
 	if (batt_drv->aafv_apply_max)
-		offset = batt_drv->aafv_max_offset;
+		aafv_offset = batt_drv->aafv_max_offset;
 	else if (cycle_count >= batt_drv->aafv_cliff_cycle)
-		offset = batt_drv->aafv_cliff_offset;
+		aafv_offset = batt_drv->aafv_cliff_offset;
 	else
-		offset = gbms_aafv_get_offset(&batt_drv->chg_profile, cycle_count);
+		aafv_offset = gbms_aafv_get_offset(&batt_drv->chg_profile, cycle_count);
 
 	batt_drv->aafv_state = BATT_AAFV_ENABLED;
-	aafv_offset = offset * 1000;
 
 exit_done:
 	gbms_logbuffer_prlog(batt_drv->bd_log, LOGLEVEL_INFO, 0, LOGLEVEL_INFO,
 			     "AAFV: of=%d, cc=%d, st=%d, clf_c=%d, clf_o=%d",
-			     aafv_offset / 1000, cycle_count, batt_drv->aafv_state,
-			     batt_drv->aafv_cliff_cycle, batt_drv->aafv_cliff_offset);
+			     aafv_offset, cycle_count,
+			     batt_drv->aafv_state, batt_drv->aafv_cliff_cycle,
+			     batt_drv->aafv_cliff_offset);
 
-	batt_drv->chg_profile.aafv_offset = (u32)aafv_offset;
+	aafv_offset *= GBMS_AAFV_VOLTAGE_OFFSET_SCALE;
+	batt_drv->chg_profile.aafv_offset = (u32)(aafv_offset);
 
 	mutex_unlock(&batt_drv->aacp_state_lock);
 
