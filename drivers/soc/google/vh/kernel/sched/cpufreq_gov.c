@@ -1474,18 +1474,19 @@ response_time_ms_store(struct gov_attr_set *attr_set, const char *buf, size_t co
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
 	struct sugov_policy *sg_policy;
-	unsigned int response_time_ms;
+	int response_time_ms;
 
-	if (kstrtouint(buf, 10, &response_time_ms))
+	if (kstrtoint(buf, 10, &response_time_ms))
 		return -EINVAL;
-
-	/* XXX need special handling for high values? */
 
 	tunables->response_time_ms = response_time_ms;
 
 	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook) {
 		if (sg_policy->tunables == tunables) {
-			sugov_update_response_time_mult(sg_policy, false);
+			if (response_time_ms <= 0)
+				tunables->response_time_ms = sg_policy->freq_response_time_ms;
+
+			sugov_update_response_time_mult(sg_policy, sugov_em_profile_changed(sg_policy));
 			break;
 		}
 	}
