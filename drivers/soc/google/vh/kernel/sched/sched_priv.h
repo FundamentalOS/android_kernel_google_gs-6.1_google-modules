@@ -692,15 +692,20 @@ static inline bool get_prefer_high_cap(struct task_struct *p)
 static inline unsigned int get_rampup_multiplier(struct task_struct *p)
 {
 	struct vendor_task_struct *vp = get_vendor_task_struct(p);
+	bool rampup_qos_user_defined =
+		vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT);
+
+	if (!vg[vp->group].qos_rampup_multiplier_enable)
+		return vg[vp->group].rampup_multiplier;
 
 	if (get_adpf(p, true))
-		return vendor_sched_adpf_rampup_multiplier;
-
-	if (vg[vp->group].qos_rampup_multiplier_enable &&
-	    (vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_RAMPUP_MULTIPLIER_BIT)))
-		return vp->rampup_multiplier;
+		return rampup_qos_user_defined
+			? max(vp->rampup_multiplier, vendor_sched_adpf_rampup_multiplier)
+			: vendor_sched_adpf_rampup_multiplier;
 	else
-		return vg[vp->group].rampup_multiplier;
+		return rampup_qos_user_defined
+			? vp->rampup_multiplier
+			: vg[vp->group].rampup_multiplier;
 }
 
 static inline void set_auto_prefer_high_cap(struct task_struct *p, bool val)
