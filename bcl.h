@@ -49,6 +49,7 @@
 #define MILLI_TO_MICRO			1000
 #define IRQ_ENABLE_DELAY_MS		50
 #define NOT_USED			9999
+#define TIMEOUT_1S			1000
 #define TIMEOUT_5S			5000
 #define TIMEOUT_5000US			5000
 #define TIMEOUT_10000US			10000
@@ -78,6 +79,7 @@
 #define MAX77779_VIMON_NV_PRE_LSB 78122
 #define MAX77779_VIMON_NA_PRE_LSB 781250
 #define BAT_KTIMER_LIMIT_MS 34
+#define LAST_CURR_RD_CNT_MAX 10
 
 #if IS_ENABLED(CONFIG_SOC_GS101)
 #define MAIN_OFFSRC1 S2MPG10_PM_OFFSRC
@@ -373,6 +375,7 @@ struct bcl_device {
 	struct bcl_core_conf core_conf[SUBSYSTEM_SOURCE_MAX];
 	struct bcl_cpu_buff_conf cpu_buff_conf[CPU_CLUSTER_MAX];
 	struct notifier_block cpu_nb;
+	struct delayed_work rd_last_curr_work;
 
 	bool batt_psy_initialized;
 	bool enabled;
@@ -384,6 +387,7 @@ struct bcl_device {
 	unsigned int pwronsrc;
 	unsigned int irq_delay;
 	unsigned int last_current;
+	unsigned int last_curr_rd_retry_cnt;
 
 	unsigned int vdroop1_pin;
 	unsigned int vdroop2_pin;

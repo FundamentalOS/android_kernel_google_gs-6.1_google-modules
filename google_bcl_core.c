@@ -448,6 +448,8 @@ static int google_bcl_remove_thermal(struct bcl_device *bcl_dev)
 	cpu_pm_unregister_notifier(&bcl_dev->cpu_nb);
 	if (bcl_dev->non_monitored_module_ids != NULL)
 		kfree(bcl_dev->non_monitored_module_ids);
+	if (bcl_dev->rd_last_curr_work.work.func != NULL)
+		cancel_delayed_work_sync(&bcl_dev->rd_last_curr_work);
 	google_bcl_remove_data_logging(bcl_dev);
 #if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 	google_bcl_remove_votable(bcl_dev);
@@ -1230,6 +1232,41 @@ static void google_bcl_parse_qos(struct bcl_device *bcl_dev)
 	bcl_dev->throttle = false;
 }
 
+static int google_bcl_update_last_curr(struct bcl_device *bcl_dev)
+{
+	int ret;
+	u16 readout;
+
+	bcl_dev->last_curr_rd_retry_cnt--;
+	ret = max77779_external_fg_reg_read(bcl_dev->fg_pmic_dev,
+					    MAX77779_FG_MaxMinCurr,
+					    &readout);
+	if (ret == -EAGAIN)
+		return ret;
+
+	if (ret < 0) {
+		dev_err(bcl_dev->device, "bcl read of last current failed: %d\n", ret);
+		return ret;
+	}
+
+	readout &= MAX77779_FG_MaxMinCurr_MAXCURR_MASK;
+	readout = readout >> MAX77779_FG_MaxMinCurr_MAXCURR_SHIFT;
+	bcl_dev->last_current = readout;
+	dev_dbg(bcl_dev->device, "LAST CURRENT: %#x\n", bcl_dev->last_current);
+
+	return ret;
+}
+
+static void google_bcl_rd_last_curr(struct work_struct *work)
+{
+	struct bcl_device *bcl_dev = container_of(work, struct bcl_device,
+						  rd_last_curr_work.work);
+
+	if (google_bcl_update_last_curr(bcl_dev) == -EAGAIN && bcl_dev->last_curr_rd_retry_cnt > 0)
+		schedule_delayed_work(&bcl_dev->rd_last_curr_work,
+				      msecs_to_jiffies(TIMEOUT_5S));
+}
+
 static int intf_pmic_init(struct bcl_device *bcl_dev)
 {
 	int ret;
@@ -1466,7 +1503,6 @@ static int google_set_intf_pmic(struct bcl_device *bcl_dev, struct platform_devi
 {
 	int ret = 0;
 	u32 retval;
-	u16 readout;
 	struct device_node *np = bcl_dev->device->of_node;
 
 	ret = of_property_read_u32(np, "google,ifpmic", &retval);
@@ -1487,6 +1523,7 @@ static int google_set_intf_pmic(struct bcl_device *bcl_dev, struct platform_devi
 		bcl_dev->pmic_irq = ret;
 	}
 
+	INIT_DELAYED_WORK(&bcl_dev->rd_last_curr_work, google_bcl_rd_last_curr);
 
 	if (np) {
 		ret = of_property_read_u32(np, "batoilo_lower", &retval);
@@ -1607,16 +1644,11 @@ static int google_set_intf_pmic(struct bcl_device *bcl_dev, struct platform_devi
 		}
 
 		/* Readout last current */
-		ret = max77779_external_fg_reg_read(bcl_dev->fg_pmic_dev,
-						    MAX77779_FG_MaxMinCurr,
-						    &readout);
-		if (ret < 0)
-			dev_err(bcl_dev->device, "bcl read of last current failed: %d\n", ret);
+		bcl_dev->last_curr_rd_retry_cnt = LAST_CURR_RD_CNT_MAX;
+		if (google_bcl_update_last_curr(bcl_dev) == -EAGAIN)
+			schedule_delayed_work(&bcl_dev->rd_last_curr_work,
+					      msecs_to_jiffies(TIMEOUT_5S));
 
-		readout &= MAX77779_FG_MaxMinCurr_MAXCURR_MASK;
-		readout = readout >> MAX77779_FG_MaxMinCurr_MAXCURR_SHIFT;
-		bcl_dev->last_current = readout;
-		dev_dbg(bcl_dev->device, "LAST CURRENT: %#x\n", bcl_dev->last_current);
 #if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 		bcl_dev->vimon_dev = max77779_get_dev(bcl_dev->device, "google,vimon");
 		if (!bcl_dev->vimon_dev) {
