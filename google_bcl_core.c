@@ -261,6 +261,7 @@ static void google_bcl_release_throttling(struct bcl_zone *zone)
 	trace_bcl_zone_stats(zone, 0);
 
 	if (zone->irq_type == IF_PMIC) {
+		bcl_cb_clr_irq(bcl_dev, zone->idx);
 		update_irq_end_times(bcl_dev, zone->idx);
 #if IS_ENABLED(CONFIG_SOC_ZUMAPRO)
 		if (zone->idx >= UVLO1 && zone->idx <= BATOILO2 && bcl_dev->ifpmic == MAX77779)
