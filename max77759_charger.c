@@ -2957,7 +2957,7 @@ static irqreturn_t max77759_chgr_irq(int irq, void *client)
 		return IRQ_NONE;
 	}
 
-	pr_debug("INT : %02x %02x\n", chg_int[0], chg_int[1]);
+	dev_info_ratelimited(data->dev, "INT : %02x %02x\n", chg_int[0], chg_int[1]);
 
 	/* No need to monitor wcin_inlim when on USB */
 	if (chg_int[0] & MAX77759_CHG_INT_CHGIN_I_MASK) {
