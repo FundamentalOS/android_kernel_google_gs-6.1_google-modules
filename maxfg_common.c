@@ -37,7 +37,7 @@ void dump_model(struct device *dev, u16 model_start, u16 *data, int count)
 int maxfg_get_fade_rate(struct device *dev, int bhi_fcn_count, int *fade_rate, enum gbms_property p)
 {
 	struct maxfg_eeprom_history hist = { 0 };
-	int ret, ratio, i, fcn_sum = 0, fcr_sum = 0, hist_max_size;
+	int ret, ratio, i, fc_sum = 0, fc = 0, hist_max_size, max = 0, min = 0;
 	u16 hist_idx;
 
 	ret = gbms_storage_read(GBMS_TAG_HCNT, &hist_idx, sizeof(hist_idx));
@@ -57,6 +57,9 @@ int maxfg_get_fade_rate(struct device *dev, int bhi_fcn_count, int *fade_rate, e
 	/* no fade for new battery (less than 30 cycles) */
 	if (hist_idx < bhi_fcn_count)
 		return 0;
+
+	if (hist_idx > bhi_fcn_count + BHI_CAP_FILTER_VALUE_COUNT)
+		bhi_fcn_count += BHI_CAP_FILTER_VALUE_COUNT;
 
 	while (hist_idx >= hist_max_size && bhi_fcn_count > 1) {
 		hist_idx--;
@@ -79,13 +82,29 @@ int maxfg_get_fade_rate(struct device *dev, int bhi_fcn_count, int *fade_rate, e
 			return -EINVAL;
 
 		/* hist.fullcapnom = fullcapnom * 800 / designcap */
-		fcn_sum += hist.fullcapnom;
-		fcr_sum += hist.fullcaprep;
+		fc = p == GBMS_PROP_CAPACITY_FADE_RATE_FCR ? hist.fullcaprep : hist.fullcapnom;
+
+		fc_sum += fc;
+
+		if (max == 0 || min == 0)
+			max = min = fc;
+
+		if (fc < min)
+			min = fc;
+
+		if (fc > max)
+			max = fc;
+
+	}
+
+	if (bhi_fcn_count > BHI_CAP_FILTER_VALUE_COUNT) {
+		/* filter max/min values */
+		fc_sum = fc_sum - min - max;
+		bhi_fcn_count -= BHI_CAP_FILTER_VALUE_COUNT;
 	}
 
 	/* convert from maxfg_eeprom_history to percent */
-	ratio = (p == GBMS_PROP_CAPACITY_FADE_RATE_FCR) ? fcr_sum / (bhi_fcn_count * 8)
-							: fcn_sum / (bhi_fcn_count * 8);
+	ratio = fc_sum / (bhi_fcn_count * 8);
 
 	/* allow negative value when capacity larger than design */
 	*fade_rate = 100 - ratio;

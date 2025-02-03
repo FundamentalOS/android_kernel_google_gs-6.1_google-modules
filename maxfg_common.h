@@ -25,6 +25,9 @@
 #define DEFAULT_BATTERY_ID_RETRIES	20
 #define DUMMY_BATTERY_ID		170
 
+#define BHI_CAP_FCN_COUNT		3
+#define BHI_CAP_FILTER_VALUE_COUNT	2
+
 enum maxfg_reg_tags {
 	MAXFG_TAG_avgc,
 	MAXFG_TAG_cnfg,
