@@ -3523,11 +3523,6 @@ static int max77779_fg_init_chip(struct max77779_fg_chip *chip)
 			dev_warn(chip->dev, "Cannot write 0x0 to Config(%d)\n", ret);
 	}
 
-	ret = maxfg_aafv_init(chip->batt_node, "max77779,fg-aafv", chip->aafv_cfgs,
-			      &chip->aafv_config_limits);
-	if (ret < 0)
-		dev_warn(chip->dev, "Cannot load aafv config(%d)\n", ret);
-
 	/*
 	 * FG model is ony used for integrated FG (MW). Loading a model might
 	 * change the capacity drift WAR algo_ver and design_capacity.
@@ -3542,6 +3537,12 @@ static int max77779_fg_init_chip(struct max77779_fg_chip *chip)
 	if (ret < 0)
 		return -EPROBE_DEFER;
 	dev_info(chip->dev, "RSense value %d micro Ohm\n", chip->RSense * 10);
+
+	/* loading default aafv values from device tree */
+	ret = maxfg_aafv_init(chip->batt_node, "max77779,fg-aafv", chip->aafv_cfgs,
+			      &chip->aafv_config_limits);
+	if (ret < 0)
+		dev_warn(chip->dev, "Cannot load aafv config(%d)\n", ret);
 
 	ret = REGMAP_READ(&chip->regmap, MAX77779_FG_FG_INT_STS, &data);
 	if (!ret && data & MAX77779_FG_FG_INT_STS_Br_MASK) {
