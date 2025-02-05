@@ -272,8 +272,10 @@ static void google_bcl_release_throttling(struct bcl_zone *zone)
 		gpio_set_value(bcl_dev->modem_gpio2_pin, 0);
 	update_tz(zone, zone->idx, false);
 
-	if (bcl_dev->bat_ktimer_en && zone->idx == BATOILO)
+	if (bcl_dev->bat_ktimer_en && zone->idx == BATOILO) {
 		hrtimer_cancel(&(bcl_dev->hr_timer));
+		wakeup_source_unregister(bcl_dev->ws);
+	}
 }
 
 static void google_warn_work(struct work_struct *work)
@@ -708,12 +710,14 @@ static irqreturn_t vdroop_irq_thread_fn(int irq, void *data)
 	/* This is only BATOILO */
 	zone = bcl_dev->zone[BATOILO];
 	if (zone) {
-		if (bcl_dev->bat_ktimer_en)
+		if (bcl_dev->bat_ktimer_en) {
+			bcl_dev->ws = wakeup_source_register(NULL, "bcl_overcurrent_wake");
 			hrtimer_start(&(bcl_dev->hr_timer),
 				      ktime_set(bcl_dev->bat_ktimer / 1000,
 						(bcl_dev->bat_ktimer % 1000) *
 							1000000),
 				      HRTIMER_MODE_REL);
+		}
 		atomic_inc(&zone->last_triggered.triggered_cnt[START]);
 		zone->last_triggered.triggered_time[START] =
 			ktime_to_ms(ktime_get());
@@ -2402,6 +2406,7 @@ static int google_bcl_remove(struct platform_device *pdev)
 	debugfs_remove_recursive(bcl_dev->debug_entry);
 	cpu_pm_unregister_notifier(&bcl_dev->cpu_nb);
 	google_bcl_remove_thermal(bcl_dev);
+	wakeup_source_unregister(bcl_dev->ws);
 
 	return 0;
 }
