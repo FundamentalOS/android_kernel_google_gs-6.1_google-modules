@@ -1852,7 +1852,7 @@ static int max1720x_get_cycle_count_offset(struct max1720x_chip *chip)
 static int max1720x_get_cycle_count(struct max1720x_chip *chip)
 {
 	/* return 0 if cycles register not restored or fixed */
-	if (!chip->cycle_reg_ok)
+	if (!chip->cycle_reg_ok && chip->gauge_type == MAX_M5_GAUGE_TYPE)
 		return 0;
 
 	return chip->cycle_count;
@@ -5196,11 +5196,6 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 			dev_warn(chip->dev, "Cannot write 0x0 to Config(%d)\n", ret);
 	}
 
-	ret = maxfg_aafv_init(chip->batt_node, "maxim,fg-aafv", chip->aafv_cfgs,
-			      &chip->aafv_config_limits);
-	if (ret < 0)
-		dev_warn(chip->dev, "Cannot load aafv config(%d)\n", ret);
-
 	/*
 	 * The behavior of the drift workaround changes with the capacity
 	 * learning algo used in the part. Integrated FG might have
@@ -5218,6 +5213,12 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 	ret = max1720x_init_model(chip);
 	if (ret < 0)
 		dev_err(chip->dev, "Cannot init FG model (%d)\n", ret);
+
+	/* loading default aafv values from device tree */
+	ret = maxfg_aafv_init(chip->batt_node, "maxim,fg-aafv", chip->aafv_cfgs,
+			      &chip->aafv_config_limits);
+	if (ret < 0)
+		dev_warn(chip->dev, "Cannot load aafv config(%d)\n", ret);
 
 	/* dump capacity drift fixup configuration only when enabled */
 	if (chip->drift_data.algo_ver != MAX1720X_DA_VER_NONE) {
@@ -5294,6 +5295,9 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 		chip->reg_prop_capacity_raw = MAX1720X_REPSOC;
 	}
 
+	/* MW has its own update flow */
+	if (chip->gauge_type != MAX_M5_GAUGE_TYPE)
+		max1720x_update_cycle_count(chip);
 
 	max1720x_restore_battery_qh_capacity(chip);
 

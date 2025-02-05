@@ -1304,23 +1304,24 @@ int maxfg_aafv_restore_fus(struct maxfg_regmap *regmap, int fus_clear, int fus_s
 int maxfg_aafv_init(struct device_node *node, const char * prop,
 		    struct aafv_fg_config *config, int *config_limits)
 {
+	const int aafv_u32_sz = sizeof(struct aafv_fg_config) / sizeof(u32);
 	int cnt, ret;
 
 	if (!node)
 		return -EPROBE_DEFER;
 
-	cnt = of_property_count_elems_of_size(node, prop, sizeof(s32));
+	cnt = of_property_count_elems_of_size(node, prop, sizeof(struct aafv_fg_config));
 	if (cnt <= 0)
 		goto maxfg_aafv_init_no_data;
 
-	if (cnt > sizeof(struct aafv_fg_config) * GBMS_AAFV_DATA_MAX)
-		cnt = sizeof(struct aafv_fg_config) * GBMS_AAFV_DATA_MAX;
+	if (cnt > GBMS_AAFV_DATA_MAX)
+		cnt = GBMS_AAFV_DATA_MAX;
 
-	ret = of_property_read_u32_array(node, prop, (u32 *)config, cnt);
+	ret = of_property_read_u32_array(node, prop, (u32 *)config, cnt * aafv_u32_sz);
 	if (ret)
 		return ret;
 
-	*config_limits = cnt / sizeof(struct aafv_fg_config);
+	*config_limits = cnt;
 
 maxfg_aafv_init_no_data:
 	return 0;
