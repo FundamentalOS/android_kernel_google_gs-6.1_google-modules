@@ -539,9 +539,7 @@ struct batt_drv {
 	/* fg cycle count */
 	int cycle_count;
 	/* for testing */
-	int fake_aacr_cc;
-	int fake_aafv_cc;
-	int fake_aact_cc;
+	int fake_aacp_cc;
 
 	/* props */
 	int soh;
@@ -4013,8 +4011,8 @@ static u32 aacr_get_capacity_locked(struct batt_drv *batt_drv)
 	int capacity = batt_drv->battery_capacity;
 	int cycle_count;
 
-	if (batt_drv->fake_aacr_cc)
-		cycle_count = batt_drv->fake_aacr_cc;
+	if (batt_drv->fake_aacp_cc)
+		cycle_count = batt_drv->fake_aacp_cc;
 	else
 		cycle_count = batt_drv->aacc;
 
@@ -4336,8 +4334,8 @@ static int bhi_calc_cap_index(int algo, struct batt_drv *batt_drv)
 	capacity_health = bhi_health_get_capacity(algo, bhi_data);
 
 	if (bhi_algo_has_bounds(algo)) {
-		const int cycle_count = batt_drv->fake_aacr_cc ?
-					batt_drv->fake_aacr_cc : batt_drv->aacc;
+		const int cycle_count = batt_drv->fake_aacp_cc ?
+					batt_drv->fake_aacp_cc : batt_drv->aacc;
 
 		capacity_health = bhi_algo_apply_bounds(algo, capacity_health, cycle_count,
 							bhi_data);
@@ -4941,8 +4939,8 @@ static u32 aafv_update_state(struct batt_drv *batt_drv)
 	if (batt_drv->aafv_state == BATT_AAFV_DISABLED)
 		goto exit_done;
 
-	if (batt_drv->fake_aafv_cc)
-		cycle_count = batt_drv->fake_aafv_cc;
+	if (batt_drv->fake_aacp_cc)
+		cycle_count = batt_drv->fake_aacp_cc;
 
 	if (batt_drv->aafv_apply_max)
 		aafv_offset = batt_drv->aafv_max_offset;
@@ -5508,8 +5506,8 @@ static int aact_get_index(const struct batt_drv *batt_drv)
 {
 	int cycle_count = batt_drv->aacc;
 
-	if (batt_drv->fake_aact_cc)
-		cycle_count = batt_drv->fake_aact_cc;
+	if (batt_drv->fake_aacp_cc)
+		cycle_count = batt_drv->fake_aacp_cc;
 
 	return gbms_aact_get_index(&batt_drv->chg_profile, cycle_count);
 }
@@ -9922,14 +9920,8 @@ static int batt_init_debugfs(struct batt_drv *batt_drv)
 	/* defender */
 	debugfs_create_u32("fake_capacity", 0600, de, &batt_drv->fake_capacity);
 
-	/* aacr test */
-	debugfs_create_u32("fake_aacr_cc", 0600, de, &batt_drv->fake_aacr_cc);
-
-	/* aafv test */
-	debugfs_create_u32("fake_aafv_cc", 0600, de, &batt_drv->fake_aafv_cc);
-
-	/* aact test */
-	debugfs_create_u32("fake_aact_cc", 0600, de, &batt_drv->fake_aact_cc);
+	/* aacp test */
+	debugfs_create_u32("fake_aacp_cc", 0600, de, &batt_drv->fake_aacp_cc);
 
 	/* health charging (adaptive charging) */
 	debugfs_create_file("chg_health_thr_soc", 0600, de, batt_drv,
