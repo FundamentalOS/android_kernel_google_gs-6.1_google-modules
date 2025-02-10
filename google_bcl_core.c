@@ -631,6 +631,9 @@ static void google_irq_triggered_work(struct work_struct *work)
 
 	idx = zone->idx;
 	bcl_dev = zone->parent;
+
+	google_bcl_upstream_state(zone, START);
+
 	if (zone->bcl_pin != NOT_USED) {
 		if (bcl_dev->ifpmic == MAX77759 && idx >= UVLO2 && idx <= BATOILO2) {
 			bcl_cb_get_irq(bcl_dev, &irq_val);
@@ -648,7 +651,6 @@ static void google_irq_triggered_work(struct work_struct *work)
 						ktime_to_ms(ktime_get());
 			}
 		} else {
-			google_bcl_upstream_state(zone, START);
 			google_bcl_release_throttling(zone);
 			return;
 		}
@@ -663,6 +665,11 @@ static void google_irq_triggered_work(struct work_struct *work)
 	idx = zone->idx;
 	bcl_dev = zone->parent;
 
+	google_bcl_start_data_logging(bcl_dev, idx);
+
+	/* LIGHT phase */
+	google_bcl_upstream_state(zone, LIGHT);
+
 	if (bcl_dev->batt_psy_initialized) {
 		atomic_inc(&zone->bcl_cnt);
 		ocpsmpl_read_stats(bcl_dev, &zone->bcl_stats, bcl_dev->batt_psy);
@@ -670,13 +677,6 @@ static void google_irq_triggered_work(struct work_struct *work)
 	}
 
 	trace_bcl_zone_stats(zone, 1);
-
-	google_bcl_start_data_logging(bcl_dev, idx);
-
-	/* LIGHT phase */
-	if (google_bcl_wait_for_response_locked(zone, TIMEOUT_5MS) > 0)
-		return;
-	google_bcl_upstream_state(zone, LIGHT);
 
 	if (zone->irq_type == IF_PMIC) {
 		update_irq_start_times(bcl_dev, idx);
