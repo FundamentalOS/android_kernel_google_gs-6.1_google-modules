@@ -2165,7 +2165,7 @@ uclamp_tg_restrict_pixel_mod(struct task_struct *p, enum uclamp_id clamp_id)
 
 	/* Boost tasks during suspend/resume */
 	if (clamp_id == UCLAMP_MIN && cpuhp_tasks_frozen)
-		value = max(value, SCHED_CAPACITY_SCALE/2);
+		value = max(value, SCHED_CAPACITY_SCALE/4);
 
 	// For uclamp min, if task has a valid per-task setting that is lower than or equal to its
 	// group value, increase the final uclamp value by 1. This would have effect only on
@@ -2740,6 +2740,13 @@ void sched_newidle_balance_pixel_mod(void *data, struct rq *this_rq, struct rq_f
 	int this_cpu = this_rq->cpu;
 	struct vendor_rq_struct *this_vrq = get_vendor_rq_struct(this_rq);
 	struct vendor_rq_struct *src_vrq;
+
+	/*
+	 * There is a task waiting to run. No need to search for one.
+	 * Return 0; the task will be enqueued when switching to idle.
+	 */
+	if (this_rq->ttwu_pending)
+		return;
 
 	if (SCHED_WARN_ON(atomic_read(&this_vrq->num_adpf_tasks)))
 		atomic_set(&this_vrq->num_adpf_tasks, 0);
