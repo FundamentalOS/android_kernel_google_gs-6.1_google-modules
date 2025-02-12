@@ -4016,7 +4016,7 @@ static u32 aacr_get_capacity_locked(struct batt_drv *batt_drv)
 	else
 		cycle_count = batt_drv->aacc;
 
-	if (batt_drv->aacr_state == BATT_AACR_DISABLED)
+	if (batt_drv->aacp_opt_out || batt_drv->aacr_state == BATT_AACR_DISABLED)
 		goto exit_done;
 
 	if (cycle_count <= batt_drv->aacr_cycle_grace) {
@@ -4051,8 +4051,9 @@ static u32 aacr_get_capacity(struct batt_drv *batt_drv)
 
 static u32 aacr_filtered_capacity(struct batt_drv *batt_drv, struct gbms_charging_event *ce)
 {
-	return (batt_drv->aacr_state < BATT_AACR_ENABLED) ? batt_drv->aacr_state :
-							    ce->chg_profile->capacity_ma;
+	bool aacr_enabled = !batt_drv->aacp_opt_out && batt_drv->aacr_state >= BATT_AACR_ENABLED;
+
+	return aacr_enabled ? ce->chg_profile->capacity_ma : batt_drv->aacr_state;
 }
 
 /* BHI -------------------------------------------------------------------- */
@@ -4936,7 +4937,7 @@ static u32 aafv_update_state(struct batt_drv *batt_drv)
 
 	mutex_lock(&batt_drv->aacp_state_lock);
 
-	if (batt_drv->aafv_state == BATT_AAFV_DISABLED)
+	if (batt_drv->aacp_opt_out || batt_drv->aafv_state == BATT_AAFV_DISABLED)
 		goto exit_done;
 
 	if (batt_drv->fake_aacp_cc)
@@ -4953,10 +4954,10 @@ static u32 aafv_update_state(struct batt_drv *batt_drv)
 
 exit_done:
 	gbms_logbuffer_prlog(batt_drv->bd_log, LOGLEVEL_INFO, 0, LOGLEVEL_INFO,
-			     "AAFV: of=%d, cc=%d, st=%d, clf_c=%d, clf_o=%d",
+			     "AAFV: of=%d, cc=%d, st=%d, clf_c=%d, clf_o=%d, opt_o=%d",
 			     aafv_offset, cycle_count,
 			     batt_drv->aafv_state, batt_drv->aafv_cliff_cycle,
-			     batt_drv->aafv_cliff_offset);
+			     batt_drv->aafv_cliff_offset, batt_drv->aacp_opt_out);
 
 	aafv_offset *= GBMS_AAFV_VOLTAGE_OFFSET_SCALE;
 	batt_drv->chg_profile.aafv_offset = (u32)(aafv_offset);
@@ -5517,9 +5518,10 @@ static int aact_update_chg_table(struct batt_drv *batt_drv)
 {
 	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
 	struct device_node *node = batt_drv->device->of_node;
+	bool aact_enabled = !batt_drv->aacp_opt_out && batt_drv->aact_state == BATT_AACT_ENABLED;
 	int ret;
 
-	if (!profile->aact_init_profile && batt_drv->aact_state == BATT_AACT_ENABLED) {
+	if (!profile->aact_init_profile && aact_enabled) {
 		/* init AACT charge table */
 		ret = gbms_init_aact_profile(profile, node);
 		if (ret < 0)
@@ -5528,7 +5530,7 @@ static int aact_update_chg_table(struct batt_drv *batt_drv)
 		if (ret < 0)
 			return ret;
 		gbms_init_chg_table(profile, node, batt_drv->battery_capacity);
-	} else if (profile->aact_init_profile && batt_drv->aact_state == BATT_AACT_DISABLED) {
+	} else if (profile->aact_init_profile && !aact_enabled) {
 		/* reset AACT */
 		aact_reset(profile);
 
@@ -5540,7 +5542,7 @@ static int aact_update_chg_table(struct batt_drv *batt_drv)
 		gbms_init_chg_table(profile, node, batt_drv->battery_capacity);
 	}
 
-	if (batt_drv->aact_state == BATT_AACT_ENABLED)
+	if (aact_enabled)
 		profile->aact_idx = aact_get_index(batt_drv);
 
 	return 0;
@@ -6439,12 +6441,14 @@ static ssize_t debug_get_chg_raw_profile(struct file *filp,
 	if (raw_profile_cycles) {
 		struct gbms_chg_profile profile;
 		int count;
+		bool aact_enabled = !batt_drv->aacp_opt_out &&
+				    batt_drv->aact_state == BATT_AACT_ENABLED;
 
 		len = gbms_init_chg_profile(&profile, batt_drv->device->of_node);
 		if (len < 0)
 			goto exit_done;
 
-		if (batt_drv->aact_state == BATT_AACT_ENABLED) {
+		if (aact_enabled) {
 			len = gbms_init_aact_profile(&profile, batt_drv->device->of_node);
 			if (len < 0)
 				goto exit_done;
@@ -8741,42 +8745,18 @@ static ssize_t aacp_opt_out_store(struct device *dev,
 	struct power_supply *psy = container_of(dev, struct power_supply, dev);
 	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
 	int value, ret = 0;
-	bool overwrite = false;
 
 	ret = kstrtoint(buf, 0, &value);
 	if (ret < 0)
 		return ret;
 
+	if (value < 0 || value > 1)
+		return count;
+
 	mutex_lock(&batt_drv->aacp_state_lock);
-
-	/* allow to write 1 to disable when opt_out is 0 */
-	if (batt_drv->aacp_opt_out != BATT_AACP_OPT_OUT_DISABLED ||
-	    value != BATT_AACP_OPT_OUT_ENABLED)
-		goto done;
-
-	/* can only be disabled when enabled */
-	if (batt_drv->aacr_state >= BATT_AACR_ENABLED) {
-		batt_drv->aacr_state = BATT_AACR_DISABLED;
-		overwrite = true;
-	}
-
-	/* can only be disabled when enabled */
-	if (batt_drv->aafv_state >= BATT_AAFV_ENABLED) {
-		batt_drv->aafv_state = BATT_AAFV_DISABLED;
-		overwrite = true;
-	}
-
-	/* can only be disabled when enabled */
-	if (batt_drv->aact_state >= BATT_AACT_ENABLED) {
-		batt_drv->aact_state = BATT_AACT_DISABLED;
-		overwrite = true;
-	}
-
-	if (overwrite)
-		batt_drv->aacp_opt_out = BATT_AACP_OPT_OUT_ENABLED;
-
-done:
+	batt_drv->aacp_opt_out = value;
 	mutex_unlock(&batt_drv->aacp_state_lock);
+
 	return count;
 }
 
