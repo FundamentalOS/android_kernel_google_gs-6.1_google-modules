@@ -2274,6 +2274,7 @@ void initialize_vendor_group_property(void)
 		vg[i].qos_rampup_multiplier_enable = false;
 
 		vg[i].disable_sched_setaffinity = false;
+		vg[i].use_batch_policy = false;
 	}
 
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)
@@ -2531,7 +2532,13 @@ void vh_dup_task_struct_pixel_mod(void *data, struct task_struct *tsk, struct ta
 	uclamp_fork_pixel_mod(tsk, orig);
 	init_vendor_task_struct(v_tsk);
 	v_tsk->group = v_orig->group;
-	v_tsk->orig_prio = orig->static_prio;
+	if (orig->sched_reset_on_fork) {
+		v_tsk->orig_prio = NICE_TO_PRIO(0);
+		v_tsk->orig_policy = SCHED_NORMAL;
+	} else {
+		v_tsk->orig_prio = orig->static_prio;
+		v_tsk->orig_policy = orig->policy;
+	}
 }
 
 void rvh_select_task_rq_fair_pixel_mod(void *data, struct task_struct *p, int prev_cpu, int sd_flag,
@@ -2622,8 +2629,12 @@ void rvh_set_user_nice_locked_pixel_mod(void *data, struct task_struct *p, long 
 
 void rvh_setscheduler_pixel_mod(void *data, struct task_struct *p)
 {
-	struct vendor_task_struct *vp;
+	struct vendor_task_struct *vp = get_vendor_task_struct(p);
+	int group = get_vendor_group(p);
 	unsigned long irqflags;
+
+	if (vg[group].use_batch_policy && fair_policy(p->policy))
+		vp->orig_policy = p->policy;
 
 	if (!vendor_sched_boost_adpf_prio)
 		return;
@@ -2631,7 +2642,6 @@ void rvh_setscheduler_pixel_mod(void *data, struct task_struct *p)
 	if (p->prio < MAX_RT_PRIO)
 		return;
 
-	vp = get_vendor_task_struct(p);
 	if (get_boost_prio(p)) {
 		raw_spin_lock_irqsave(&vp->lock, irqflags);
 		vp->orig_prio = p->static_prio;

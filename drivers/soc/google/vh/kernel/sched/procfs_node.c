@@ -193,6 +193,7 @@ enum vendor_procfs_type {
 		__PROC_GROUP_ENTRY(qos_prefer_high_cap_enable, __group_name, __vg),	\
 		__PROC_GROUP_ENTRY(qos_rampup_multiplier_enable, __group_name, __vg),	\
 		__PROC_GROUP_ENTRY(disable_sched_setaffinity, __group_name, __vg),	\
+		__PROC_GROUP_ENTRY(use_batch_policy, __group_name, __vg),		\
 		__PROC_SET_GROUP_ENTRY(set_task_group, __group_name, __vg),	\
 		__PROC_SET_GROUP_ENTRY(set_proc_group, __group_name, __vg)
 
@@ -501,6 +502,7 @@ static inline bool check_rampup_multiplier(enum vendor_group group)
 }
 
 static inline bool reset_group_sched_setaffinity(enum vendor_group group);
+static inline bool reset_group_batch_policy(enum vendor_group group);
 
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)
 #define CREATE_VENDOR_GROUP_UTIL_ATTRIBUTES(__grp, __vg)				\
@@ -554,6 +556,8 @@ static inline bool reset_group_sched_setaffinity(enum vendor_group group);
 	VENDOR_GROUP_BOOL_ATTRIBUTE(__grp, qos_rampup_multiplier_enable, __vg);		\
 	VENDOR_GROUP_UINT_ATTRIBUTE_CHECK(__grp, disable_sched_setaffinity, __vg,	\
 					  reset_group_sched_setaffinity);		\
+	VENDOR_GROUP_UINT_ATTRIBUTE_CHECK(__grp, use_batch_policy, __vg,		\
+					  reset_group_batch_policy);			\
 	CREATE_VENDOR_GROUP_UTIL_ATTRIBUTES(__grp, __vg);
 
 /// ******************************************************************************** ///
@@ -785,6 +789,49 @@ static inline bool reset_group_sched_setaffinity(enum vendor_group group)
 	for_each_process_thread(p, t) {
 		if (get_vendor_group(t) == group)
 			__reset_task_affinity(t);
+	}
+	rcu_read_unlock();
+
+	return true;
+}
+
+static inline void __set_batch_policy(struct task_struct *p, int group)
+{
+	struct vendor_task_struct *vp;
+	struct rq_flags rf;
+	struct rq *rq;
+
+	rq = task_rq_lock(p, &rf);
+
+	if (!fair_policy(p->policy))
+		goto out;
+
+	vp = get_vendor_task_struct(p);
+	if (vg[group].use_batch_policy)
+		p->policy = SCHED_BATCH;
+	else
+		p->policy = vp->orig_policy;
+
+out:
+	task_rq_unlock(rq, p, &rf);
+}
+
+static inline void set_batch_policy(struct task_struct *p, int old, int new)
+{
+	if (vg[old].use_batch_policy == vg[new].use_batch_policy)
+		return;
+
+	__set_batch_policy(p, new);
+}
+
+static inline bool reset_group_batch_policy(enum vendor_group group)
+{
+	struct task_struct *p, *t;
+
+	rcu_read_lock();
+	for_each_process_thread(p, t) {
+		if (get_vendor_group(t) == group)
+			__set_batch_policy(t, group);
 	}
 	rcu_read_unlock();
 
@@ -1545,6 +1592,7 @@ static int update_vendor_group_attribute(const char *buf, enum vendor_group_attr
 		raw_spin_unlock_irqrestore(&vp->lock, irqflags);
 		if (vg[new].disable_sched_setaffinity)
 			__reset_task_affinity(p);
+		set_batch_policy(p, old, new);
 		if (p->prio >= MAX_RT_PRIO) {
 			migrate_boost_prio(p, old, new);
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)
@@ -1574,6 +1622,7 @@ static int update_vendor_group_attribute(const char *buf, enum vendor_group_attr
 			raw_spin_unlock_irqrestore(&vp->lock, irqflags);
 			if (vg[new].disable_sched_setaffinity)
 				__reset_task_affinity(t);
+			set_batch_policy(t, old, new);
 			if (p->prio >= MAX_RT_PRIO) {
 				migrate_boost_prio(t, old, new);
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)

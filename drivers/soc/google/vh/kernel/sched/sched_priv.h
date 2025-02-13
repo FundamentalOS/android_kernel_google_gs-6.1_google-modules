@@ -205,6 +205,7 @@ struct vendor_group_property {
 	bool qos_rampup_multiplier_enable;
 
 	bool disable_sched_setaffinity;
+	bool use_batch_policy;
 };
 
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)
