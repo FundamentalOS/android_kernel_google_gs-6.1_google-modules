@@ -5791,16 +5791,12 @@ static int batt_chg_logic(struct batt_drv *batt_drv)
 	 * charging is active
 	 */
 	changed |= msc_logic_health(batt_drv);
-	if (CHG_HEALTH_REST_IS_AON(&batt_drv->chg_health, ssoc)) {
+	if (CHG_HEALTH_REST_IS_AON(&batt_drv->chg_health, ssoc))
 		batt_drv->msc_state = MSC_HEALTH_ALWAYS_ON;
-		batt_drv->fv_uv = 0;
-	} else if (CHG_HEALTH_REST_IS_ACTIVE(&batt_drv->chg_health)) {
+	else if (CHG_HEALTH_REST_IS_ACTIVE(&batt_drv->chg_health))
 		batt_drv->msc_state = MSC_HEALTH;
-		/* make sure using rest_fv_uv when HEALTH_ACTIVE */
-		batt_drv->fv_uv = 0;
-	} else if (CHG_HEALTH_REST_IS_PAUSE(&batt_drv->chg_health)) {
+	else if (CHG_HEALTH_REST_IS_PAUSE(&batt_drv->chg_health))
 		batt_drv->msc_state = MSC_HEALTH_PAUSE;
-	}
 
 msc_logic_done:
 
@@ -5847,11 +5843,13 @@ msc_logic_done:
 		batt_drv->fv_votable =
 			gvotable_election_get_handle(VOTABLE_MSC_FV);
 	if (batt_drv->fv_votable) {
+		/* make sure using rest_fv_uv when HEALTH_ACTIVE */
 		const int rest_fv_uv = batt_drv->chg_health.rest_fv_uv;
+		const int fv_uv = rest_fv_uv > 0 ? 0 : batt_drv->fv_uv;
 
 		gvotable_cast_int_vote(batt_drv->fv_votable,
-				       MSC_LOGIC_VOTER, batt_drv->fv_uv,
-				       !disable_votes && (batt_drv->fv_uv > 0));
+				       MSC_LOGIC_VOTER, fv_uv,
+				       !disable_votes && (fv_uv > 0));
 
 		gvotable_cast_int_vote(batt_drv->fv_votable,
 				       MSC_HEALTH_VOTER, rest_fv_uv,
