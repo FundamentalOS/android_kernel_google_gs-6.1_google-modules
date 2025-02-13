@@ -694,6 +694,10 @@ static void google_irq_triggered_work(struct work_struct *work)
 		return;
 	google_bcl_upstream_state(zone, HEAVY);
 	/* We most likely have to shutdown after this */
+
+	/* Reset Mitigation module if we are still alive */
+	atomic_set(&bcl_dev->mitigation_module_ids, 0);
+
 	/* HEAVY phase */
 	/* IRQ deasserted */
 }
