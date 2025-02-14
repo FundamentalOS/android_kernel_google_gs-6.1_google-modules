@@ -1218,7 +1218,10 @@ static inline int maxfg_aafv_pick_config(const struct aafv_fg_config *cfgs, cons
 		}
 	}
 
-	if (idx < 0 || idx == cfg_max)
+	if (idx == cfg_max)
+		idx--;
+
+	if (idx < 0)
 		return -ERANGE;
 
 	return idx;
@@ -1234,7 +1237,7 @@ int maxfg_aafv_apply(struct maxfg_regmap *regmap, int aafv,
 
 	idx = maxfg_aafv_pick_config(cfgs, cfg_max, aafv);
 	if (idx < 0) {
-		pr_err("failed to find aafv_cfg (%d)\n", idx);
+		pr_err("failed to find aafv_cfg (%d) for offset(%d)\n", idx, aafv);
 		return idx;
 	}
 
