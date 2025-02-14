@@ -1,6 +1,6 @@
 # bcmdhd
 #
-# Copyright (C) 2024, Broadcom.
+# Copyright (C) 2025, Broadcom.
 #
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
@@ -382,6 +382,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
     DHDCFLAGS += -DWL_MLO_BKPORT_NEW_PORT_AUTH
     # CROSS AKM related back port changes
     DHDCFLAGS += -DWL_CROSS_AKM_BKPORT
+    # Avoid SSR dump on state mismatch
+    DHDCFLAGS += -DDHD_AVOID_SSR_ON_STATE_MISMATCH
     ifneq ($(filter y, $(CONFIG_BCM4398) $(CONFIG_BCM4390)),)
         # ch_switch_notify back port changes
         DHDCFLAGS += -DWL_CH_SWITCH_BKPORT

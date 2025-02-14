@@ -1,7 +1,7 @@
 /*
  * Header for Linux cfg80211 scan
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -253,4 +253,5 @@ extern s32 wl_cfgscan_get_dynamic_chan_info(struct bcm_cfg80211 *cfg,
 		u32 *chan_info, chanspec_t in_chspec, u32 chan_info_flags);
 extern void wl_connected_channel_debuggability(struct bcm_cfg80211 * cfg,
 		struct net_device * ndev);
+extern void wl_cfgscan_scan_abort(struct bcm_cfg80211 *cfg);
 #endif /* _wl_cfgscan_h_ */
