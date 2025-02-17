@@ -8423,6 +8423,7 @@ dhd_lookup_map(osl_t *osh, char *fname, uint32 pc, char *pc_fn,
 	char func2[DHD_FUNC_STR_LEN] = "\0";
 	uint8 count = 0;
 	int num, len = 0, offset;
+	int alloc_size;
 
 	DHD_TRACE(("%s: fname %s pc 0x%x lr 0x%x \n",
 		__FUNCTION__, fname, pc, lr));
@@ -8432,7 +8433,8 @@ dhd_lookup_map(osl_t *osh, char *fname, uint32 pc, char *pc_fn,
 	}
 
 	/* Allocate 1 byte more than read_size to terminate it with NULL */
-	raw_fmts = MALLOCZ(osh, read_size + 1);
+	alloc_size = read_size + 1;
+	raw_fmts = MALLOCZ(osh, alloc_size);
 	if (raw_fmts == NULL) {
 		DHD_ERROR(("%s: Failed to allocate raw_fmts memory \n",
 			__FUNCTION__));
@@ -8623,6 +8625,9 @@ fail:
 	}
 	if (!(count & LR_FOUND_BIT)) {
 		sprintf(lr_fn, "0x%08x", lr);
+	}
+	if (raw_fmts) {
+		MFREE(osh, raw_fmts, alloc_size);
 	}
 	return err;
 }
