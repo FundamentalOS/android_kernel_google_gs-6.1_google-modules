@@ -2453,11 +2453,18 @@ void rvh_post_init_entity_util_avg_pixel_mod(void *data, struct sched_entity *se
 			sa->runnable_avg = sa->util_avg;
 		}
 	} else {
+		int group = get_vendor_group(task_of(se));
 		struct sched_avg *sa = &se->avg;
-		sa->util_avg = 0;
-		sa->runnable_avg = 0;
-		sa->util_est.enqueued = 0 | UTIL_AVG_UNCHANGED;
-		sa->util_est.ewma = 0;
+		unsigned long init_value = 0;
+
+		if (strstr(task_of(se)->parent->comm, "_zygote") &&
+		    (group == VG_FOREGROUND || group == VG_TOPAPP))
+			init_value =  SCHED_CAPACITY_SCALE/4;
+
+		sa->util_avg = init_value;
+		sa->runnable_avg = init_value;
+		sa->util_est.enqueued = (init_value << 1) | UTIL_AVG_UNCHANGED;
+		sa->util_est.ewma = init_value << 1;
 	}
 }
 
