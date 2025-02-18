@@ -763,7 +763,8 @@ static int max77779_get_usecase(struct max77779_foreach_cb_data *cb_data,
 			usecase = GSU_MODE_USB_DC;
 		} else if (cb_data->stby_on && !chgr_on) {
 			mode = MAX77779_CHGR_MODE_ALL_OFF;
-			usecase = GSU_MODE_STANDBY;
+
+			usecase = cb_data->buck_on ? GSU_MODE_STANDBY_BUCK_ON : GSU_MODE_STANDBY;
 		}
 
 	}

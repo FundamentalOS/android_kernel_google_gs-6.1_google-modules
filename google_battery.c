@@ -4967,7 +4967,7 @@ exit_done:
 	return (u32)aafv_offset;
 }
 
-static void aafv_update_voltage(struct batt_drv *batt_drv, int *fv_uv)
+static bool aafv_update_voltage(struct batt_drv *batt_drv, int *fv_uv, int *offset)
 {
 	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
 	const int last_vbatt_idx = profile->volt_nb_limits - 1;
@@ -4977,8 +4977,14 @@ static void aafv_update_voltage(struct batt_drv *batt_drv, int *fv_uv)
 	u32 aafv_fv, aafv_offset = aafv_update_state(batt_drv);
 
 	aafv_fv = last_fv - aafv_offset;
-	if (aafv_fv > penultimate_fv && aafv_fv < last_fv)
+	if (aafv_fv > penultimate_fv && aafv_fv < last_fv) {
 		*fv_uv = (int)aafv_fv;
+		*offset = (int)aafv_offset;
+
+		return true;
+	}
+
+	return false;
 }
 
 /* AACC ------------------------------------------------------------------- */
@@ -5282,12 +5288,13 @@ static int msc_logic(struct batt_drv *batt_drv)
 	/* adjust last fv_uv */
 	if (vbatt_idx != batt_drv->vbatt_idx || temp_idx != batt_drv->temp_idx) {
 		if (vbatt_idx == profile->volt_nb_limits - 1 && batt_drv->cc_max > 0) {
-			int ret;
+			int aafv_offset, ret;
 
-			aafv_update_voltage(batt_drv, &fv_uv);
-			ret = GPSY_SET_PROP(fg_psy, GBMS_PROP_AAFV, fv_uv);
-			if (ret < 0)
-				pr_err("pass aafv to FG failed %d", ret);
+			if (aafv_update_voltage(batt_drv, &fv_uv, &aafv_offset)) {
+				ret = GPSY_SET_PROP(fg_psy, GBMS_PROP_AAFV, aafv_offset);
+				if (ret < 0)
+					pr_err("pass aafv to FG failed %d", ret);
+			}
 		}
 	}
 
