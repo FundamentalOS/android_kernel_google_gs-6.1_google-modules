@@ -90,6 +90,7 @@ struct vendor_task_struct {
 	int auto_uclamp_max_flags;	// Relative to cpu instead of absolute
 	struct uclamp_filter uclamp_filter;
 	int orig_prio;
+	int orig_policy;		/* Protected by task_rq_lock() */
 	unsigned long iowait_boost;
 	bool is_binder_task;
 
@@ -120,6 +121,7 @@ struct vendor_task_struct {
 	 * - get_and_reset_vendor_task_struct_private
 	 */
 	unsigned long private;
+
 	// ADPF scheduler hint value.
 	int adpf_adj;
 	// Definition of real_cap: the current cpu_cap that a task was actually running on.
