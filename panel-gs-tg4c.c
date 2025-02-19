@@ -12,7 +12,7 @@
 #include "gs_panel/gs_panel_funcs_defaults.h"
 #include "trace/panel_trace.h"
 
-#define TG4C_DDIC_ID_LEN 8
+#define TG4C_DDIC_ID_LEN 11
 #define TG4C_DIMMING_FRAME 32
 
 #define MIPI_DSI_FREQ_MBPS_DEFAULT 1102
