@@ -1,7 +1,7 @@
 /*
  * Basically selected code segments from usb-cdc.c and usb-rndis.c
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -5797,7 +5797,7 @@ dhd_add_monitor_if(dhd_info_t *dhd)
 #ifdef WL_CFG80211_MONITOR
 	dev_priv = DHD_MON_DEV_PRIV(dev);
 	dev_priv->dhd = dhd;
-	bzero(&dev_priv->stats, sizeof(dev_priv->stats));
+	memset(&dev_priv->stats, 0, sizeof(dev_priv->stats));
 #endif /* WL_CFG80211_MONITOR */
 }
 
@@ -5821,7 +5821,8 @@ dhd_del_monitor_if(dhd_info_t *dhd)
 #ifdef WL_CFG80211_MONITOR
 	dev_priv = DHD_MON_DEV_PRIV(dhd->monitor_dev);
 	dev_priv->dhd = (dhd_info_t *)NULL;
-	bzero(&dev_priv->stats, sizeof(dev_priv->stats));
+	memset(&dev_priv->stats, 0, sizeof(dev_priv->stats));
+	memset(dhd->monitor_type, 0, DHD_MAX_IFS);
 #endif /* WL_CFG80211_MONITOR */
 
 	if (FW_SUPPORTED((&dhd->pub), monitor)) {
@@ -8379,6 +8380,7 @@ dhd_lookup_map(osl_t *osh, char *fname, uint32 pc, char *pc_fn,
 	char func2[DHD_FUNC_STR_LEN] = "\0";
 	uint8 count = 0;
 	int num, len = 0, offset;
+	int alloc_size;
 
 	DHD_TRACE(("%s: fname %s pc 0x%x lr 0x%x \n",
 		__FUNCTION__, fname, pc, lr));
@@ -8388,7 +8390,8 @@ dhd_lookup_map(osl_t *osh, char *fname, uint32 pc, char *pc_fn,
 	}
 
 	/* Allocate 1 byte more than read_size to terminate it with NULL */
-	raw_fmts = MALLOCZ(osh, read_size + 1);
+	alloc_size = read_size + 1;
+	raw_fmts = MALLOCZ(osh, alloc_size);
 	if (raw_fmts == NULL) {
 		DHD_ERROR(("%s: Failed to allocate raw_fmts memory \n",
 			__FUNCTION__));
@@ -8579,6 +8582,9 @@ fail:
 	}
 	if (!(count & LR_FOUND_BIT)) {
 		sprintf(lr_fn, "0x%08x", lr);
+	}
+	if (raw_fmts) {
+		MFREE(osh, raw_fmts, alloc_size);
 	}
 	return err;
 }
@@ -25071,25 +25077,21 @@ dhd_os_skbq_dump(struct sk_buff_head *qdump, char *qname)
 }
 
 /* Refer dhcp_ops[] in dhd_linux_pktdump.c */
-#define DHCP_OP_REQUEST	1u
-#define DHCP_OP_REPLY	2u
-
 void
 dhd_track_dhcp_op(struct dhd_pub *dhdp, uint8 op, int ifidx, bool tx)
 {
 #ifdef PCIE_FULL_DONGLE
 	dhd_info_t *dhd = (dhd_info_t *)(dhdp->info);
 	if (DHD_IF_ROLE_GENERIC_STA(dhdp, ifidx)) {
+		/* For sta role, we are interested only in DHCP Req Tx and Rx resp */
 		if (tx && (op == DHCP_OP_REQUEST)) {
 			dhd->iflist[ifidx]->dhcp_request_pending = TRUE;
-			DHD_PRINT(("%s: SET dhcp_request_pending for %d\n",
+			DHD_INFO(("%s: SET dhcp_request_pending for %d\n",
 				__FUNCTION__, ifidx));
 		} else if (!tx && (op == DHCP_OP_REPLY)) {
 			dhd->iflist[ifidx]->dhcp_request_pending = FALSE;
-			DHD_PRINT(("%s: CLEAR dhcp_request_pending for %d\n",
+			DHD_INFO(("%s: CLEAR dhcp_request_pending for %d\n",
 				__FUNCTION__, ifidx));
-		} else {
-			DHD_ERROR(("%s: UNKNOWN_DHCP_OPS\n", __FUNCTION__));
 		}
 	}
 #endif /* PCIE_FULL_DONGLE */
