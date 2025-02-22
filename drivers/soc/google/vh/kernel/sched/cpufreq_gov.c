@@ -1560,12 +1560,22 @@ static ssize_t limit_frequency_show(struct gov_attr_set *attr_set, char *buf)
 static ssize_t limit_frequency_store(struct gov_attr_set *attr_set, const char *buf, size_t count)
 {
 	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+	struct sugov_policy *sg_policy;
+	struct cpufreq_policy *policy;
+	int index;
 	unsigned int val;
 
 	if (kstrtouint(buf, 0, &val))
 		return -EINVAL;
 
-	tunables->limit_frequency = val;
+	list_for_each_entry(sg_policy, &attr_set->policy_list, tunables_hook)
+		if (sg_policy->tunables == tunables)
+			break;
+
+	policy = sg_policy->policy;
+
+	index = cpufreq_frequency_table_target(policy, val, CPUFREQ_RELATION_H);
+	tunables->limit_frequency = policy->freq_table[index].frequency;
 
 	return count;
 }
