@@ -5278,9 +5278,7 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 
 	/* max_m5 triggers loading of the model in the irq handler on POR */
 	if (!chip->por && chip->gauge_type == MAX_M5_GAUGE_TYPE) {
-		mutex_lock(&chip->model_lock);
 		ret = max1720x_restore_battery_cycle(chip);
-			mutex_unlock(&chip->model_lock);
 		if (ret < 0)
 			dev_err(chip->dev, "%s cannot restore cycle count (%d)\n", __func__, ret);
 
