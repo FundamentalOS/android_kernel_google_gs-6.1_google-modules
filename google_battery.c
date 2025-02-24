@@ -12091,7 +12091,7 @@ static void google_battery_init_work(struct work_struct *work)
 					DEFAULT_CHG_STATS_MIN_DELTA_SOC;
 
 	/* time to full */
-	ret = ttf_stats_init(&batt_drv->ttf_stats, batt_drv->device,
+	ret = ttf_stats_init(&batt_drv->ttf_stats, batt_drv->device->of_node,
 			     batt_drv->battery_capacity);
 	if (ret < 0)
 		pr_info("time to full not available\n");
