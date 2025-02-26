@@ -1038,8 +1038,9 @@ static int update_prefer_fit(const char *buf, bool val)
 static int update_adpf(const char *buf, bool val)
 {
 	struct vendor_task_struct *vp;
-	unsigned long irqflags;
 	struct task_struct *p;
+	struct rq_flags rf;
+	struct rq *rq;
 	pid_t pid;
 	bool old_adpf;
 
@@ -1062,7 +1063,7 @@ static int update_adpf(const char *buf, bool val)
 	}
 
 	vp = get_vendor_task_struct(p);
-	raw_spin_lock_irqsave(&p->pi_lock, irqflags);
+	rq = task_rq_lock(p, &rf);
 
 	old_adpf = !!(vp->sched_qos_user_defined_flag & BIT(SCHED_QOS_ADPF_BIT));
 
@@ -1072,16 +1073,10 @@ static int update_adpf(const char *buf, bool val)
 		else
 			clear_bit(SCHED_QOS_ADPF_BIT, &vp->sched_qos_user_defined_flag);
 
-		if (task_on_rq_queued(p)) {
-			if (old_adpf && !get_adpf(p, true))
-				dec_adpf_counter(p, task_rq(p));
-			else if (!old_adpf && get_adpf(p, true))
-				inc_adpf_counter(p, task_rq(p));
-		}
+		update_adpf_counter(p, old_adpf);
 	}
 
-	raw_spin_unlock_irqrestore(&p->pi_lock, irqflags);
-
+	task_rq_unlock(rq, p, &rf);
 	put_task_struct(p);
 	rcu_read_unlock();
 

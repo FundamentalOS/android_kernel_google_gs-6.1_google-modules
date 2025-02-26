@@ -1089,6 +1089,18 @@ static inline void dec_adpf_counter(struct task_struct *p, struct rq *rq)
 	atomic_dec_if_positive(&vrq->num_adpf_tasks);
 }
 
+static inline void update_adpf_counter(struct task_struct *p, bool old_adpf)
+{
+	lockdep_assert_rq_held(task_rq(p));
+
+	if (task_on_rq_queued(p)) {
+		if (old_adpf && !get_adpf(p, true))
+			dec_adpf_counter(p, task_rq(p));
+		else if (!old_adpf && get_adpf(p, true))
+			inc_adpf_counter(p, task_rq(p));
+	}
+}
+
 extern int vendor_sched_ug_bg_auto_prio;
 
 #if IS_ENABLED(CONFIG_USE_VENDOR_GROUP_UTIL)
