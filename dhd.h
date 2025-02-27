@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -690,7 +690,14 @@ enum dhd_dongledump_type {
 	DUMP_TYPE_NO_DB7_ACK			= 35,
 	DUMP_TYPE_DONGLE_TRAP_DURING_WIFI_ONOFF	= 36,
 	DUMP_TYPE_ESCAN_SYNCID_MISMATCH		= 37,
-	DUMP_TYPE_COREDUMP_BY_USER		= 38
+	DUMP_TYPE_COREDUMP_BY_USER		= 38,
+	DUMP_TYPE_WL_BP_DOWN			= 39,
+	DUMP_TYPE_COMMON_BP_DOWN		= 40,
+	DUMP_TYPE_COEXCPU_BP_DOWN		= 41,
+	DUMP_TYPE_STA_ASSOC_TIMEOUT		= 42,
+	DUMP_TYPE_STA_4WAY_HS_TIMEOUT		= 43,
+	DUMP_TYPE_STA_ROAM_TIMEOUT		= 44,
+	DUMP_TYPE_SAR_CONF_NOTFOUND		= 45
 };
 
 enum dhd_hang_reason {

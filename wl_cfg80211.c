@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1551,6 +1551,7 @@ static const rsn_akm_wpa_auth_entry_t rsn_akm_wpa_auth_lookup_tbl[] = {
 
 #if defined(WL_SAE) || defined(WL_CLIENT_SAE)
 	{WLAN_AKM_SUITE_SAE, WPA3_AUTH_SAE_PSK},
+	{WLAN_AKM_SUITE_SAE_EXT_PSK, WPA3_AUTH_SAE_EXT_PSK},
 #endif /* WL_SAE || WL_CLIENT_SAE */
 #ifdef WL_SAE_FT
 	{WLAN_AKM_SUITE_FT_OVER_SAE, WPA3_AUTH_SAE_PSK | WPA2_AUTH_FT},
@@ -14879,9 +14880,8 @@ wl_handle_link_down(struct bcm_cfg80211 *cfg, wl_assoc_status_t *as)
 	WL_INFORM_MEM(("Link down Reason: %s\n", bcmevent_get_name(as->event_type)));
 	if (!wl_cfgvif_bssid_match_found(cfg, as->ndev->ieee80211_ptr, as->addr)) {
 		WL_ERR(("BSSID of event is not the connected BSSID"
-			"(ignore it) event_mac: " MACDBG" current BSSSID: " MACDBG"\n",
-			MAC2STRDBG((const u8*)(&as->addr)),
-			MAC2STRDBG((const u8*)(&as->ndev->ieee80211_ptr))));
+			"(ignore it) event_mac: " MACDBG"\n",
+			MAC2STRDBG((const u8 *)(&as->addr))));
 		return -1;
 	}
 
@@ -18009,9 +18009,6 @@ static void wl_init_event_handler(struct bcm_cfg80211 *cfg)
 	cfg->evt_handler[WLC_E_START] = wl_notify_connect_status;
 	cfg->evt_handler[WLC_E_AUTH_IND] = wl_notify_connect_status;
 	cfg->evt_handler[WLC_E_ASSOC_RESP_IE] = wl_notify_connect_status;
-#ifdef PNO_SUPPORT
-	cfg->evt_handler[WLC_E_PFN_NET_FOUND] = wl_notify_pfn_status;
-#endif /* PNO_SUPPORT */
 #ifdef WL_SCHED_SCAN
 	cfg->evt_handler[WLC_E_PFN_PARTIAL_RESULT] = wl_cfgscan_pfn_scanresult_handler;
 #endif /* WL_SCHED_SCAN */
@@ -26252,21 +26249,78 @@ wl_attempt_recovery(struct bcm_cfg80211 *cfg, u32 reason)
 }
 
 static void
+wl_handle_state_mismatch(struct net_device *ndev, u32 recovery_state)
+{
+	struct bcm_cfg80211 *cfg = wl_get_cfg(ndev);
+
+	if (recovery_state == WL_STATE_CONNECTING_SKIP_DUMP) {
+		WL_INFORM_MEM(("Clearing connection states in recovery handler\n"));
+		/* Clear driver states on roam failure and notify upper layer */
+		wl_clr_drv_status(cfg, CONNECTED, ndev);
+		wl_clr_drv_status(cfg, CONNECTING, ndev);
+		wl_clr_drv_status(cfg, ROAMING, ndev);
+		/* Indicate disconnect to upper layer */
+		CFG80211_DISCONNECTED(ndev, WLAN_REASON_DEAUTH_LEAVING, NULL, 0, true, GFP_KERNEL);
+		/* Trigger a disassoc to avoid state mismatch between driver and FW */
+		wl_cfg80211_disassoc(ndev, WLAN_REASON_DEAUTH_LEAVING);
+	} else if (recovery_state == WL_STATE_SCANNING_SKIP_DUMP) {
+		WL_INFORM_MEM(("Aborting scan in the recovery handler\n"));
+		wl_cfgscan_scan_abort(cfg);
+	}
+}
+
+static void
 wl_cfg80211_recovery_handler(struct work_struct *work)
 {
 	struct bcm_cfg80211 *cfg = NULL;
 	u32 cfg_hang_reason = HANG_REASON_UNKNOWN;
+	u32 dump_type = DUMP_TYPE_CFG_VENDOR_TRIGGERED;
+	bool skip_dump = FALSE;
 
 	BCM_SET_CONTAINER_OF(cfg, work, struct bcm_cfg80211, recovery_work.work);
 
-	if (cfg->recovery_state) {
-		wl_attempt_recovery(cfg, cfg->recovery_state);
-		cfg_hang_reason = HANG_REASON_DS_SKIP_TIMEOUT;
+	/* Update the the dump type based on recovery state */
+	switch (cfg->cfg_recovery.recovery_state) {
+	case WL_STATE_CONNECTING_SKIP_DUMP:
+		/* intentional fall through */
+	case WL_STATE_SCANNING_SKIP_DUMP:
+		/* The SSR dump trigger is cause of concern for GG, instead we clear connect
+		 * state only in case of phone platforms. This will help the framework to recover.
+		 * Dev platform will still continue to trigger SSR to catch any genuine issues
+		 */
+		wl_handle_state_mismatch(cfg->cfg_recovery.recovery_ndev,
+			cfg->cfg_recovery.recovery_state);
+		skip_dump = TRUE;
+		break;
+	case WL_STATE_SCANNING:
+		dump_type = DUMP_TYPE_SCAN_TIMEOUT;
+		break;
+	case WL_STATE_CONNECTING:
+		dump_type = DUMP_TYPE_STA_ASSOC_TIMEOUT;
+		break;
+	case WL_STATE_AUTHORIZING:
+		dump_type = DUMP_TYPE_STA_4WAY_HS_TIMEOUT;
+		break;
+	case WL_STATE_ROAMING:
+		dump_type = DUMP_TYPE_STA_ROAM_TIMEOUT;
+		break;
+	default:
+		dump_type = DUMP_TYPE_CFG_VENDOR_TRIGGERED;
+		break;
 	}
 
-	WL_ERR(("**trigger hang event for recovery state:%d\n", cfg->recovery_state));
-	wl_cfg80211_handle_hang_event(bcmcfg_to_prmry_ndev(cfg),
-			cfg_hang_reason, DUMP_TYPE_CFG_VENDOR_TRIGGERED);
+	if (skip_dump == FALSE) {
+		if (cfg->cfg_recovery.recovery_state) {
+			wl_attempt_recovery(cfg, cfg->cfg_recovery.recovery_state);
+			cfg_hang_reason = HANG_REASON_DS_SKIP_TIMEOUT;
+		}
+
+		WL_ERR(("**trigger hang event for recovery state:%d\n",
+			cfg->cfg_recovery.recovery_state));
+
+		wl_cfg80211_handle_hang_event(bcmcfg_to_prmry_ndev(cfg),
+				cfg_hang_reason, dump_type);
+	}
 }
 
 #define WL_DS(x)
@@ -26327,8 +26381,18 @@ bool wl_cfg80211_check_in_progress(struct net_device *dev)
 			WL_ERR(("DS skip threshold hit. reason:%d start_time:"
 					SEC_USEC_FMT" cur_time:"SEC_USEC_FMT"\n",
 					reason, GET_SEC_USEC(start_time), GET_SEC_USEC(curtime)));
+
+#ifdef DHD_AVOID_SSR_ON_STATE_MISMATCH
+			if ((reason == WL_STATE_CONNECTING) || (reason == WL_STATE_AUTHORIZING) ||
+				(reason == WL_STATE_ROAMING)) {
+				reason =  WL_STATE_CONNECTING_SKIP_DUMP;
+			} else if (reason == WL_STATE_SCANNING) {
+				reason = WL_STATE_SCANNING_SKIP_DUMP;
+			}
+#endif /* DHD_AVOID_SSR_ON_STATE_MISMATCH */
 			/* Force clear states and send a hang event */
-			cfg->recovery_state = reason;
+			cfg->cfg_recovery.recovery_state = reason;
+			cfg->cfg_recovery.recovery_ndev = dev;
 			if (!schedule_delayed_work(&cfg->recovery_work,
 				msecs_to_jiffies((const unsigned int)10))) {
 				/* Unexpected. If it happens, don't block suspend */
