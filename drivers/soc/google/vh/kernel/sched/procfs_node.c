@@ -3472,6 +3472,10 @@ ssize_t prefer_idle_task_name_store(struct file *filp, const char __user *ubuf, 
 }
 PROC_OPS_RW(prefer_idle_task_name);
 
+/*
+ * TODO(guibing): remove "is_tgid_system_ui" procfs node once the powerhal
+ * switch to use the new "check_tgid_type" procfs node.
+ */
 static ssize_t is_tgid_system_ui_store(struct file *filp,
 						const char __user *ubuf,
 						size_t count, loff_t *pos)
@@ -3517,6 +3521,65 @@ static ssize_t is_tgid_system_ui_store(struct file *filp,
 	}
 }
 PROC_OPS_WO(is_tgid_system_ui);
+
+/*
+ * Check the type of applications to which the tgid belongs.
+ * normal return values:
+ *   1 : systemui or nexuslauncher related
+ *   2 : chrome related
+ *   -ENOMSG : others
+ *
+ * It's designed intentionally not to return the number of written characters, so it could be used
+ * to check different types of the tgid tasks based on its return value. This helps reducing the
+ * number of syscalls when used frequently in user space.
+ */
+static ssize_t check_tgid_type_store(struct file *filp,
+					const char __user *ubuf,
+					size_t count, loff_t *pos)
+{
+	unsigned int val;
+	char buf[MAX_PROC_SIZE];
+	struct task_struct *p;
+	char tgid_comm[TASK_COMM_LEN] = {0};
+
+	if (count >= sizeof(buf))
+		return -EINVAL;
+
+	if (copy_from_user(buf, ubuf, count))
+		return -EFAULT;
+
+	buf[count] = '\0';
+
+	if (kstrtouint(buf, 0, &val) || val > PID_MAX_LIMIT)
+		return -EINVAL;
+
+	rcu_read_lock();
+	p = find_task_by_vpid(val);
+	if (!p) {
+		rcu_read_unlock();
+		return -ESRCH;
+	}
+
+	get_task_struct(p);
+	if (!check_cred(p)) {
+		put_task_struct(p);
+		rcu_read_unlock();
+		return -EACCES;
+	}
+
+	strlcpy(tgid_comm, p->comm, TASK_COMM_LEN);
+	put_task_struct(p);
+	rcu_read_unlock();
+
+	if (strstr(tgid_comm, "systemui") || strstr(tgid_comm, "nexuslauncher")) {
+		return 1;
+	} else if (strstr(tgid_comm, "android.chrome") || strstr(tgid_comm, "ileged_process")) {
+		return 2;
+	} else {
+		return -ENOMSG;
+	}
+}
+PROC_OPS_WO(check_tgid_type);
 
 int boost_at_fork_task_name_show(struct seq_file *m, void *v)
 {
@@ -3744,6 +3807,8 @@ static struct pentry entries[] = {
 	/* boost at fork */
 	PROC_ENTRY(boost_at_fork_task_name),
 	PROC_ENTRY(boost_at_fork_value),
+	// check the type of application to which the tgid belongs
+	PROC_ENTRY(check_tgid_type),
 };
 
 
