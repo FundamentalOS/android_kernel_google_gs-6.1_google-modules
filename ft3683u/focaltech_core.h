@@ -100,13 +100,14 @@
 #define FTS_MAX_COMMMAND_LENGTH             16
 
 
-#define FTS_TOUCH_OFF_E_XH                  1
-#define FTS_TOUCH_OFF_XL                    2
-#define FTS_TOUCH_OFF_ID_YH                 3
-#define FTS_TOUCH_OFF_YL                    4
-#define FTS_TOUCH_OFF_PRE                   5
-#define FTS_TOUCH_OFF_AREA                  6
-#define FTS_TOUCH_OFF_MINOR                 7
+#define FTS_TOUCH_OFF_E_XH                  0
+#define FTS_TOUCH_OFF_XL                    1
+#define FTS_TOUCH_OFF_ID_YH                 2
+#define FTS_TOUCH_OFF_YL                    3
+#define FTS_TOUCH_OFF_PRE                   4
+#define FTS_TOUCH_OFF_MAJOR                 5
+#define FTS_TOUCH_OFF_MINOR                 6
+#define FTS_TOUCH_OFF_ORIENTATION           7
 
 #define FTS_TOUCH_E_NUM                     1
 #define FTS_ONE_TCH_LEN_V2                  8
@@ -182,9 +183,9 @@ struct ts_event {
     int p;      /* pressure */
     int flag;   /* touch event flag: 0 -- down; 1-- up; 2 -- contact */
     int id;     /*touch ID */
-    int area;
     int major;
     int minor;
+    int orientation;
 };
 
 struct pen_event {
@@ -391,10 +392,7 @@ int fts_bus_set_speed(struct fts_ts_data *ts_data, u32 speed);
 /* Gesture functions */
 int fts_gesture_init(struct fts_ts_data *ts_data);
 int fts_gesture_exit(struct fts_ts_data *ts_data);
-void fts_gesture_recovery(struct fts_ts_data *ts_data);
 int fts_gesture_readdata(struct fts_ts_data *ts_data);
-int fts_gesture_suspend(struct fts_ts_data *ts_data);
-int fts_gesture_resume(struct fts_ts_data *ts_data);
 
 int fts_set_heatmap_mode(struct fts_ts_data *ts_data, u8 heatmap_mode);
 int fts_set_grip_mode(struct fts_ts_data *ts_datam, u8 grip_mode);
@@ -451,6 +449,12 @@ int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
 void fts_update_feature_setting(struct fts_ts_data *ts_data);
 void fts_irq_disable(void);
 void fts_irq_enable(void);
+
+/* Power Control */
+#if FTS_PINCTRL_EN
+int fts_pinctrl_select_normal(struct fts_ts_data *ts);
+int fts_pinctrl_select_suspend(struct fts_ts_data *ts);
+#endif /* FTS_PINCTRL_EN */
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 void fts_irq_read_report(void);

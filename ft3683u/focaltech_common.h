@@ -116,6 +116,9 @@
 #define FTS_REG_INT2                        0xBF
 #define FTS_REG_CLR_RESET                   0xEC
 
+#define FTS_REG_WAKEUP                      0x95
+#define FTS_WAKEUP_VALUE                    0x55
+
 #define FTS_REG_HEATMAP_98                  0x98
 
 #define FTS_LPTW_REG_SET_E3                 0xE3

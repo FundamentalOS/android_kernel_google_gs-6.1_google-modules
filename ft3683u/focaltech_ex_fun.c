@@ -1441,6 +1441,7 @@ int gti_get_scan_mode(void *private_data, struct gti_scan_cmd *cmd)
 
 int gti_set_scan_mode(void *private_data, struct gti_scan_cmd *cmd)
 {
+    struct fts_ts_data *ts_data = private_data;
     int ret = 0;
     u8 power_mode;
     u8 gesture_en;
@@ -1449,6 +1450,8 @@ int gti_set_scan_mode(void *private_data, struct gti_scan_cmd *cmd)
     switch (cmd->setting) {
     case GTI_SCAN_MODE_AUTO:
         fts_reset_proc(0);
+        fts_wait_tp_to_valid();
+        fts_update_feature_setting(ts_data);
         return 0;
         break;
     case GTI_SCAN_MODE_NORMAL_ACTIVE:
