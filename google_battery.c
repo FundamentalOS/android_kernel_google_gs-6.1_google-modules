@@ -104,6 +104,7 @@
 	(((index) + BHI_ALGO_ROUND_INDEX) / 100)
 
 #define DEFAULT_FORCE_FCR_UPDATE_CYCLE	10
+#define DEFAULT_FORCE_FRC_UPDATE_FCR_DELTA	0
 
 /* TODO: this is for Adaptive charging, rename */
 enum batt_health_ui {
@@ -303,6 +304,11 @@ enum batt_aacp_opt_out {
 	BATT_AACP_OPT_OUT_DISABLED = 0,
 	BATT_AACP_OPT_OUT_ENABLED = 1,
 	BATT_AACP_OPT_OUT_MAX,
+};
+
+enum batt_fcr_update_ops {
+	BATT_FCR_UPDATE_DISABLE = 0,
+	BATT_FCR_UPDATE_FULLCHARGE_DELTA = 1,
 };
 
 #define BATT_TEMP_RECORD_THR 3
@@ -732,6 +738,8 @@ struct batt_drv {
 	int force_fcr_update_cycle;
 	int last_full_charge;
 	bool vote_force_full_charge;
+
+	int force_fcr_update_ops;
 };
 
 static int gbatt_get_temp(struct batt_drv *batt_drv, int *temp);
@@ -1792,6 +1800,29 @@ static bool batt_charge_to_limit_enable(const struct batt_chg_health *chg_health
 	return chg_health->rest_rate == 0 && chg_health->always_on_soc > 0;
 }
 
+/* batt_drv->batt_lock is acquired by a caller */
+static void batt_force_fcr_update_charging_policy(struct batt_drv *batt_drv, bool update)
+{
+	if (batt_drv->vote_force_full_charge == update)
+		return;
+
+	gvotable_cast_long_vote(batt_drv->charging_policy_votable, FCRU_CHARGE_VOTER,
+				CHARGING_POLICY_VOTE_FORCE_FULL_CHARGE, update);
+	batt_drv->vote_force_full_charge = update;
+}
+
+static bool batt_need_force_fcr_update(struct batt_drv *batt_drv)
+{
+	switch (batt_drv->force_fcr_update_ops) {
+	case BATT_FCR_UPDATE_DISABLE:
+		return false;
+	case BATT_FCR_UPDATE_FULLCHARGE_DELTA:
+		return batt_drv->hist_data_saved_cnt - batt_drv->last_full_charge >=
+		       batt_drv->force_fcr_update_cycle;
+	default:
+		return true;
+	}
+}
 /*
  * msc_logic_health() sync ce_data->ce_health to batt_drv->chg_health
  * . return -EINVAL when the device is not connected to power -ERANGE when
@@ -1807,8 +1838,7 @@ static int batt_ttf_estimate(ktime_t *res, struct batt_drv *batt_drv)
 	qnum_t soc_raw = ssoc_get_real_raw(&batt_drv->ssoc_state);
 	ktime_t estimate = 0;
 	int rc = 0, max_ratio = 0, ssoc_full = SSOC_FULL;
-	const bool skip_fcr_update = batt_drv->hist_data_saved_cnt - batt_drv->last_full_charge <
-				     batt_drv->force_fcr_update_cycle;
+	const bool need_fcr_update = batt_need_force_fcr_update(batt_drv);
 	qnum_t raw_full;
 
 	if (batt_drv->ssoc_state.buck_enabled != 1)
@@ -1819,17 +1849,16 @@ static int batt_ttf_estimate(ktime_t *res, struct batt_drv *batt_drv)
 		goto done;
 	}
 
-	if (skip_fcr_update) {
+	if (!need_fcr_update) {
 		if (batt_drv->charging_policy == CHARGING_POLICY_VOTE_LONGLIFE)
 			ssoc_full = LONGLIFE_CHARGE_STOP_LEVEL;
 		else if (batt_charge_to_limit_enable(&batt_drv->chg_health))
 			ssoc_full = batt_drv->chg_health.always_on_soc;
-	} else if (batt_drv->charging_policy == CHARGING_POLICY_VOTE_LONGLIFE &&
-		   !batt_drv->vote_force_full_charge) {
-		gvotable_cast_long_vote(batt_drv->charging_policy_votable, FCRU_CHARGE_VOTER,
-					CHARGING_POLICY_VOTE_FORCE_FULL_CHARGE, true);
-		batt_drv->vote_force_full_charge = true;
 	}
+
+	if (batt_drv->charging_policy == CHARGING_POLICY_VOTE_LONGLIFE)
+		batt_force_fcr_update_charging_policy(batt_drv, need_fcr_update);
+
 
 	raw_full = qnum_fromint(ssoc_full) - qnum_rconst(SOC_ROUND_BASE);
 
@@ -9840,6 +9869,44 @@ static ssize_t temp_filter_enable_show(struct device *dev,
 }
 
 static DEVICE_ATTR_RW(temp_filter_enable);
+
+static ssize_t force_fcr_update_ops_store(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+	int val, ret;
+
+	ret = kstrtoint(buf, 0, &val);
+	if (ret < 0)
+		return ret;
+
+	/* chg_lock protect msc_logic */
+	mutex_lock(&batt_drv->batt_lock);
+
+	batt_drv->force_fcr_update_ops = val;
+
+	/* if force full charge was active */
+	if (batt_drv->force_fcr_update_ops == BATT_FCR_UPDATE_DISABLE)
+		batt_force_fcr_update_charging_policy(batt_drv, false);
+
+	mutex_unlock(&batt_drv->batt_lock);
+
+	return count;
+}
+
+static ssize_t force_fcr_update_ops_show(struct device *dev,
+					 struct device_attribute *attr, char *buf)
+{
+	struct power_supply *psy = container_of(dev, struct power_supply, dev);
+	struct batt_drv *batt_drv = power_supply_get_drvdata(psy);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", batt_drv->force_fcr_update_ops);
+}
+
+static DEVICE_ATTR_RW(force_fcr_update_ops);
+
 /* ------------------------------------------------------------------------- */
 
 static struct attribute *batt_attrs[] = {
@@ -9918,6 +9985,7 @@ static struct attribute *batt_attrs[] = {
 	&dev_attr_dev_sn.attr,
 	&dev_attr_temp_filter_enable.attr,
 	&dev_attr_chg_profile_switch.attr,
+	&dev_attr_force_fcr_update_ops.attr,
 	NULL,
 };
 
@@ -10926,11 +10994,7 @@ static void google_battery_work(struct work_struct *work)
 		dev_info(batt_drv->device, "force full charged at cycle %d\n",
 			 batt_drv->last_full_charge);
 
-		if (batt_drv->vote_force_full_charge) {
-			gvotable_cast_long_vote(batt_drv->charging_policy_votable, FCRU_CHARGE_VOTER,
-						CHARGING_POLICY_VOTE_FORCE_FULL_CHARGE, false);
-			batt_drv->vote_force_full_charge = false;
-		}
+		batt_force_fcr_update_charging_policy(batt_drv, false);
 	}
 
 reschedule:
@@ -12307,6 +12371,13 @@ static void google_battery_init_work(struct work_struct *work)
 	/* if force_fcr_update_cycle has default value of eeprom */
 	if (batt_drv->last_full_charge == 0xFFFF)
 		batt_drv->last_full_charge = 0;
+
+	/* configure force full charge mode */
+	ret = of_property_read_s32(node, "google,force-fcn-update-ops",
+				   &batt_drv->force_fcr_update_ops);
+	if (ret != 0)
+		batt_drv->force_fcr_update_ops = BATT_FCR_UPDATE_FULLCHARGE_DELTA;
+
 
 
 	pr_info("google_battery init_work done\n");
