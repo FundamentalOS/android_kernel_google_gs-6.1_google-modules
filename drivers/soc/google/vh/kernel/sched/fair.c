@@ -2592,7 +2592,7 @@ out:
 	if (trace_sched_select_task_rq_fair_enabled())
 		trace_sched_select_task_rq_fair(p, task_util_est(p),
 						sync_wakeup, get_adpf(p, true), prefer_prev,
-						get_vendor_task_struct(p)->auto_prefer_high_cap,
+						get_prefer_high_cap(p),
 						get_vendor_group(p),
 						uclamp_eff_value_pixel_mod(p, UCLAMP_MIN),
 						uclamp_eff_value_pixel_mod(p, UCLAMP_MAX),
