@@ -20242,10 +20242,12 @@ void dhd_schedule_memdump(dhd_pub_t *dhdp, uint8 *buf, uint32 size)
 #endif /* DHD_LOG_DUMP */
 
 	/*
+	 * Skip collecting the mem_dump from GET_RING_DATA in the same context.
 	 * collect mem_dump from same context only for dhd_open and dhd_stop
 	 * ie: CAN_SLEEP and open_in_progress || stop_in_progress
 	 */
-	if (CAN_SLEEP() && (dhdp->open_in_progress || dhdp->stop_in_progress)) {
+	if ((dhdp->skip_memdump_map_read == FALSE) && CAN_SLEEP() &&
+			(dhdp->open_in_progress || dhdp->stop_in_progress)) {
 		/* dhd_mem_dump will clear memdump_type, so cache it */
 		uint32 memdump_type = dhdp->memdump_type;
 		dhd_info->scheduled_memdump = FALSE;

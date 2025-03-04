@@ -5899,9 +5899,6 @@ dhdpcie_mem_dump(dhd_bus_t *bus)
 		}
 #endif /* COEX_CPU */
 
-	} else {
-		DHD_ERROR(("%s: Skipped to get mem dump, err=%d\n", __FUNCTION__, ret));
-		dhdp->skip_memdump_map_read = FALSE;
 	}
 #ifdef DHD_DEBUG_UART
 	bus->dhd->memdump_success = TRUE;
@@ -5951,6 +5948,7 @@ exit:
 		dhdp->dhd_console_ms = dhd_console_ms_prev;
 	}
 
+	dhdp->skip_memdump_map_read = FALSE;
 	return ret;
 }
 
