@@ -6030,6 +6030,8 @@ static int batt_init_chg_profile(struct batt_drv *batt_drv, struct device_node *
 	ret = of_property_read_bool(node, "google,aacr-disable");
 	if (!ret && profile->aacr_nb_limits)
 		batt_drv->aacr_state = BATT_AACR_ENABLED;
+	else
+		batt_drv->aacr_state = BATT_AACR_DISABLED;
 
 	ret = of_property_read_u32(node, "google,aacr-algo", &batt_drv->aacr_algo);
 	if (ret < 0)
@@ -6044,6 +6046,14 @@ static int batt_init_chg_profile(struct batt_drv *batt_drv, struct device_node *
 				   &batt_drv->aacr_cliff_capacity_rate);
 	if (ret < 0)
 		batt_drv->aacr_cliff_capacity_rate = 50; /* default rate */
+
+	ret = of_property_read_u32(node, "google,aacr-cycle-max", &batt_drv->aacr_cycle_max);
+	if (ret < 0)
+		batt_drv->aacr_cycle_max = AACR_MAX_CYCLE_DEFAULT; /* default rate */
+
+	ret = of_property_read_u32(node, "google,aacr-cycle-grace", &batt_drv->aacr_cycle_grace);
+	if (ret < 0)
+		batt_drv->aacr_cycle_grace = AACR_START_CYCLE_DEFAULT; /* default rate */
 
 	/* NOTE: with NG charger tolerance is applied from "charger" */
 	gbms_init_chg_table(profile, node, aacr_get_capacity(batt_drv));
@@ -12587,11 +12597,6 @@ static int google_battery_probe(struct platform_device *pdev)
 
 	ret = of_property_read_u32(pdev->dev.of_node, "google,hda-tz-limit",
 				   &batt_drv->hda_tz_limit);
-
-	/* AACR server side */
-	batt_drv->aacr_cycle_grace = AACR_START_CYCLE_DEFAULT;
-	batt_drv->aacr_cycle_max = AACR_MAX_CYCLE_DEFAULT;
-	batt_drv->aacr_state = BATT_AACR_DISABLED;
 
 	/* AAFV server side */
 	batt_drv->aafv_state = BATT_AAFV_ENABLED;
