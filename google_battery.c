@@ -6030,6 +6030,8 @@ static int batt_init_chg_profile(struct batt_drv *batt_drv, struct device_node *
 	ret = of_property_read_bool(node, "google,aacr-disable");
 	if (!ret && profile->aacr_nb_limits)
 		batt_drv->aacr_state = BATT_AACR_ENABLED;
+	else
+		batt_drv->aacr_state = BATT_AACR_DISABLED;
 
 	ret = of_property_read_u32(node, "google,aacr-algo", &batt_drv->aacr_algo);
 	if (ret < 0)
@@ -6044,6 +6046,14 @@ static int batt_init_chg_profile(struct batt_drv *batt_drv, struct device_node *
 				   &batt_drv->aacr_cliff_capacity_rate);
 	if (ret < 0)
 		batt_drv->aacr_cliff_capacity_rate = 50; /* default rate */
+
+	ret = of_property_read_u32(node, "google,aacr-cycle-max", &batt_drv->aacr_cycle_max);
+	if (ret < 0)
+		batt_drv->aacr_cycle_max = AACR_MAX_CYCLE_DEFAULT; /* default rate */
+
+	ret = of_property_read_u32(node, "google,aacr-cycle-grace", &batt_drv->aacr_cycle_grace);
+	if (ret < 0)
+		batt_drv->aacr_cycle_grace = AACR_START_CYCLE_DEFAULT; /* default rate */
 
 	/* NOTE: with NG charger tolerance is applied from "charger" */
 	gbms_init_chg_table(profile, node, aacr_get_capacity(batt_drv));
@@ -9267,7 +9277,7 @@ static DEVICE_ATTR_RO(charging_state);
 
 static void batt_update_charging_policy(struct batt_drv *batt_drv)
 {
-	int value;
+	int value, ret;
 
 	value = gvotable_get_current_int_vote(batt_drv->charging_policy_votable);
 	if (value == batt_drv->charging_policy)
@@ -9289,6 +9299,16 @@ static void batt_update_charging_policy(struct batt_drv *batt_drv)
 	gvotable_cast_long_vote(batt_drv->csi_status_votable, "CSI_STATUS_DEFEND_LIMIT",
 				CSI_STATUS_Defender_Limit,
 				value == CHARGING_POLICY_VOTE_LONGLIFE);
+
+	if (value != CHARGING_POLICY_VOTE_LONGLIFE)
+		return;
+
+	/* for LONGLIFE: make full charge happens XXX cycles from the current cycle */
+	batt_drv->last_full_charge = batt_drv->hist_data_saved_cnt;
+	ret = gbms_storage_write(GBMS_TAG_FCRU, &batt_drv->last_full_charge,
+				 GBMS_FCRU_LEN);
+	if (ret < 0)
+		pr_err("failed to store FCNU (%d)\n", ret);
 }
 
 static int charging_policy_translate(int value)
@@ -12578,13 +12598,8 @@ static int google_battery_probe(struct platform_device *pdev)
 	ret = of_property_read_u32(pdev->dev.of_node, "google,hda-tz-limit",
 				   &batt_drv->hda_tz_limit);
 
-	/* AACR server side */
-	batt_drv->aacr_cycle_grace = AACR_START_CYCLE_DEFAULT;
-	batt_drv->aacr_cycle_max = AACR_MAX_CYCLE_DEFAULT;
-	batt_drv->aacr_state = BATT_AACR_DISABLED;
-
 	/* AAFV server side */
-	batt_drv->aafv_state = BATT_AAFV_DISABLED;
+	batt_drv->aafv_state = BATT_AAFV_ENABLED;
 	batt_drv->aafv_apply_max = AAFV_APPLY_MAX_DEFAULT;
 	batt_drv->aafv_max_offset = AAFV_MAX_OFFSET_DEFAULT;
 	batt_drv->aafv_cliff_cycle = AAFV_CLIFF_CYCLE_DEFAULT;
