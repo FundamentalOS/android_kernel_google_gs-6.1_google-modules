@@ -1,7 +1,7 @@
 /*
  * Header for Linux cfg80211 scan
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -102,7 +102,7 @@ extern s32 wl_notify_gscan_event(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cf
 extern s32 wl_cfgscan_pfn_scanresult_handler(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 	const wl_event_msg_t *e, void *data);
 extern s32 wl_cfgscan_pfn_handler(struct bcm_cfg80211 *cfg,
-	wl_pfn_scanresult_v3_1_t *pfn_scanresult);
+	wl_pfn_scanresult_v3_1_t *pfn_scanresult, u32 total_event_len);
 #endif /* WL_SCHED_SCAN */
 
 #if defined(GSCAN_SUPPORT) || defined(WL_SCHED_SCAN)
