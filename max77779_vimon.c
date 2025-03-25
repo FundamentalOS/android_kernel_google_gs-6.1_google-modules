@@ -4,6 +4,7 @@
  *
  * MAX77779 BATTVIMON management
  */
+
 #include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/irq.h>
@@ -11,10 +12,77 @@
 #include <linux/mutex.h>
 #include <linux/regmap.h>
 #include <linux/reboot.h>
+#include <linux/list.h>
+#include <linux/genalloc.h>
 
 #include "google_bms.h"
 #include "max77779.h"
 #include "max77779_vimon.h"
+
+#define MAX77779_BVIM_bvim_trig_0_6_MASK (MAX77779_BVIM_bvim_trig_SPR_7_MASK - 1)
+#define MAX77779_BVIM_bvim_trig_8_15_MASK (~((1 << (MAX77779_BVIM_bvim_trig_SPR_7_SHIFT + 1)) - 1))
+
+#define MAX77779_VIMON_MAX_CLIENT 32
+#define MAX77779_VIMON_PAGE_MASK 3
+
+#define VIMON_DBG_TEMP_BUFFER_SZ	32
+#define VIMON_DBG_CLIENT_MAX_OUTPUT	4
+
+struct vimon_client_info {
+	u16 mask;
+	int count;
+	void *private_data;
+	struct vimon_client_callbacks *client_cb;
+	struct list_head list;
+};
+
+static void on_debug_sample_ready(void *private, const enum vimon_trigger_source reason,
+				  const u16 *data, const size_t len)
+{
+	struct max77779_vimon_data *vimon = private;
+	size_t i = 0, pos = 0;
+	const size_t count = len / sizeof(u16);
+	char temp[VIMON_DBG_TEMP_BUFFER_SZ];
+
+	dev_info(vimon->dev, "reason: %d, data: %p, len: %ld\n", reason, data, count);
+
+	for (i = 0; i < count; i++) {
+		pos += scnprintf(&temp[pos], VIMON_DBG_TEMP_BUFFER_SZ - pos, "%04x ", data[i]);
+
+		if (((i + 1) % VIMON_DBG_CLIENT_MAX_OUTPUT) == 0) {
+			dev_info(vimon->dev, " %s\n", temp);
+			pos = 0;
+		}
+	}
+
+	if (pos > 0)
+		dev_info(vimon->dev, " %s\n", temp);
+}
+
+static void on_debug_removed(void *private)
+{
+	struct max77779_vimon_data *vimon = private;
+
+	dev_dbg(vimon->dev, "on_removed_impl called\n");
+}
+
+static bool debug_extra_trigger(void *private, const u16 *data, const size_t len)
+{
+	struct max77779_vimon_data *vimon = private;
+
+	dev_dbg(vimon->dev, "extra_trigger_impl called\n");
+	return false;
+}
+
+static struct vimon_client_callbacks debug_cb_impl = {
+	.on_sample_ready = on_debug_sample_ready,
+	.on_removed = on_debug_removed,
+	.extra_trigger = debug_extra_trigger,
+};
+
+static LIST_HEAD(vimon_clients);
+static struct gen_pool *vimon_cache_pool;
+static void *vimon_cache_mem;
 
 static inline int max77779_vimon_reg_read(struct max77779_vimon_data *data, unsigned int reg,
 					  unsigned int *val)
@@ -60,6 +128,106 @@ static int max77779_vimon_direct_is_running(struct max77779_vimon_data *data)
 
 	return !!(running & MAX77779_BVIM_CTRL_BVIMON_TRIG_MASK);
 }
+
+/* vimon_update_callback_mask needs to be protected by vimon_cb_lock */
+static void vimon_update_callback_mask(struct max77779_vimon_data *data)
+{
+	u16 new_mask = 0;
+	struct vimon_client_info *client;
+	int ret;
+
+	list_for_each_entry(client, &vimon_clients, list)
+		new_mask |= client->mask;
+
+	/* bit7 is used for SPR */
+	new_mask = (new_mask & MAX77779_BVIM_bvim_trig_0_6_MASK) |
+		   ((new_mask << 1) & MAX77779_BVIM_bvim_trig_8_15_MASK);
+
+	if (data->trigger_src == new_mask)
+		return;
+
+	ret = max77779_vimon_reg_write(data, MAX77779_BVIM_bvim_trig, new_mask);
+	if (ret) {
+		dev_err(data->dev, "Failed to configure vimon trig(%d)\n", ret);
+		return;
+	}
+
+	data->trigger_src = new_mask;
+}
+
+int vimon_register_callback(struct device *dev, const u16 mask, const int count, void *private,
+			    struct vimon_client_callbacks *cb)
+{
+	struct max77779_vimon_data *data = dev_get_drvdata(dev);
+	struct vimon_client_info *client;
+	int ret;
+
+	if (!vimon_cache_pool)
+		return -ENOMEM;
+
+	client = (struct vimon_client_info *)
+		  gen_pool_alloc(vimon_cache_pool, sizeof(struct vimon_client_info));
+	if (!client)
+		return -ENOMEM;
+
+	client->mask = mask;
+	client->count = count;
+	client->private_data = private;
+	client->client_cb = cb;
+
+	pm_stay_awake(data->dev);
+
+	mutex_lock(&data->vimon_lock);
+	mutex_lock(&data->vimon_cb_lock);
+
+	list_add(&client->list, &vimon_clients);
+	vimon_update_callback_mask(data);
+
+	/* TODO: consider delay based on response of b/383420815 */
+	ret = max77779_vimon_reg_write(data, MAX77779_BVIM_CTRL,
+				       MAX77779_BVIM_CTRL_BVIMON_TRIG_MASK);
+	if (ret)
+		dev_err(data->dev, "Failed to configure BVIM enable(%d)\n", ret);
+
+	mutex_unlock(&data->vimon_cb_lock);
+	mutex_unlock(&data->vimon_lock);
+
+	pm_relax(data->dev);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(vimon_register_callback);
+
+/*
+ * vimon_unregister_callback
+ * - on_removed will not be called: a client request removing callback explicitly.
+ */
+void vimon_unregister_callback(struct device *dev, struct vimon_client_callbacks *cb)
+{
+	struct max77779_vimon_data *data = dev_get_drvdata(dev);
+	struct vimon_client_info *client, *temp_node;
+
+	pm_stay_awake(data->dev);
+
+	mutex_lock(&data->vimon_lock);
+	mutex_lock(&data->vimon_cb_lock);
+
+	list_for_each_entry_safe(client, temp_node, &vimon_clients, list) {
+		if (client->client_cb == cb) {
+			list_del(&client->list);
+			gen_pool_free(vimon_cache_pool, (unsigned long)client,
+				      sizeof(struct vimon_client_info));
+		}
+	}
+
+	vimon_update_callback_mask(data);
+
+	mutex_unlock(&data->vimon_cb_lock);
+	mutex_unlock(&data->vimon_lock);
+
+	pm_relax(data->dev);
+}
+EXPORT_SYMBOL_GPL(vimon_unregister_callback);
 
 /* requires mutex_lock(&data->vimon_lock); */
 static int vimon_is_running(struct max77779_vimon_data *data)
@@ -176,11 +344,6 @@ vimon_start_exit:
 	return ret;
 }
 
-static int max77779_vimon_stop(struct max77779_vimon_data *data)
-{
-	return max77779_vimon_reg_write(data, MAX77779_BVIM_CTRL, 0);
-}
-
 static int max77779_vimon_direct_stop(struct max77779_vimon_data *data)
 {
 	return data->direct_reg_write(data, MAX77779_BVIM_CTRL, 0);
@@ -189,11 +352,6 @@ static int max77779_vimon_direct_stop(struct max77779_vimon_data *data)
 static int max77779_vimon_set_config(struct max77779_vimon_data *data, uint16_t mask)
 {
 	return max77779_vimon_reg_write(data, MAX77779_BVIM_bvim_cfg, mask);
-}
-
-static int max77779_vimon_clear_config(struct max77779_vimon_data *data, uint16_t mask)
-{
-	return max77779_vimon_reg_write(data, MAX77779_BVIM_bvim_cfg, 0);
 }
 
 /*
@@ -206,58 +364,67 @@ static int max77779_vimon_clear_config(struct max77779_vimon_data *data, uint16_
  *   page3: [0x180:0x1EF]
  */
 static ssize_t max77779_vimon_access_buffer(struct max77779_vimon_data *data, size_t offset,
-					    size_t len, uint16_t *buffer, bool toread)
+					    size_t addr_len, uint16_t *buffer, bool toread)
 {
 	unsigned int target_addr;
 	int ret = -1;
-	size_t sz;
+	size_t addr_sz;
+	size_t rw_sz;
 	unsigned int page;
 	size_t start = offset;
 	const char* type = toread ? "read" : "write";
 
 	/* valid range: 0 - (1024-32) */
-	if (offset + len > 992) {
+	if (offset + addr_len > 992) {
 		dev_err(data->dev, "Failed to %s BVIM's buffer: out of range\n", type);
 		return -EINVAL;
 	}
+	page = MAX77779_VIMON_PAGE_MASK & (offset >> 7);
+	target_addr = MAX77779_VIMON_OFFSET_BASE + (offset & 0x7F);
 
-	while (len > 0) {
+	while (addr_len > 0) {
 		/*
 		 * page = offset / 128
-		 * sz   = 256 - (offset % 256)
+		 * addr_sz   = 256 - (offset % 256)
 		 * target_addr = 0x80 + (offset % 256)
 		 */
-		page = offset >> 7;
-		sz = MAX77779_VIMON_BUFFER_SIZE - (offset & 0x7F);
-		if (sz > len)
-			sz = len;
-		target_addr = MAX77779_VIMON_OFFSET_BASE + (offset & 0x7F);
+
+		if (page == MAX77779_VIMON_PAGE_CNT - 1)
+			addr_sz = MAX77779_VIMON_LAST_PAGE_SIZE -
+				  (target_addr - MAX77779_VIMON_OFFSET_BASE);
+		else
+			addr_sz = MAX77779_VIMON_PAGE_SIZE -
+				  (target_addr - MAX77779_VIMON_OFFSET_BASE);
+
+		if (addr_len < addr_sz)
+			addr_sz = addr_len;
 
 		ret = regmap_write(data->regmap, MAX77779_BVIM_PAGE_CTRL, page);
 		if (ret < 0) {
 			dev_err(data->dev, "page write failed: page: %i\n", page);
-			break;
+			return ret;
 		}
 
+		rw_sz = addr_sz * MAX77779_VIMON_BYTES_PER_ENTRY;
+
 		if (toread)
-			ret = regmap_raw_read(data->regmap, target_addr, buffer, sz);
+			ret = regmap_raw_read(data->regmap, target_addr, buffer, rw_sz);
 		else
-			ret = regmap_raw_write(data->regmap, target_addr, buffer, sz);
+			ret = regmap_raw_write(data->regmap, target_addr, buffer, rw_sz);
 
 		if (ret < 0) {
 			dev_err(data->dev, "regmap_raw_read or write failed: %d\n", ret);
-			break;
+			return ret;
 		}
 
-		offset += sz;
-		buffer += sz / MAX77779_VIMON_BYTES_PER_ENTRY;
-		len -= sz;
+		offset += addr_sz;
+		buffer += addr_sz;
+		addr_len -= addr_sz;
+		page = MAX77779_VIMON_PAGE_MASK & (page + 1);
+		target_addr = MAX77779_VIMON_OFFSET_BASE;
 	}
 
-	if (ret < 0)
-		return ret;
-
-	return offset - start;
+	return (offset - start) * MAX77779_VIMON_BYTES_PER_ENTRY;
 }
 
 static ssize_t bvim_cfg_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -278,9 +445,11 @@ static void max77779_vimon_handle_data(struct work_struct *work)
 {
 	struct max77779_vimon_data *data = container_of(work, struct max77779_vimon_data,
 							read_data_work.work);
-	unsigned bvim_rfap, rsc, bvim_osc, smpl_start_add;
-	int ret;
-	int rd_bytes;
+	unsigned int bvim_rfap, bvim_rs, rts, rsc, bvim_osc, smpl_start_add;
+	int ret, rd_addr_cnt, rd_bytes;
+	struct vimon_client_info *client, *temp_node;
+	bool trigger_callback, update_callback_mask;
+	enum vimon_trigger_source reason;
 
 	pm_stay_awake(data->dev);
 	mutex_lock(&data->vimon_lock);
@@ -294,18 +463,19 @@ static void max77779_vimon_handle_data(struct work_struct *work)
 	if (ret)
 		goto vimon_handle_data_exit;
 
-	ret = max77779_vimon_reg_read(data, MAX77779_BVIM_bvim_rs, &rsc);
+	ret = max77779_vimon_reg_read(data, MAX77779_BVIM_bvim_rs, &bvim_rs);
 	if (ret)
 		goto vimon_handle_data_exit;
 
-	rsc = _max77779_bvim_bvim_rs_rsc_get(rsc);
+	rsc = _max77779_bvim_bvim_rs_rsc_get(bvim_rs);
+	if (rsc > MAX77779_VIMON_SMPL_CNT)
+		rsc = MAX77779_VIMON_SMPL_CNT;
+
 	rd_bytes = rsc * MAX77779_VIMON_BYTES_PER_ENTRY * MAX77779_VIMON_ENTRIES_PER_VI_PAIR;
 
-	ret = max77779_vimon_stop(data);
-	if (ret)
-		goto vimon_handle_data_exit;
+	rd_addr_cnt = rsc * MAX77779_VIMON_ENTRIES_PER_VI_PAIR;
 
-	ret = max77779_vimon_access_buffer(data, bvim_rfap, rd_bytes, data->buf, true);
+	ret = max77779_vimon_access_buffer(data, bvim_rfap, rd_addr_cnt, data->buf, true);
 	if (ret < 0)
 		goto vimon_handle_data_exit;
 
@@ -323,22 +493,63 @@ static void max77779_vimon_handle_data(struct work_struct *work)
 
 	smpl_start_add = _max77779_bvim_smpl_math_smpl_start_add_get(smpl_start_add);
 
+
+	rts = (bvim_rs & MAX77779_BVIM_bvim_rs_bvim_rts_MASK ) >>
+	      MAX77779_BVIM_bvim_rs_bvim_rts_SHIFT;
+
+	mutex_lock(&data->vimon_cb_lock);
+	update_callback_mask = false;
+
+	list_for_each_entry_safe(client, temp_node, &vimon_clients, list) {
+		trigger_callback = false;
+		if (client->mask & BIT(rts)) {
+			trigger_callback = true;
+			reason = BIT(rts);
+		} else if (client->client_cb->extra_trigger &&
+			   client->mask & VIMON_CLIENT_REQUEST &&
+			   client->client_cb->extra_trigger(client->private_data, data->buf,
+							    rd_bytes)) {
+			trigger_callback = true;
+			reason = VIMON_CLIENT_REQUEST;
+		}
+
+		if (trigger_callback) {
+			client->client_cb->on_sample_ready(client->private_data, reason, data->buf,
+							   rd_bytes);
+			if (client->count != VIMON_CLIENT_ALWAYS_RUN)
+				client->count--;
+		}
+		if (client->count == 0) {
+			client->client_cb->on_removed(client->private_data);
+
+			list_del(&client->list);
+			gen_pool_free(vimon_cache_pool, (unsigned long)client,
+				      sizeof(struct vimon_client_info));
+			update_callback_mask = true;
+		}
+	}
+
+	if (update_callback_mask)
+		vimon_update_callback_mask(data);
+
+	mutex_unlock(&data->vimon_cb_lock);
+
 vimon_handle_data_exit:
 
 	if (ret)
 		dev_dbg(data->dev, "Failed to handle data: (%d).\n", ret);
 
 	data->state = MAX77779_VIMON_IDLE;
+
+	/* TODO: consider continuous mode - b/376772385 */
 	ret = max77779_vimon_reg_write(data, MAX77779_BVIM_CTRL,
 				       MAX77779_BVIM_CTRL_BVIMON_TRIG_MASK);
 	if (ret)
-		dev_err(data->dev, "Failed to rearm bvim_ctrl (%d).\n", ret);
+		dev_err(data->dev, "Failed to configure vimon trig\n");
 
-	ret = regmap_write(data->regmap, MAX77779_BVIM_INT_STS,
-			   MAX77779_BVIM_INT_STS_BVIM_Samples_Rdy_MASK);
+	ret = max77779_vimon_reg_write(data, MAX77779_BVIM_MASK, 0);
 	if (ret)
-		dev_err(data->dev, "Failed to clear INT_STS (%d).\n",
-				ret);
+		dev_err(data->dev, "Failed to clear BVIM_MASK(%d).\n", ret);
 
 	mutex_unlock(&data->vimon_lock);
 	pm_relax(data->dev);
@@ -460,7 +671,6 @@ static ssize_t max77779_vimon_show_reg_all(struct file *filp, char __user *buf, 
 
 	return len;
 }
-
 BATTERY_DEBUG_ATTRIBUTE(debug_vimon_all_reg_fops, max77779_vimon_show_reg_all, NULL);
 
 static ssize_t max77779_vimon_show_buff_all(struct file *filp, char __user *buf,
@@ -524,8 +734,36 @@ vimon_show_buff_exit:
 
 	return ret;
 }
-
 BATTERY_DEBUG_ATTRIBUTE(debug_vimon_all_buff_fops, max77779_vimon_show_buff_all, NULL);
+
+static ssize_t max77779_vimon_debug_monitor(struct file *filp, const char __user *buf,
+					    size_t count, loff_t *ppos)
+{
+	struct max77779_vimon_data *data = filp->private_data;
+	char temp_buf[VIMON_DBG_TEMP_BUFFER_SZ];
+	int mask = 0, cnt = 0, ret;
+
+	ret = simple_write_to_buffer(temp_buf, VIMON_DBG_TEMP_BUFFER_SZ, ppos, buf, count);
+	if (ret < 0)
+		return ret;
+
+	if (sscanf(temp_buf, "%d %d", &mask, &cnt) != 2) {
+		dev_err(data->dev, "invalid argument: format should be mask counter\n");
+		return -EINVAL;
+	}
+
+	ret = vimon_register_callback(data->dev, (u16)mask, cnt, data, &debug_cb_impl);
+	if (ret) {
+		dev_err(data->dev, "failed to register vimon client callback(%d)\n", ret);
+		return ret;
+	}
+
+	dev_info(data->dev, "registered debug callback mask(%04x), count(%d)\n", mask, cnt);
+
+	return (ssize_t)count;
+}
+
+BATTERY_DEBUG_ATTRIBUTE(debug_monitor_fops, NULL, max77779_vimon_debug_monitor);
 
 static int max77779_vimon_debug_buff_page_read(void *d, u64 *val)
 {
@@ -579,6 +817,8 @@ static int max77779_vimon_init_fs(struct max77779_vimon_data *data)
 	debugfs_create_file("buffer_page", 0600, data->de, data, &debug_buff_page_rw_fops);
 	debugfs_create_bool("run_in_offmode", 0644, data->de, &data->run_in_offmode);
 
+	debugfs_create_file("debug_monitor", 0444, data->de, data, &debug_monitor_fops);
+
 	return 0;
 }
 
@@ -614,7 +854,6 @@ static irqreturn_t max77779_vimon_irq(int irq, void *ptr)
 	struct max77779_vimon_data *data = ptr;
 	int ret;
 
-
 	if (data->state <= MAX77779_VIMON_DISABLED)
 		return IRQ_HANDLED;
 
@@ -622,6 +861,11 @@ static irqreturn_t max77779_vimon_irq(int irq, void *ptr)
 		goto vimon_rearm_interrupt;
 
 	data->state = MAX77779_VIMON_DATA_AVAILABLE;
+
+	ret = regmap_write(data->regmap, MAX77779_BVIM_MASK,
+			   MAX77779_BVIM_MASK_BVIM_Samples_Rdy_m_MASK);
+	if (ret)
+		dev_err(data->dev, "Failed to set BVIM_MASK (%d).", ret);
 
 	schedule_delayed_work(&data->read_data_work,
 			      msecs_to_jiffies(MAX77779_VIMON_DATA_RETRIEVE_DELAY));
@@ -631,7 +875,7 @@ vimon_rearm_interrupt:
 	ret = regmap_write(data->regmap, MAX77779_BVIM_INT_STS,
 			   MAX77779_BVIM_INT_STS_BVIM_Samples_Rdy_MASK);
 	if (ret)
-		dev_err(data->dev, "Failed to clear INT_STS (%d).\n", ret);
+		dev_err(data->dev, "Failed to clear INT_STS (%d).", ret);
 
 
 	return IRQ_HANDLED;
@@ -650,6 +894,7 @@ int max77779_vimon_init(struct max77779_vimon_data *data)
 	unsigned int running;
 	uint16_t cfg_mask = 0;
 	uint16_t cfg_mask_lower_bits = 0;
+	unsigned long min_alloc_order;
 	int ret;
 
 	/* VIMON can be used to profile battery drain during reboot */
@@ -657,6 +902,7 @@ int max77779_vimon_init(struct max77779_vimon_data *data)
 	if (running)
 		dev_warn(data->dev, "VIMON is already running (%d)\n", running);
 	mutex_init(&data->vimon_lock);
+	mutex_init(&data->vimon_cb_lock);
 
 	/* configure collected sample count with MAX77779_VIMON_SMPL_CNT */
 	cfg_mask = MAX77779_BVIM_bvim_cfg_vioaok_stop_MASK |
@@ -673,12 +919,7 @@ int max77779_vimon_init(struct max77779_vimon_data *data)
 		return ret;
 	}
 
-	cfg_mask = MAX77779_BVIM_bvim_trig_oilo_stop_source_MASK |
-		   MAX77779_BVIM_bvim_trig_batoilo1_tr_MASK |
-		   MAX77779_BVIM_bvim_trig_batoilo2_tr_MASK |
-		   MAX77779_BVIM_bvim_trig_sysuvlo1_tr_MASK |
-		   MAX77779_BVIM_bvim_trig_sysuvlo2_tr_MASK;
-	ret = max77779_vimon_reg_write(data, MAX77779_BVIM_bvim_trig, cfg_mask);
+	ret = max77779_vimon_reg_write(data, MAX77779_BVIM_bvim_trig, 0);
 	if (ret) {
 		dev_err(dev, "Failed to configure vimon trig\n");
 		return ret;
@@ -738,6 +979,24 @@ int max77779_vimon_init(struct max77779_vimon_data *data)
 
 	data->state = MAX77779_VIMON_IDLE;
 	dev_info(data->dev, "buf_size=%lu\n", data->buf_size);
+
+	INIT_LIST_HEAD(&vimon_clients);
+
+	min_alloc_order = fls_long(sizeof(struct vimon_client_info) - 1);
+	vimon_cache_pool = gen_pool_create(min_alloc_order, -1);
+	if (vimon_cache_pool) {
+		const size_t mem_size = MAX77779_VIMON_MAX_CLIENT * BIT(min_alloc_order);
+
+		vimon_cache_mem = kzalloc(mem_size, GFP_KERNEL);
+		if (!vimon_cache_mem) {
+			gen_pool_destroy(vimon_cache_pool);
+			vimon_cache_pool = NULL;
+		} else {
+			gen_pool_add(vimon_cache_pool, (unsigned long)vimon_cache_mem,
+				     mem_size, -1);
+		}
+	}
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(max77779_vimon_init);
@@ -746,6 +1005,24 @@ EXPORT_SYMBOL_GPL(max77779_vimon_init);
 void max77779_vimon_remove(struct max77779_vimon_data *data)
 {
 	unsigned int running;
+	struct vimon_client_info *client, *temp_node;
+
+	mutex_lock(&data->vimon_cb_lock);
+
+	list_for_each_entry_safe(client, temp_node, &vimon_clients, list) {
+		client->client_cb->on_removed(client->private_data);
+
+		list_del(&client->list);
+		gen_pool_free(vimon_cache_pool, (unsigned long)client,
+			      sizeof(struct vimon_client_info));
+	}
+
+	mutex_unlock(&data->vimon_cb_lock);
+
+	if (vimon_cache_pool) {
+		gen_pool_destroy(vimon_cache_pool);
+		kfree(vimon_cache_mem);
+	}
 
 	running = max77779_vimon_is_running(data);
 	if (running < 0)

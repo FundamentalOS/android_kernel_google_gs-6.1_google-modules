@@ -37,6 +37,9 @@ struct device_node;
 #define GBMS_CHG_TOPOFF_NB_LIMITS_MAX 10
 #define GBMS_AACR_DATA_MAX 10
 #define GBMS_AAFV_DATA_MAX 16
+#define GBMS_AAFV_VOLTAGE_OFFSET_SCALE 1000
+#define GBMS_AACT_NB_LIMITS_MAX 10
+#define GBMS_AACT_PROFILE_MAX 100
 
 struct gbms_chg_profile {
 	const char *owner_name;
@@ -77,6 +80,18 @@ struct gbms_chg_profile {
 	u32 aafv_offsets[GBMS_AAFV_DATA_MAX];
 	u32 aafv_nb_limits;
 	u32 aafv_offset;
+
+	/* AACT feature */
+	int aact_temp_nb_limits;
+	s32 aact_temp_limits[GBMS_CHG_TEMP_NB_LIMITS_MAX];
+	int aact_volt_nb_limits;
+	s32 aact_volt_limits[GBMS_CHG_VOLT_NB_LIMITS_MAX];
+	int aact_nb_limits;
+	s32 aact_limits[GBMS_AACT_NB_LIMITS_MAX];
+	int aact_idx;
+	bool aact_init_profile;
+	bool aact_update_profile;
+	u32 *aact_cccm_limits;
 
 	bool debug_chg_profile;
 	bool enable_switch_chg_profile;
@@ -345,6 +360,8 @@ enum gbms_stats_tier_idx_t {
 	GBMS_STATS_BD_TI_DOCK = 113,
 	GBMS_STATS_BD_TI_TEMP_PRETRIGGER = 114,
 	GBMS_STATS_BD_TI_TEMP_RESUME = 115,
+	GBMS_STATS_BD_TI_POLICY_LONGLIFE = 116,
+	GBMS_STATS_BD_TI_POLICY_FORCE_TO_FULL = 117,
 
 	GBMS_STATS_BD_TI_TRICKLE_CLEARED = 122,
 	GBMS_STATS_BD_TI_DOCK_CLEARED = 123,
@@ -402,6 +419,9 @@ struct gbms_charging_event {
 	uint16_t csi_aggregate_status;
 	uint16_t csi_aggregate_type;
 
+	int aacp_version;
+	int aacc;
+
 	/* health based charging */
 	struct batt_chg_health		ce_health;	/* updated on close */
 	struct gbms_ce_tier_stats	health_stats;	/* updated in HC */
@@ -417,13 +437,22 @@ struct gbms_charging_event {
 	struct gbms_ce_tier_stats cc_lvl_stats;
 	struct gbms_ce_tier_stats trickle_stats;
 	struct gbms_ce_tier_stats temp_filter_stats;
+	struct gbms_ce_tier_stats policy_longlife_stats;
+	struct gbms_ce_tier_stats policy_force_full_stats;
 };
 
 #define GBMS_CCCM_LIMITS_SET(profile, ti, vi) \
 	profile->cccm_limits[((ti) * profile->volt_nb_limits) + (vi)]
 
-#define GBMS_CCCM_LIMITS(profile, ti, vi) \
+#define GBMS_CCCM_LIMITS_GET(profile, ti, vi) \
 	(((ti) >= 0 && (vi) >= 0) ? profile->cccm_limits[((ti) * profile->volt_nb_limits) + (vi)] : 0)
+
+#define GBMS_AACT_IDX(profile) \
+	(profile->aact_idx * (profile->temp_nb_limits - 1))
+
+#define GBMS_CCCM_LIMITS(profile, ti, vi) \
+	(((ti) >= 0 && (vi) >= 0) ? \
+	profile->cccm_limits[((ti + GBMS_AACT_IDX(profile)) * profile->volt_nb_limits) + (vi)] : 0)
 
 /* newgen charging */
 #define GBMS_CS_FLAG_BUCK_EN		BIT(0)
@@ -452,6 +481,12 @@ int gbms_init_chg_profile_internal(struct gbms_chg_profile *profile,
 			  struct device_node *node, const char *owner_name);
 #define gbms_init_chg_profile(p, n) \
 	gbms_init_chg_profile_internal(p, n, KBUILD_MODNAME)
+int gbms_init_aact_profile_internal(struct gbms_chg_profile *profile,
+			  struct device_node *node, const char *owner_name);
+#define gbms_init_aact_profile(p, n) \
+	gbms_init_aact_profile_internal(p, n, KBUILD_MODNAME)
+int gbms_update_chg_profile_from_aact(struct gbms_chg_profile *profile);
+int gbms_aact_get_index(const struct gbms_chg_profile *profile, const int cycles);
 
 void gbms_init_chg_table(struct gbms_chg_profile *profile,
 			 struct device_node *node, u32 capacity);
@@ -569,27 +604,20 @@ void ttf_soc_init(struct ttf_soc_stats *dst);
 
 int ttf_tier_cstr(char *buff, int size, const struct ttf_tier_stat *t_stat);
 
-int ttf_tier_estimate(ktime_t *res,
-		      const struct batt_ttf_stats *ttf_stats,
-		      int temp_idx, int vbatt_idx,
-		      int capacity, int full_capacity);
+int ttf_tier_estimate(ktime_t *res, const struct batt_ttf_stats *ttf_stats,
+		      int temp_idx, int vbatt_idx, int capacity, int full_capacity);
 
-int ttf_stats_init(struct batt_ttf_stats *stats,
-		   struct device *device,
-		   int capacity_ma);
+int ttf_stats_init(struct batt_ttf_stats *stats, struct device_node *node, int capacity_ma);
 
 void ttf_stats_update(struct batt_ttf_stats *stats,
 	 	      struct gbms_charging_event *ce_data,
 		      bool force);
 
-int ttf_stats_cstr(char *buff, int size, const struct batt_ttf_stats *stats,
-		   bool verbose);
+int ttf_stats_cstr(char *buff, int size, const struct batt_ttf_stats *stats, bool verbose);
 
-int ttf_stats_sscan(struct batt_ttf_stats *stats,
-		    const char *buff, size_t size);
+int ttf_stats_sscan(struct batt_ttf_stats *stats, const char *buff, size_t size);
 
-struct batt_ttf_stats *ttf_stats_dup(struct batt_ttf_stats *dst,
-				     const struct batt_ttf_stats *src);
+struct batt_ttf_stats *ttf_stats_dup(struct batt_ttf_stats *dst, const struct batt_ttf_stats *src);
 
 __printf(2, 3)
 void ttf_log(const struct batt_ttf_stats *stats, const char *fmt, ...);
@@ -617,6 +645,7 @@ int gbms_read_aafv_limits(struct gbms_chg_profile *profile,
 int gbms_aafv_get_offset(const struct gbms_chg_profile *profile, const int cycles);
 bool gbms_aafv_offset_is_valid(const struct gbms_chg_profile *profile,
 			       const u32 offset, const u32 len);
+int gbms_aafv_get_last_entry(const struct gbms_chg_profile *profile);
 
 bool chg_state_is_disconnected(const union gbms_charger_state *chg_state);
 
@@ -682,6 +711,7 @@ enum bhi_algo {
 	BHI_ALGO_INDI		=  8, /* age criteria for Battery Service Test API b/253642456 */
 	BHI_ALGO_DTOOL		=  9, /* diagnostics for Cavalry b/304878620 */
 	BHI_ALGO_ACHI_FCR	= 10, /* average of FCR from history b/310501655*/
+	BHI_ALGO_ACHI_CARETAKER	= 11, /* same as ACHI_B + caretaker */
 	BHI_ALGO_MAX,
 };
 
@@ -845,5 +875,40 @@ static inline int tcpm_update_sink_capabilities(struct tcpm_port *port,
 #define GBMS_TP_UPPER_BOUND   'U'
 #define GBMS_TP_LOWER_TRIGGER 'F'
 #define GBMS_TP_UPPER_TRIGGER 'C'
+
+
+enum monitor_log_tags {
+	MONITOR_TAG_AB = 0x4142, /* registers snapshot by abnormal event */
+	MONITOR_TAG_FU = 0x4655, /* result of firmware update */
+	MONITOR_TAG_HV = 0x4856, /* result of EEPROM history validation */
+	MONITOR_TAG_LH = 0x4C48, /* registers snapshot by learning event */
+	MONITOR_TAG_RM = 0x524D, /* registers snapshot by regular monitor */
+};
+
+/* BMS firmware update */
+enum gbms_fwupdate_msg_type {
+	FWU_MSG_TYPE_ERROR = -1,
+	FWU_MSG_TYPE_UNKNOWN = 0,
+	FWU_MSG_TYPE_UPDATE_START = 1,
+	FWU_MSG_TYPE_UPDATE_END = 2,
+	FWU_MSG_TYPE_DOWNLOAD_START = 3,
+	FWU_MSG_TYPE_DOWNLOAD_END = 4,
+};
+
+enum gbms_fwupdate_msg_category {
+	FWU_MSG_CATEGORY_UNKNOWN = 0,
+	FWU_MSG_CATEGORY_RX = 1,
+	FWU_MSG_CATEGORY_TX = 2,
+	FWU_MSG_CATEGORY_MCU = 3,
+	FWU_MSG_CATEGORY_MAX77779 = 4,
+};
+
+enum gbms_fwupdate_max77779_err_code {
+	FWU_MAX77779_ERR_POST_STATUS_CHECK = -3,
+	FWU_MAX77779_ERR_DATA_TRANSFER = -2,
+	FWU_MAX77779_ERR_PREPARE = -1,
+	FWU_MAX77779_ERR_UNKNOWN = 0,
+	FWU_MAX77779_ERR_NONE = 1,
+};
 
 #endif  /* __GOOGLE_BMS_H_ */

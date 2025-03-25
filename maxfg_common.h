@@ -25,12 +25,8 @@
 #define DEFAULT_BATTERY_ID_RETRIES	20
 #define DUMMY_BATTERY_ID		170
 
-enum monitor_log_tags {
-	MONITOR_TAG_AB = 0x4142, /* registers snapshot by abnormal event */
-	MONITOR_TAG_HV = 0x4856, /* result of EEPROM history validation */
-	MONITOR_TAG_LH = 0x4C48, /* registers snapshot by learning event */
-	MONITOR_TAG_RM = 0x524D, /* registers snapshot by regular monitor */
-};
+#define BHI_CAP_FCN_COUNT		3
+#define BHI_CAP_FILTER_VALUE_COUNT	2
 
 enum maxfg_reg_tags {
 	MAXFG_TAG_avgc,
@@ -88,6 +84,9 @@ enum maxfg_reg_tags {
 	MAXFG_TAG_BCEA,
 	MAXFG_TAG_rset,
 	MAXFG_TAG_BRES,
+
+	MAXFG_TAG_fullsocthr,
+	MAXFG_TAG_misccfg,
 };
 
 enum max17x0x_reg_types {
@@ -131,6 +130,13 @@ struct gbatt_capacity_estimation {
 	int cap_filter_count;
 	int start_cc;
 	int start_vfsoc;
+};
+
+struct aafv_fg_config {
+	u32 cycles;
+	u32 voffset;
+	u32 fullsoc;
+	u32 fus;
 };
 
 #define ESTIMATE_DONE		2
@@ -464,6 +470,21 @@ void maxfg_dynrel_log(struct logbuffer *mon, struct device *dev, u16 fstat,
 			 const struct maxfg_dynrel_state *dr_state);
 void maxfg_dynrel_log_rel(struct logbuffer *mon, struct device *dev, u16 fstat,
 			     const struct maxfg_dynrel_state *dr_state);
+
+int maxfg_aafv_scan_inputs(const char *inputs, const int input_sz,
+			   struct aafv_fg_config* cfg, const int cfg_max);
+int maxfg_aafv_apply(struct maxfg_regmap *regmap, int aafv,
+		     const struct aafv_fg_config *cfgs, const int cfg_max,
+		     int fus_clear, int fus_shift, int *aafv_cur_index);
+int maxfg_aafv_restore_fus(struct maxfg_regmap *regmap, int fus_clear, int fus_shift, u16 fus);
+int maxfg_aafv_init(struct device_node *node, const char * prop,
+		    struct aafv_fg_config *config, int *config_limits);
+ssize_t maxfg_aafv_config_store(struct device *dev, const int batt_id,
+				const char *buf, size_t count,
+				struct aafv_fg_config *aafv_cfgs, int *aafv_config_limits);
+ssize_t maxfg_aafv_config_show(struct aafv_fg_config *cfgs, const int config_limits,
+			       const int batt_id, char *buf);
+
 
 
 #endif  // MAXFG_COMMON_H_
