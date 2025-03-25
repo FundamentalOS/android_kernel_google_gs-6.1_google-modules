@@ -166,6 +166,7 @@ static int fts_fwupg_reset_to_boot(struct fts_upgrade *upg)
     }
 
     msleep(FTS_DELAY_UPGRADE_RESET);
+
     return 0;
 }
 

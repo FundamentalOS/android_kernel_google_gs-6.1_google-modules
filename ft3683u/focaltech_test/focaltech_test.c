@@ -1637,6 +1637,16 @@ static int fts_test_malloc_free_mc_sc(struct fts_test *tdata, bool allocate)
         fts_malloc_r(thr->low_freq_rawdata_max, buflen);
         fts_malloc_r(thr->high_freq_rawdata_min, buflen);
         fts_malloc_r(thr->high_freq_rawdata_max, buflen);
+
+        fts_malloc_r(thr->low_freq_rawdata_tx_linearity_max, buflen);
+        fts_malloc_r(thr->low_freq_rawdata_rx_linearity_max, buflen);
+        fts_malloc_r(thr->low_freq_rawdata_tx_linearity_min, buflen);
+        fts_malloc_r(thr->low_freq_rawdata_rx_linearity_min, buflen);
+
+        fts_malloc_r(thr->high_freq_rawdata_tx_linearity_max, buflen);
+        fts_malloc_r(thr->high_freq_rawdata_rx_linearity_max, buflen);
+        fts_malloc_r(thr->high_freq_rawdata_tx_linearity_min, buflen);
+        fts_malloc_r(thr->high_freq_rawdata_rx_linearity_min, buflen);
     } else {
         fts_free(thr->rawdata_h_min);
         fts_free(thr->rawdata_h_max);
@@ -1677,6 +1687,16 @@ static int fts_test_malloc_free_mc_sc(struct fts_test *tdata, bool allocate)
         fts_free(thr->low_freq_rawdata_max);
         fts_free(thr->high_freq_rawdata_min);
         fts_free(thr->high_freq_rawdata_max);
+
+        fts_free(thr->low_freq_rawdata_tx_linearity_max);
+        fts_free(thr->low_freq_rawdata_rx_linearity_max);
+        fts_free(thr->low_freq_rawdata_tx_linearity_min);
+        fts_free(thr->low_freq_rawdata_rx_linearity_min);
+
+        fts_free(thr->high_freq_rawdata_tx_linearity_max);
+        fts_free(thr->high_freq_rawdata_rx_linearity_max);
+        fts_free(thr->high_freq_rawdata_tx_linearity_min);
+        fts_free(thr->high_freq_rawdata_rx_linearity_min);
     }
 
     return 0;
@@ -2774,6 +2794,67 @@ static const struct proc_ops proc_test_sw_reset_fops = {
 static const struct file_operations proc_test_sw_reset_fops = {
     .owner  = THIS_MODULE,
     .open   = proc_test_sw_reset_open,
+    .read   = seq_read,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
+#endif
+
+/* Lot Code */
+static int goog_get_lot_code(u8* data, size_t datalen)
+{
+    int ret = 0;
+    u8 cmd = FACTORY_REG_LOT_CODE;
+
+    /* enter factory mode */
+    ret = enter_factory_mode();
+    if (ret < 0) {
+        FTS_TEST_SAVE_ERR("failed to enter factory mode,ret=%d\n", ret);
+        return ret;
+    }
+
+    ret = fts_read(&cmd, 1, data, datalen);
+
+    enter_work_mode();
+    return ret;
+}
+
+static int proc_test_lot_code_show(struct seq_file *s, void *v)
+{
+    int ret = 0;
+    u8 data[15];
+
+    ret = goog_get_lot_code(data, sizeof(data));
+    if (ret != 0) {
+        FTS_ERROR("get lot code faile %d", ret);
+        return ret;
+    }
+
+    SEQ_PRINT_AND_LOG("Lot Code:");
+    SEQ_PRINT_AND_LOG("%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X "
+                      "%02X %02X %02X %02X\n",
+      data[0],data[1],data[2],data[3],data[4],data[5],data[6],data[7],
+      data[8],data[9],data[10],data[11],data[12],data[13],data[14]);
+
+    return 0;
+}
+
+static int proc_test_lot_code_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, proc_test_lot_code_show, pde_data(inode));
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+static const struct proc_ops proc_test_lot_code_fops = {
+    .proc_open   = proc_test_lot_code_open,
+    .proc_read   = seq_read,
+    .proc_lseek  = seq_lseek,
+    .proc_release = single_release,
+};
+#else
+static const struct file_operations proc_test_lot_code_fops = {
+    .owner  = THIS_MODULE,
+    .open   = proc_test_lot_code_open,
     .read   = seq_read,
     .llseek = seq_lseek,
     .release = single_release,
@@ -4366,6 +4447,7 @@ struct proc_dir_entry *proc_test_fwver;
 struct proc_dir_entry *proc_test_chnum;
 struct proc_dir_entry *proc_test_reset_pin;
 struct proc_dir_entry *proc_test_sw_reset;
+struct proc_dir_entry *proc_test_lot_code;
 
 struct proc_dir_entry *proc_test_int_pin;
 struct proc_dir_entry *proc_test_raw;
@@ -4417,6 +4499,13 @@ static int fts_create_test_procs(struct fts_ts_data *ts_data)
         ts_data->proc_touch_entry, &proc_test_sw_reset_fops);
     if (!proc_test_sw_reset) {
         FTS_ERROR("create proc_test_sw_reset entry fail");
+        return -ENOMEM;
+    }
+
+    proc_test_lot_code = proc_create("Lot_Code", S_IRUSR,
+        ts_data->proc_touch_entry, &proc_test_lot_code_fops);
+    if (!proc_test_lot_code) {
+        FTS_ERROR("create proc_test_lot_code entry fail");
         return -ENOMEM;
     }
 

@@ -100,13 +100,14 @@
 #define FTS_MAX_COMMMAND_LENGTH             16
 
 
-#define FTS_TOUCH_OFF_E_XH                  1
-#define FTS_TOUCH_OFF_XL                    2
-#define FTS_TOUCH_OFF_ID_YH                 3
-#define FTS_TOUCH_OFF_YL                    4
-#define FTS_TOUCH_OFF_PRE                   5
-#define FTS_TOUCH_OFF_AREA                  6
-#define FTS_TOUCH_OFF_MINOR                 7
+#define FTS_TOUCH_OFF_E_XH                  0
+#define FTS_TOUCH_OFF_XL                    1
+#define FTS_TOUCH_OFF_ID_YH                 2
+#define FTS_TOUCH_OFF_YL                    3
+#define FTS_TOUCH_OFF_PRE                   4
+#define FTS_TOUCH_OFF_MAJOR                 5
+#define FTS_TOUCH_OFF_MINOR                 6
+#define FTS_TOUCH_OFF_ORIENTATION           7
 
 #define FTS_TOUCH_E_NUM                     1
 #define FTS_ONE_TCH_LEN_V2                  8
@@ -173,6 +174,7 @@ struct fts_ts_platform_data {
     u8 mm2px;
     char fw_name[FILE_NAME_LENGTH];
     char test_limits_name[FILE_NAME_LENGTH];
+    int panel_id;
 };
 
 struct ts_event {
@@ -181,9 +183,9 @@ struct ts_event {
     int p;      /* pressure */
     int flag;   /* touch event flag: 0 -- down; 1-- up; 2 -- contact */
     int id;     /*touch ID */
-    int area;
     int major;
     int minor;
+    int orientation;
 };
 
 struct pen_event {
@@ -202,24 +204,57 @@ struct pen_event {
 struct fts_gesture_st {
     union {
         struct {
-            u8 gesture_enable;
-            u8 point_id;
-            u8 point_num;
             u8 gesture_id;
-            u8 FOD_area;
-            u8 touch_area;
-            u8 major;
-            u8 minor;
             u8 coordinate_x_msb;
             u8 coordinate_x_lsb;
             u8 coordinate_y_msb;
             u8 coordinate_y_lsb;
-            u8 even;
             u8 orientation;
-        };
+            u8 major;
+            u8 minor;
+            u8 gesture_enable;
+            u8 point_id;
+            u8 point_num;
+            u8 FOD_area;
+            u8 touch_area;
+            u8 even;
+        } __attribute__((packed));
         u8 data[14];
     };
 };
+
+struct fw_status_ts {
+  union {
+    struct {
+      unsigned char B0_b0_abnormal_reset:3;
+      unsigned char B0_b3_water_state:1;
+      unsigned char B0_b4_grip_status:1;
+      unsigned char B0_b5_palm_status:1;
+      unsigned char B0_b6_edge_palm_status:1;
+      unsigned char B0_b7_reserved:1;
+
+      unsigned char B1_b0_baseline:3;
+      unsigned char B1_b3_noise_status:3;
+      unsigned char B1_b6_INT2_status:1;
+      unsigned char B1_b7_continuous_status:1;
+
+      unsigned char B2_b0_frequency_hopping:3;
+      unsigned char B2_b3_v_sync_status:1;
+      unsigned char B2_b4_reserved:4;
+
+      unsigned char B3_b0_glove_reg:1;
+      unsigned char B3_b1_grip_reg:1;
+      unsigned char B3_b2_palm_reg:1;
+      unsigned char B3_b3_reserved:1;
+      unsigned char B3_b4_continus_reg:1;
+      unsigned char B3_b5_reserved:1;
+      unsigned char B3_b6_heatmap_status:2;
+    } __attribute__((packed));
+    unsigned char data[4];
+  };
+};
+
+
 
 enum SS_TYPE {
     SS_NORMAL,
@@ -287,7 +322,7 @@ struct fts_ts_data {
     int point_num;
 
 #if GOOGLE_REPORT_MODE
-    u8 current_host_status[FTS_CUSTOMER_STATUS_LEN];
+    struct fw_status_ts current_host_status;
 #endif
 
     u8 work_mode;
@@ -324,29 +359,6 @@ enum FTS_BUS_TYPE {
     FTS_BUS_TYPE_SPI_V2,
 };
 
-#if GOOGLE_REPORT_MODE
-enum FTS_CUSTOMER_STATUS {
-    STATUS_BASELINE_REFRESH_B0,
-    STATUS_BASELINE_REFRESH_B1,
-    STATUS_PALM,
-    STATUS_WATER,
-    STATUS_GRIP,
-    STATUS_GLOVE,
-    STATUS_EDGE_PALM,
-    STATUS_RESET,
-    STATUS_CNT_END,
-};
-
-enum FTS_FW_MODE_SETTING{
-    FW_GLOVE = 0,
-    FW_GRIP,
-    FW_PALM,
-    FW_HEATMAP,
-    FW_CONTINUOUS,
-    FW_CNT_END,
-};
-#endif
-
 enum _FTS_TOUCH_ETYPE {
     TOUCH_DEFAULT = 0x00,
     TOUCH_PROTOCOL_v2 = 0x02,
@@ -380,10 +392,7 @@ int fts_bus_set_speed(struct fts_ts_data *ts_data, u32 speed);
 /* Gesture functions */
 int fts_gesture_init(struct fts_ts_data *ts_data);
 int fts_gesture_exit(struct fts_ts_data *ts_data);
-void fts_gesture_recovery(struct fts_ts_data *ts_data);
 int fts_gesture_readdata(struct fts_ts_data *ts_data);
-int fts_gesture_suspend(struct fts_ts_data *ts_data);
-int fts_gesture_resume(struct fts_ts_data *ts_data);
 
 int fts_set_heatmap_mode(struct fts_ts_data *ts_data, u8 heatmap_mode);
 int fts_set_grip_mode(struct fts_ts_data *ts_datam, u8 grip_mode);
@@ -440,6 +449,12 @@ int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
 void fts_update_feature_setting(struct fts_ts_data *ts_data);
 void fts_irq_disable(void);
 void fts_irq_enable(void);
+
+/* Power Control */
+#if FTS_PINCTRL_EN
+int fts_pinctrl_select_normal(struct fts_ts_data *ts);
+int fts_pinctrl_select_suspend(struct fts_ts_data *ts);
+#endif /* FTS_PINCTRL_EN */
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 void fts_irq_read_report(void);

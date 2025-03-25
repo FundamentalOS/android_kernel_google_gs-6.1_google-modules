@@ -54,6 +54,10 @@
 #include <linux/types.h>
 #include "focaltech_core.h"
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#include <goog_touch_interface.h>
+#endif /* IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE) */
+
 /*****************************************************************************
 * Private constant and macro definitions using #define
 *****************************************************************************/
@@ -74,31 +78,28 @@ struct fts_ts_data *fts_data;
 static int fts_ts_suspend(struct device *dev);
 static int fts_ts_resume(struct device *dev);
 
-/*static char *status_list_str[STATUS_CNT_END] = {
-    "Baseline refreshed",
-    "Baseline refreshed",
-    "Palm",
-    "Water",
-    "Grip",
-    "Glove",
-    "Edge palm",
-    "RESET",
+static char *frequency_table0[8] = {
+  "175K",
+  "375K",
+  "232K",
+  "161K",
+  "274K",
+  "119K",
+  "undef 6",
+  "undef 7",
 };
 
-static char *feature_list_str[FW_CNT_END] = {
-    "FW_GLOVE",
-    "FW_GRIP",
-    "FW_PALM",
-    "FW_HEATMAP",
-    "FW_CONTINUOUS",
+static char *frequency_table1[8] = {
+  "205K",
+  "323K",
+  "131K",
+  "166K",
+  "238K",
+  "110K",
+  "undef 6",
+  "undef 7",
 };
 
-static char *status_baseline_refresh_str[4] = {
-    "Baseline refreshed: none",
-    "Baseline refreshed: removing touch",
-    "Baseline refreshed: removing water",
-    "Baseline refreshed: removing shell iron",
-};*/
 
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h)
 {
@@ -173,8 +174,6 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data)
     fts_wait_tp_to_valid();
     /* recover all firmware modes based on the settings of driver side. */
     fts_ex_mode_recovery(ts_data);
-    /* recover TP gesture state 0xD0 */
-    fts_gesture_recovery(ts_data);
     FTS_FUNC_EXIT();
 }
 
@@ -562,9 +561,6 @@ static int fts_input_report_b(struct fts_ts_data *data)
 			events[i].p = 0x3F
             input_report_abs(data->input_dev, ABS_MT_PRESSURE, events[i].p);
 #endif
-            if (events[i].area <= 0) {
-                events[i].area = 0x00;
-            }
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, events[i].major);
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MINOR, events[i].minor);
             input_report_abs(data->input_dev, ABS_MT_POSITION_X, events[i].x);
@@ -574,13 +570,14 @@ static int fts_input_report_b(struct fts_ts_data *data)
             data->touchs |= BIT(events[i].id);
             if ((data->log_level >= 2) ||
                 ((1 == data->log_level) && (FTS_TOUCH_DOWN == events[i].flag))) {
-                FTS_DEBUG("[B]P%d(%d, %d)[ma:%d,mi:%d,p:%d] DOWN!",
+                FTS_DEBUG("[B]P%d(%d, %d)[ma:%d,mi:%d,p:%d,o:%d] DOWN!",
                           events[i].id,
                           events[i].x,
                           events[i].y,
                           events[i].major,
                           events[i].minor,
-                          events[i].p);
+                          events[i].p,
+                          events[i].orientation);
             }
         } else {  //EVENT_UP
             input_mt_slot(data->input_dev, events[i].id);
@@ -644,9 +641,6 @@ static int fts_input_report_a(struct fts_ts_data *data)
             }
             input_report_abs(data->input_dev, ABS_MT_PRESSURE, events[i].p);
 #endif
-            if (events[i].area <= 0) {
-                events[i].area = 0x00;
-            }
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, events[i].major);
             input_report_abs(data->input_dev, ABS_MT_TOUCH_MINOR, events[i].minor);
             input_report_abs(data->input_dev, ABS_MT_POSITION_X, events[i].x);
@@ -833,6 +827,123 @@ static void goog_handle_heatmap_format(struct fts_ts_data *ts_data, u8 *data, in
 }
 #endif // IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 
+#if GOOGLE_REPORT_MODE
+static void fts_update_abnormal_reset(struct fts_ts_data *data,
+                                      struct fw_status_ts* new_status)
+{
+    switch (new_status->B0_b0_abnormal_reset) {
+        case 0: // Normal status
+          return;
+        case 1:
+          FTS_ERROR("Touch ic reset: MCU watchdog");
+          fts_update_feature_setting(data);
+          break;
+        case 2:
+          FTS_ERROR("Touch ic reset: Software reset");
+          break;
+        case 3:
+          FTS_ERROR("Touch ic reset: AFE watchdog");
+          fts_update_feature_setting(data);
+          break;
+        case 4:
+          FTS_ERROR("Touch ic reset: Hardware reset");
+          break;
+        case 5:
+          FTS_ERROR("Touch ic reset: Power on");
+          break;
+        case 6:
+          FTS_ERROR("Touch ic reset: 6");
+          fts_update_feature_setting(data);
+          break;
+        case 7:
+          FTS_ERROR("Touch ic reset: 7");
+          fts_update_feature_setting(data);
+          break;
+        default:
+          return;
+    }
+
+    // Clear reset flag
+    fts_write_reg(FTS_REG_CLR_RESET, 0x01);
+}
+static void fts_update_setting_status(struct fts_ts_data *data,
+                                      struct fw_status_ts* new_status)
+{
+    bool changed = false;
+    struct fw_status_ts *current_status = &data->current_host_status;
+
+    if (current_status->B0_b3_water_state != new_status->B0_b3_water_state) {
+      current_status->B0_b3_water_state = new_status->B0_b3_water_state;
+      changed = true;
+    }
+
+    if (current_status->B0_b4_grip_status != new_status->B0_b4_grip_status) {
+      current_status->B0_b4_grip_status = new_status->B0_b4_grip_status;
+      changed = true;
+    }
+
+    if (current_status->B0_b5_palm_status != new_status->B0_b5_palm_status) {
+      current_status->B0_b5_palm_status = new_status->B0_b5_palm_status;
+      changed = true;
+    }
+
+    if (current_status->B2_b3_v_sync_status != new_status->B2_b3_v_sync_status) {
+      current_status->B2_b3_v_sync_status = new_status->B2_b3_v_sync_status;
+      changed = true;
+    }
+
+    if (current_status->B1_b0_baseline != new_status->B1_b0_baseline) {
+      current_status->B1_b0_baseline = new_status->B1_b0_baseline;
+      changed = true;
+    }
+
+    if (current_status->B1_b3_noise_status != new_status->B1_b3_noise_status) {
+      current_status->B1_b3_noise_status = new_status->B1_b3_noise_status;
+      changed = true;
+    }
+
+    if (current_status->B2_b0_frequency_hopping != new_status->B2_b0_frequency_hopping) {
+      current_status->B2_b0_frequency_hopping = new_status->B2_b0_frequency_hopping;
+      changed = true;
+    }
+
+    if (changed) {
+       FTS_INFO("Status: water:%d grip:%d palm:%d, v-sync:%d, baseline:%d, "
+            "noise:%d, frequency:%s\n",
+            current_status->B0_b3_water_state, current_status->B0_b4_grip_status,
+            current_status->B0_b5_palm_status, current_status->B2_b3_v_sync_status,
+            current_status->B1_b0_baseline, current_status->B1_b3_noise_status,
+            data->pdata->panel_id == 0 ?
+              frequency_table0[current_status->B2_b0_frequency_hopping] :
+              frequency_table1[current_status->B2_b0_frequency_hopping]);
+    }
+}
+
+static int fts_read_and_update_fw_status(struct fts_ts_data *data)
+{
+    int ret;
+    u8 cmd[1] = { FTS_REG_CUSTOMER_STATUS };
+    struct fw_status_ts new_status = { 0 };
+
+    ret = fts_read(cmd, 1,  new_status.data, sizeof(struct fw_status_ts));
+    if (ret < 0)
+        return ret;
+
+    if (data->log_level >= 3) {
+        FTS_DEBUG("0xB2: %02x, %02x, %02x, %02x",
+                new_status.data[0],
+                new_status.data[1],
+                new_status.data[2],
+                new_status.data[3]);
+    }
+
+    fts_update_abnormal_reset(data, &new_status);
+    fts_update_setting_status(data, &new_status);
+
+    return 0;
+}
+#endif
+
 static int fts_read_touchdata(struct fts_ts_data *data)
 {
     int ret = 0;
@@ -848,6 +959,13 @@ static int fts_read_touchdata(struct fts_ts_data *data)
         return 0;
     }
 
+#if GOOGLE_REPORT_MODE
+    ret = fts_read_and_update_fw_status(data);
+    if (ret < 0) {
+        FTS_ERROR("read customer status failed %d", ret);
+    }
+#endif
+
     cmd[0] = FTS_CMD_READ_TOUCH_DATA;
     ret = fts_read(cmd, 1, buf, data->pnt_buf_size);
     if (ret < 0) {
@@ -855,19 +973,15 @@ static int fts_read_touchdata(struct fts_ts_data *data)
         return -EIO;
     }
 
-    // TODO read 0xB2 and update customer status
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
     goog_handle_heatmap_format(data, buf, data->pnt_buf_size);
-
-    if (data->log_level == 3) {
-        fts_show_heatmap_buffer(data, buf, data->pnt_buf_size);
-    }
+    if (data->log_level == 4)
+      fts_show_heatmap_buffer(data, buf, data->pnt_buf_size);
 #endif // IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 
-    if (data->log_level >= 4) {
+    if (data->log_level >= 5)
         fts_show_touch_buffer(buf, data->pnt_buf_size);
-    }
 
     return ret;
 }
@@ -928,7 +1042,7 @@ static int fts_read_parse_touchdata(struct fts_ts_data *data)
 		data->touch_point = event_num;
 
 		for (i = 0; i < event_num; i++) {
-			base = FTS_ONE_TCH_LEN_V2 * i + 3;
+			base = FTS_ONE_TCH_LEN_V2 * i + 4;
 			pointid = (buf[FTS_TOUCH_OFF_ID_YH + base]) >> 4;
 			if (pointid >= max_touch_num) {
 				FTS_ERROR("touch point ID(%d) beyond max_touch_number(%d)",
@@ -949,11 +1063,17 @@ static int fts_read_parse_touchdata(struct fts_ts_data *data)
 
 			events[i].x = FTS_TOUCH_HIRES(events[i].x);
 			events[i].y = FTS_TOUCH_HIRES(events[i].y);
-			events[i].area = buf[FTS_TOUCH_OFF_AREA + base];
-			events[i].minor = buf[FTS_TOUCH_OFF_MINOR + base];
-			events[i].p = 0x3F;
 
-			if (events[i].area <= 0) events[i].area = 0x09;
+			events[i].major = ((buf[FTS_TOUCH_OFF_MAJOR + base] >> 1) & 0x7F)
+                            * data->pdata->mm2px;
+			events[i].minor = ((buf[FTS_TOUCH_OFF_MINOR + base] >> 1) & 0x7F)
+                            * data->pdata->mm2px;
+			events[i].p = ((buf[FTS_TOUCH_OFF_MAJOR + base] & 0x01) << 1)
+                            + (buf[FTS_TOUCH_OFF_MINOR + base] & 0x01);
+
+			events[i].orientation = (s8)buf[FTS_TOUCH_OFF_ORIENTATION + base];
+
+			if (events[i].major <= 0) events[i].major = 0x09;
 			if (events[i].minor <= 0) events[i].minor = 0x09;
 
 		}
@@ -1271,7 +1391,7 @@ err_pinctrl_get:
     return ret;
 }
 
-static int fts_pinctrl_select_normal(struct fts_ts_data *ts)
+int fts_pinctrl_select_normal(struct fts_ts_data *ts)
 {
     int ret = 0;
     FTS_DEBUG("Pins control select normal");
@@ -1285,7 +1405,7 @@ static int fts_pinctrl_select_normal(struct fts_ts_data *ts)
     return ret;
 }
 
-static int fts_pinctrl_select_suspend(struct fts_ts_data *ts)
+int fts_pinctrl_select_suspend(struct fts_ts_data *ts)
 {
     int ret = 0;
     FTS_DEBUG("Pins control select suspend");
@@ -1981,8 +2101,9 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
     }
 
 #if GOOGLE_REPORT_MODE
-    memset(ts_data->current_host_status, 0, FTS_CUSTOMER_STATUS_LEN);
+    memset(ts_data->current_host_status.data, 0, sizeof(struct fw_status_ts));
 #endif
+
     ts_data->enable_fw_grip = FW_GRIP_ENABLE;
     ts_data->enable_fw_palm = FW_GRIP_ENABLE;
     ts_data->glove_mode = DISABLE;
@@ -2075,21 +2196,6 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 #endif
 
     ts_data->work_mode = FTS_REG_WORKMODE_WORK_VALUE;
-#if GOOGLE_REPORT_MODE
-    fts_read_reg(FTS_REG_CUSTOMER_STATUS, &ts_data->current_host_status[0]);
-    FTS_INFO("-------Palm mode %s\n",
-        (ts_data->current_host_status[0] & (1 << STATUS_PALM)) ? "enter" : "exit");
-    FTS_INFO("-------Water mode %s\n",
-        (ts_data->current_host_status[0] & (1 << STATUS_WATER)) ? "enter" : "exit");
-    FTS_INFO("-------Grip mode %s\n",
-        (ts_data->current_host_status[0] & (1 << STATUS_GRIP)) ? "enter" : "exit");
-    FTS_INFO("-------Glove mode %s\n",
-        (ts_data->current_host_status[0] & (1 << STATUS_GLOVE)) ? "enter" : "exit");
-    FTS_INFO("-------Edge palm %s\n",
-        (ts_data->current_host_status[0] & (1 << STATUS_EDGE_PALM)) ? "enter" : "exit");
-    FTS_INFO("-------Reset %s\n",
-        (ts_data->current_host_status[0] & (1 << STATUS_RESET)) ? "enter" : "exit");
-#endif
 
     ts_data->driver_probed = true;
     FTS_FUNC_EXIT();
@@ -2244,14 +2350,6 @@ static int fts_write_reg_safe(u8 reg, u8 write_val) {
     return ret;
 }
 
-static void fts_update_host_feature_setting(struct fts_ts_data *ts_data,
-    bool en, u8 fw_mode_setting){
-    if (en)
-        ts_data->current_host_status[1] |= 1 << fw_mode_setting;
-    else
-        ts_data->current_host_status[1] &= ~(1 << fw_mode_setting);
-}
-
 int fts_set_heatmap_mode(struct fts_ts_data *ts_data, u8 heatmap_mode)
 {
     int ret = 0;
@@ -2296,9 +2394,6 @@ int fts_set_grip_mode(struct fts_ts_data *ts_data, u8 grip_mode)
     u8 reg = FTS_REG_EDGE_MODE_EN;
 
     ret = fts_write_reg_safe(reg, value);
-    if (ret == 0) {
-        fts_update_host_feature_setting(ts_data, en, FW_GRIP);
-    }
 
     FTS_DEBUG("%s fw_grip(%d) %s.\n", en ? "Enable" : "Disable",
         ts_data->enable_fw_grip,
@@ -2314,9 +2409,6 @@ int fts_set_palm_mode(struct fts_ts_data *ts_data, u8 palm_mode)
     u8 reg = FTS_REG_PALM_EN;
 
     ret = fts_write_reg_safe(reg, value);
-    if (ret == 0) {
-        fts_update_host_feature_setting(ts_data, en, FW_PALM);
-    }
 
     FTS_DEBUG("%s fw_palm(%d) %s.\n", en ? "Enable" : "Disable",
         ts_data->enable_fw_palm,
@@ -2333,7 +2425,6 @@ int fts_set_glove_mode(struct fts_ts_data *ts_data, bool en)
     ret = fts_write_reg_safe(reg, value);
     if (ret == 0) {
         ts_data->glove_mode = value;
-        fts_update_host_feature_setting(ts_data, en, FW_GLOVE);
     }
 
     FTS_DEBUG("%s fw_glove %s.\n", en ? "Enable" : "Disable",
@@ -2352,11 +2443,12 @@ int fts_set_glove_mode(struct fts_ts_data *ts_data, bool en)
  */
 void fts_update_feature_setting(struct fts_ts_data *ts_data)
 {
-    fts_set_grip_mode(ts_data, ts_data->enable_fw_grip);
+    FTS_INFO("Restore touch feature settings.");
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+    struct gti_fw_status_data gti_status_data = { 0 };
 
-    fts_set_palm_mode(ts_data, ts_data->enable_fw_palm);
-
-    fts_set_glove_mode(ts_data, ts_data->glove_mode);
+    goog_notify_fw_status_changed(ts_data->gti, GTI_FW_STATUS_RESET, &gti_status_data);
+#endif /* IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE) */
 }
 
 static int fts_ts_suspend(struct device *dev)
@@ -2380,29 +2472,24 @@ static int fts_ts_suspend(struct device *dev)
     fts_esdcheck_suspend();
 #endif
 
-    if (ts_data->gesture_mode) {
-        fts_gesture_suspend(ts_data);
-    } else {
+    /* Disable irq */
+    fts_irq_disable();
 
-        /* Disable irq */
-        fts_irq_disable();
+    FTS_DEBUG("make TP enter into sleep mode");
+    mutex_lock(&ts_data->reg_lock);
+    ret = fts_write_reg(FTS_REG_POWER_MODE, FTS_REG_POWER_MODE_SLEEP);
+    ts_data->is_deepsleep = true;
+    mutex_unlock(&ts_data->reg_lock);
+    if (ret < 0)
+      FTS_ERROR("set TP to sleep mode fail, ret=%d", ret);
 
-        FTS_DEBUG("make TP enter into sleep mode");
-        mutex_lock(&ts_data->reg_lock);
-        ret = fts_write_reg(FTS_REG_POWER_MODE, FTS_REG_POWER_MODE_SLEEP);
-        ts_data->is_deepsleep = true;
-        mutex_unlock(&ts_data->reg_lock);
-        if (ret < 0)
-            FTS_ERROR("set TP to sleep mode fail, ret=%d", ret);
-
-        if (!ts_data->ic_info.is_incell) {
+    if (!ts_data->ic_info.is_incell) {
 #if FTS_POWER_SOURCE_CUST_EN
-            ret = fts_power_source_suspend(ts_data);
-            if (ret < 0) {
-                FTS_ERROR("power enter suspend fail");
-            }
+      ret = fts_power_source_suspend(ts_data);
+      if (ret < 0) {
+        FTS_ERROR("power enter suspend fail");
+      }
 #endif
-        }
     }
 
     fts_release_all_finger();
@@ -2532,11 +2619,7 @@ static int fts_ts_resume(struct device *dev)
     fts_esdcheck_resume();
 #endif
 
-    if (ts_data->gesture_mode) {
-        fts_gesture_resume(ts_data);
-    } else {
-        fts_irq_enable();
-    }
+    fts_irq_enable();
 
     ts_data->suspended = false;
     FTS_FUNC_EXIT();

@@ -1404,108 +1404,97 @@ int gti_get_scan_mode(void *private_data, struct gti_scan_cmd *cmd)
         return ret;
     }
 
+    if (!(0 == gesture_mode || 1 == gesture_mode) ||
+        !(0 == power_mode || 1 == power_mode) ||
+        !(0 == monitor_ctrl || 1 == monitor_ctrl || 3 == monitor_ctrl)) {
+        FTS_ERROR("invalid value: gesture %u, power %u, monitor %u",
+                  gesture_mode, power_mode, monitor_ctrl);
+        return -EINVAL;
+    }
+
     if (gesture_mode) {
         if (power_mode == 0)
             cmd->setting = GTI_SCAN_MODE_LP_ACTIVE;
         else if (power_mode == 1)
             cmd->setting = GTI_SCAN_MODE_LP_IDLE;
-    } else if (monitor_ctrl) {
-            cmd->setting = GTI_SCAN_MODE_AUTO;
     } else {
-        if (power_mode == 0)
-            cmd->setting = GTI_SCAN_MODE_NORMAL_ACTIVE;
-        else if (power_mode == 1)
+      if (monitor_ctrl == 3) {
             cmd->setting = GTI_SCAN_MODE_NORMAL_IDLE;
+      } else if (monitor_ctrl == 1) {
+            cmd->setting = GTI_SCAN_MODE_AUTO;
+      } else {
+            cmd->setting = GTI_SCAN_MODE_NORMAL_ACTIVE;
+      }
     }
 
     return 0;
 }
 
+/* Scan mode definition
+ * Gesture PowerMode MointorCtrl
+ *   0       N/A          1      : Auto mode
+ *   0        0           0      : Normal Active
+ *   0        1           3      : Normal Idle
+ *   1        0           0      : Low Power Active
+ *   1        1           3      : Low Power Idle
+ */
+
 int gti_set_scan_mode(void *private_data, struct gti_scan_cmd *cmd)
 {
+    struct fts_ts_data *ts_data = private_data;
     int ret = 0;
+    u8 power_mode;
+    u8 gesture_en;
+    u8 monitor_ctrl;
 
     switch (cmd->setting) {
     case GTI_SCAN_MODE_AUTO:
-        ret = fts_write_reg(FTS_REG_MONITOR_CTRL, 1);
-        if (ret < 0) {
-            FTS_ERROR("write reg0x86 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_GESTURE_EN, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xd0 fails");
-            return ret;
-        }
+        fts_reset_proc(0);
+        fts_wait_tp_to_valid();
+        fts_update_feature_setting(ts_data);
+        return 0;
         break;
     case GTI_SCAN_MODE_NORMAL_ACTIVE:
-        ret = fts_write_reg(FTS_REG_MONITOR_CTRL, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0x86 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_POWER_MODE, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xA5 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_GESTURE_EN, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xD0 fails");
-            return ret;
-        }
+        gesture_en = 0;
+        power_mode = 0;
+        monitor_ctrl = 0;
         break;
     case GTI_SCAN_MODE_NORMAL_IDLE:
-        ret = fts_write_reg(FTS_REG_MONITOR_CTRL, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0x86 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_POWER_MODE, 1);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xA5 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_GESTURE_EN, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xD0 fails");
-            return ret;
-        }
+        gesture_en = 0;
+        power_mode = 1;
+        monitor_ctrl = 3;
         break;
     case GTI_SCAN_MODE_LP_ACTIVE:
-        ret = fts_write_reg(FTS_REG_GESTURE_EN, 1);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xD0 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_POWER_MODE, 0);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xA5 fails");
-            return ret;
-        }
+        gesture_en = 1;
+        power_mode = 0;
+        monitor_ctrl = 0;
         break;
     case GTI_SCAN_MODE_LP_IDLE:
-        ret = fts_write_reg(FTS_REG_GESTURE_EN, 1);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xD0 fails");
-            return ret;
-        }
-
-        ret = fts_write_reg(FTS_REG_POWER_MODE, 1);
-        if (ret < 0) {
-            FTS_ERROR("write reg0xA5 fails");
-            return ret;
-        }
+        gesture_en = 1;
+        power_mode = 1;
+        monitor_ctrl = 3;
         break;
     default:
         FTS_ERROR("Input index of mode is out of range!");
-        break;
+        return 0;
+    }
+
+    ret = fts_write_reg(FTS_REG_POWER_MODE, power_mode);
+    if (ret < 0) {
+      FTS_ERROR("write reg0xA5 fails");
+      return ret;
+    }
+
+    ret = fts_write_reg(FTS_REG_GESTURE_EN, gesture_en);
+    if (ret < 0) {
+      FTS_ERROR("write reg0xD0 fails");
+      return ret;
+    }
+
+    ret = fts_write_reg(FTS_REG_MONITOR_CTRL, monitor_ctrl);
+    if (ret < 0) {
+      FTS_ERROR("write reg0x86 fails");
+      return ret;
     }
 
     return 0;

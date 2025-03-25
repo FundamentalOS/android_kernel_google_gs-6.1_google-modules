@@ -112,6 +112,7 @@ Test Status
 #define FACTORY_REG_KEYSHORT_EN                 0x2E
 #define FACTORY_REG_KEYSHORT_STATE              0x2F
 #define FACTORY_REG_GCB                         0xBD
+#define FACTORY_REG_LOT_CODE                    0x63
 
 #define FACTORY_REG_LEFT_KEY                    0x1E
 #define FACTORY_REG_RIGHT_KEY                   0x1F
@@ -446,6 +447,16 @@ struct mc_sc_threshold {
     int *low_freq_rawdata_max;
     int *high_freq_rawdata_min;
     int *high_freq_rawdata_max;
+
+    int *low_freq_rawdata_tx_linearity_max;
+    int *low_freq_rawdata_rx_linearity_max;
+    int *low_freq_rawdata_tx_linearity_min;
+    int *low_freq_rawdata_rx_linearity_min;
+    
+    int *high_freq_rawdata_tx_linearity_max;
+    int *high_freq_rawdata_rx_linearity_max;
+    int *high_freq_rawdata_tx_linearity_min;
+    int *high_freq_rawdata_rx_linearity_min;
 };
 
 struct mc_sc_test {

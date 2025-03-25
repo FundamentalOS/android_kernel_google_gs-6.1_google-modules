@@ -116,6 +116,9 @@
 #define FTS_REG_INT2                        0xBF
 #define FTS_REG_CLR_RESET                   0xEC
 
+#define FTS_REG_WAKEUP                      0x95
+#define FTS_WAKEUP_VALUE                    0x55
+
 #define FTS_REG_HEATMAP_98                  0x98
 
 #define FTS_LPTW_REG_SET_E3                 0xE3
@@ -145,8 +148,6 @@
      ((tx_num) * (rx_num) + FTS_SELF_DATA_LEN * 2) * sizeof(u16))
 
 #define FTS_PRESSURE_SCALE                  85      // 255 / 3
-#define FTS_CUSTOMER_STATUS_LEN             4
-#define FTS_CUSTOMER_STATUS1_MASK           0x0F
 #define FTS_ORIENTATION_SCALE               45
 #define FTS_GESTURE_ID_STTW                 0x25
 #define FTS_GESTURE_ID_LPTW_DOWN            0x26
