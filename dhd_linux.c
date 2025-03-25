@@ -16977,13 +16977,6 @@ dhd_ndo_host_and_dongle_sanity(struct net_device *dev)
 		(nd_stats.host_ip_entries > dhdp->ndo_max_host_ip)) {
 		DHD_ERROR(("%s ndo host(%d) dongle(%d) max(%d) sanity failed\n",
 			__FUNCTION__, cnt, nd_stats.host_ip_entries, dhdp->ndo_max_host_ip));
-#ifdef DHD_FW_COREDUMP
-		/* Collect socram dump */
-		if (dhdp->memdump_enabled) {
-			dhdp->memdump_type = DUMP_TYPE_NDO_IP_ERROR;
-			dhd_bus_mem_dump(dhdp);
-		}
-#endif /* DHD_FW_COREDUMP */
 	}
 done:
 	return ret;
