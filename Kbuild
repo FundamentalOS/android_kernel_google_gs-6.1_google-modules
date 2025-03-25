@@ -1,6 +1,6 @@
 # bcmdhd
 #
-# Copyright (C) 2024, Broadcom.
+# Copyright (C) 2025, Broadcom.
 #
 #      Unless you and Broadcom execute a separate written software license
 # agreement governing use of this software, this software is licensed to you
@@ -445,6 +445,8 @@ ifneq ($(CONFIG_SOC_GOOGLE),)
   DHDCFLAGS += -DWL_MLO_BKPORT_NEW_PORT_AUTH
   # CROSS AKM related back port changes
   DHDCFLAGS += -DWL_CROSS_AKM_BKPORT
+  # Avoid SSR dump on state mismatch
+  DHDCFLAGS += -DDHD_AVOID_SSR_ON_STATE_MISMATCH
   ifeq ($(BCMDHD),4390)
     # ch_switch_notify back port changes
     DHDCFLAGS += -DWL_CH_SWITCH_BKPORT
@@ -624,6 +626,7 @@ DHDCFLAGS += -DSKIP_WLFC_ON_CONCURRENT
 DHDCFLAGS += -DCUSTOM_BLOCK_DEAUTH_AT_EAP_FAILURE
 DHDCFLAGS += -DTDLS_MSG_ONLY_WFD
 DHDCFLAGS += -DCUSTOM_EVENT_PM_WAKE_MEMDUMP_DISABLED
+DHDCFLAGS += -DDHD_RESET_FEM_5G_RFFE_VI0
 # Custom tuning value
 DHDCFLAGS += -DCUSTOM_ROAM_TIME_THRESH_IN_SUSPEND=6000
 DHDCFLAGS += -DCUSTOM_EVENT_PM_WAKE=30
