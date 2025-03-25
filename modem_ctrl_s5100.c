@@ -1364,8 +1364,7 @@ static int power_reset_dump_cp(struct modem_ctl *mc, bool silent)
 	struct s51xx_pcie *s51xx_pcie = NULL;
 	struct link_device *ld = get_current_link(mc->iod);
 	struct mem_link_device *mld = to_mem_link_device(ld);
-
-	mif_info("%s: +++\n", mc->name);
+	u32 otp_version;
 
 	clear_boot_stage(mc);
 
@@ -1412,20 +1411,25 @@ static int power_reset_dump_cp(struct modem_ctl *mc, bool silent)
 		gpio_power_wreset_cp(mc);
 
 #if IS_ENABLED(CONFIG_CP_PMIC)
-	/* Execute PMIC warm reset sequence after toggling CP_PMIC_WRST. */
-	if (mc->pmic_dev)
+	if (mc->pmic_dev) {
+		otp_version = pmic_get_otp(mc->pmic_dev);
+		if (otp_version < 0)
+			mif_info("PMIC OTP Version read fail\n");
+		else
+			mif_info("PMIC OTP Version %#x\n", otp_version);
+
+		/* Execute PMIC wreset sequence after toggling CP_PMIC_WRST */
 		pmic_warm_reset_sequence(mc->pmic_dev);
+	}
 #endif
 
 	mif_gpio_set_value(&mc->cp_gpio[CP_GPIO_AP2CP_AP_ACTIVE], 1, 0);
 	print_mc_state(mc);
 
 	if (cpif_wake_lock_active(mc->ws)) {
-		mif_info("Release wakelock after modem crash!\n");
+		mif_info("Release wakelock after modem crash\n");
 		cpif_wake_unlock(mc->ws);
 	}
-
-	mif_info("---\n");
 
 	return 0;
 }
@@ -1433,6 +1437,7 @@ static int power_reset_dump_cp(struct modem_ctl *mc, bool silent)
 static int power_reset_warm_cp(struct modem_ctl *mc)
 {
 	struct s51xx_pcie *s51xx_pcie = NULL;
+	u32 otp_version;
 #if IS_ENABLED(CONFIG_LINK_DEVICE_WITH_SBD_ARCH)
 	struct link_device *ld = get_current_link(mc->iod);
 	struct mem_link_device *mld = to_mem_link_device(ld);
@@ -1479,6 +1484,12 @@ static int power_reset_warm_cp(struct modem_ctl *mc)
 		gpio_power_offon_cp(mc);
 	else
 		gpio_power_wreset_cp(mc);
+
+	otp_version = pmic_get_otp(mc->pmic_dev);
+	if (otp_version < 0)
+		mif_info("PMIC OTP Version read fail\n");
+	else
+		mif_info("PMIC OTP Version %#x\n", otp_version);
 
 #if IS_ENABLED(CONFIG_CP_PMIC)
 	/* Execute PMIC warm reset sequence after toggling CP_PMIC_WRST. */
