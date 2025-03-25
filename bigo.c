@@ -788,7 +788,7 @@ static int bigo_probe(struct platform_device *pdev)
 	}
 
 	mutex_init(&core->lock);
-	mutex_init(&core->prioq.lock);
+	spin_lock_init(&core->prioq.lock);
 	INIT_LIST_HEAD(&core->instances);
 	INIT_LIST_HEAD(&core->pm.opps);
 	INIT_LIST_HEAD(&core->pm.bw);
@@ -886,6 +886,7 @@ static const struct of_device_id bigo_dt_match[] = {
 	{ .compatible = "google,bigocean"},
 	{}
 };
+MODULE_DEVICE_TABLE(of, bigo_dt_match);
 
 static struct platform_driver bigo_driver = {
 	.probe = bigo_probe,
