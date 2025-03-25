@@ -1012,214 +1012,6 @@ out:
 	return ret;
 }
 
-/*******************************************************
-  Create Device Node (Proc Entry)
-*******************************************************/
-#if NVT_TOUCH_PROC
-static struct proc_dir_entry *NVT_proc_entry;
-#define NVT_DEVICE_NAME	"NVTSPI"
-
-/*******************************************************
-Description:
-	Novatek touchscreen /proc/NVTSPI read function.
-
-return:
-	Executive outcomes. 2---succeed. -5,-14---failed.
-*******************************************************/
-static ssize_t nvt_flash_read(struct file *file, char __user *buff,
-			      size_t count, loff_t *offp)
-{
-	uint8_t *str = NULL;
-	int32_t ret = 0;
-	int32_t retries = 0;
-	int8_t spi_wr = 0;
-	uint8_t *buf;
-
-	if ((count > NVT_TRANSFER_LEN + 3) || (count < 3)) {
-		NVT_ERR("invalid transfer len!\n");
-		return -EFAULT;
-	}
-
-	/* allocate buffer for spi transfer */
-	str = (uint8_t *)kzalloc((count), GFP_KERNEL);
-	if (str == NULL) {
-		NVT_ERR("kzalloc for buf failed!\n");
-		ret = -ENOMEM;
-		goto kzalloc_failed;
-	}
-
-	buf = (uint8_t *)kzalloc((count), GFP_KERNEL | GFP_DMA);
-	if (buf == NULL) {
-		NVT_ERR("kzalloc for buf failed!\n");
-		ret = -ENOMEM;
-		kfree(str);
-		str = NULL;
-		goto kzalloc_failed;
-	}
-
-	if (copy_from_user(str, buff, count)) {
-		NVT_ERR("copy from user error\n");
-		ret = -EFAULT;
-		goto out;
-	}
-
-#if NVT_TOUCH_ESD_PROTECT
-	/*
-	 * stop esd check work to avoid case that 0x77 report righ after here to enable esd check again
-	 * finally lead to trigger esd recovery bootloader reset
-	 */
-	cancel_delayed_work_sync(&nvt_esd_check_work);
-	nvt_esd_check_enable(false);
-#endif /* #if NVT_TOUCH_ESD_PROTECT */
-
-	spi_wr = str[0] >> 7;
-	memcpy(buf, str+2, ((str[0] & 0x7F) << 8) | str[1]);
-
-	if (spi_wr == NVTWRITE) {	//SPI write
-		while (retries < 20) {
-			ret = CTP_SPI_WRITE(ts->client, buf, ((str[0] & 0x7F) << 8) | str[1]);
-			if (!ret)
-				break;
-			else
-				NVT_ERR("error, retries=%d, ret=%d\n", retries, ret);
-
-			retries++;
-		}
-
-		if (unlikely(retries == 20)) {
-			NVT_ERR("error, ret = %d\n", ret);
-			ret = -EIO;
-			goto out;
-		}
-	} else if (spi_wr == NVTREAD) {	//SPI read
-		while (retries < 20) {
-			ret = CTP_SPI_READ(ts->client, buf, ((str[0] & 0x7F) << 8) | str[1]);
-			if (!ret)
-				break;
-			else
-				NVT_ERR("error, retries=%d, ret=%d\n", retries, ret);
-
-			retries++;
-		}
-
-		memcpy(str+2, buf, ((str[0] & 0x7F) << 8) | str[1]);
-		// copy buff to user if spi transfer
-		if (retries < 20) {
-			if (copy_to_user(buff, str, count)) {
-				ret = -EFAULT;
-				goto out;
-			}
-		}
-
-		if (unlikely(retries == 20)) {
-			NVT_ERR("error, ret = %d\n", ret);
-			ret = -EIO;
-			goto out;
-		}
-	} else {
-		NVT_ERR("Call error, str[0]=%d\n", str[0]);
-		ret = -EFAULT;
-		goto out;
-	}
-
-out:
-	kfree(str);
-	kfree(buf);
-kzalloc_failed:
-	return ret;
-}
-
-/*******************************************************
-Description:
-	Novatek touchscreen /proc/NVTSPI open function.
-
-return:
-	Executive outcomes. 0---succeed. -12---failed.
-*******************************************************/
-static int32_t nvt_flash_open(struct inode *inode, struct file *file)
-{
-	struct nvt_flash_data *dev;
-
-	dev = kmalloc(sizeof(struct nvt_flash_data), GFP_KERNEL);
-	if (dev == NULL) {
-		NVT_ERR("Failed to allocate memory for nvt flash data\n");
-		return -ENOMEM;
-	}
-
-	rwlock_init(&dev->lock);
-	file->private_data = dev;
-
-	return 0;
-}
-
-/*******************************************************
-Description:
-	Novatek touchscreen /proc/NVTSPI close function.
-
-return:
-	Executive outcomes. 0---succeed.
-*******************************************************/
-static int32_t nvt_flash_close(struct inode *inode, struct file *file)
-{
-	struct nvt_flash_data *dev = file->private_data;
-
-	if (dev)
-		kfree(dev);
-
-	return 0;
-}
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
-static const struct proc_ops nvt_flash_fops = {
-	.proc_open = nvt_flash_open,
-	.proc_release = nvt_flash_close,
-	.proc_read = nvt_flash_read,
-};
-#else
-static const struct file_operations nvt_flash_fops = {
-	.owner = THIS_MODULE,
-	.open = nvt_flash_open,
-	.release = nvt_flash_close,
-	.read = nvt_flash_read,
-};
-#endif
-
-/*******************************************************
-Description:
-	Novatek touchscreen /proc/NVTSPI initial function.
-
-return:
-	Executive outcomes. 0---succeed. -12---failed.
-*******************************************************/
-static int32_t nvt_flash_proc_init(void)
-{
-	NVT_proc_entry = proc_create(NVT_DEVICE_NAME, 0444, NULL, &nvt_flash_fops);
-	if (NVT_proc_entry == NULL) {
-		NVT_LOGE("Failed!\n");
-		return -ENOMEM;
-	}
-	NVT_LOG("Create /proc/%s\n", NVT_DEVICE_NAME);
-
-	return 0;
-}
-
-/*******************************************************
-Description:
-	Novatek touchscreen /proc/NVTSPI deinitial function.
-
-return:
-	n.a.
-*******************************************************/
-static void nvt_flash_proc_deinit(void)
-{
-	if (NVT_proc_entry != NULL) {
-		remove_proc_entry(NVT_DEVICE_NAME, NULL);
-		NVT_proc_entry = NULL;
-		NVT_LOG("Removed /proc/%s\n", NVT_DEVICE_NAME);
-	}
-}
-#endif
-
 /* customized gesture id */
 #define DATA_PROTOCOL           30
 
@@ -2733,14 +2525,6 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 #endif /* #if NVT_TOUCH_ESD_PROTECT */
 
 	//---set device node---
-#if NVT_TOUCH_PROC
-	ret = nvt_flash_proc_init();
-	if (ret != 0) {
-		NVT_ERR("nvt flash proc init failed. ret=%d\n", ret);
-		goto err_flash_proc_init_failed;
-	}
-#endif
-
 #if NVT_TOUCH_EXT_PROC
 	ret = nvt_extra_proc_init();
 	if (ret != 0) {
@@ -2846,10 +2630,6 @@ err_extra_api_init_failed:
 	nvt_extra_proc_deinit();
 err_extra_proc_init_failed:
 #endif
-#if NVT_TOUCH_PROC
-	nvt_flash_proc_deinit();
-err_flash_proc_init_failed:
-#endif
 #if NVT_TOUCH_ESD_PROTECT
 	if (nvt_esd_check_wq) {
 		cancel_delayed_work_sync(&nvt_esd_check_work);
@@ -2953,9 +2733,6 @@ static void nvt_ts_remove(struct spi_device *client)
 #if NVT_TOUCH_EXT_PROC
 	nvt_extra_proc_deinit();
 #endif
-#if NVT_TOUCH_PROC
-	nvt_flash_proc_deinit();
-#endif
 
 #if NVT_TOUCH_ESD_PROTECT
 	if (nvt_esd_check_wq) {
@@ -3055,9 +2832,6 @@ static void nvt_ts_shutdown(struct spi_device *client)
 #endif
 #if NVT_TOUCH_EXT_PROC
 	nvt_extra_proc_deinit();
-#endif
-#if NVT_TOUCH_PROC
-	nvt_flash_proc_deinit();
 #endif
 
 #if NVT_TOUCH_ESD_PROTECT
@@ -3469,6 +3243,7 @@ static struct of_device_id nvt_match_table[] = {
 	{ .compatible = "novatek,NVT-ts-spi",},
 	{ },
 };
+MODULE_DEVICE_TABLE(of, nvt_match_table);
 #endif
 
 #if defined(CONFIG_PM) && defined(CONFIG_SOC_GOOGLE)
