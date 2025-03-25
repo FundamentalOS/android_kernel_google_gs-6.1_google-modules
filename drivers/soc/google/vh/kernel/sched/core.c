@@ -197,6 +197,7 @@ void vh_sched_switch_pixel_mod(void *data, bool preempt, struct task_struct *pre
 void rvh_enqueue_task_pixel_mod(void *data, struct rq *rq, struct task_struct *p, int flags)
 {
 	struct vendor_task_struct *vp = get_vendor_task_struct(p);
+	unsigned long irqflags;
 	int group;
 
 	if (!static_branch_unlikely(&enqueue_dequeue_ready))
@@ -209,13 +210,13 @@ void rvh_enqueue_task_pixel_mod(void *data, struct rq *rq, struct task_struct *p
 		}
 	}
 
-	raw_spin_lock(&vp->lock);
+	raw_spin_lock_irqsave(&vp->lock, irqflags);
 	if (vp->queued_to_list == LIST_NOT_QUEUED) {
 		group = get_vendor_group(p);
 		add_to_vendor_group_list(&vp->node, group);
 		vp->queued_to_list = LIST_QUEUED;
 	}
-	raw_spin_unlock(&vp->lock);
+	raw_spin_unlock_irqrestore(&vp->lock, irqflags);
 
 	/*
 	 * uclamp filter for RT tasks. CFS tasks are handled in
@@ -229,6 +230,7 @@ void rvh_enqueue_task_pixel_mod(void *data, struct rq *rq, struct task_struct *p
 void rvh_dequeue_task_pixel_mod(void *data, struct rq *rq, struct task_struct *p, int flags)
 {
 	struct vendor_task_struct *vp = get_vendor_task_struct(p);
+	unsigned long irqflags;
 	int group;
 
 	if (!static_branch_unlikely(&enqueue_dequeue_ready))
@@ -239,13 +241,13 @@ void rvh_dequeue_task_pixel_mod(void *data, struct rq *rq, struct task_struct *p
 		update_uclamp_stats(rq->cpu, rq_clock(rq));
 #endif
 
-	raw_spin_lock(&vp->lock);
+	raw_spin_lock_irqsave(&vp->lock, irqflags);
 	if (vp->queued_to_list == LIST_QUEUED) {
 		group = get_vendor_group(p);
 		remove_from_vendor_group_list(&vp->node, group);
 		vp->queued_to_list = LIST_NOT_QUEUED;
 	}
-	raw_spin_unlock(&vp->lock);
+	raw_spin_unlock_irqrestore(&vp->lock, irqflags);
 
 	/*
 	 * Reset uclamp filter flags unconditionally for both RT and CFS.
@@ -282,30 +284,28 @@ void rvh_set_cpus_allowed_by_task(void *data, const struct cpumask *cpu_valid_ma
 
 static void set_adpf_inheritance(struct task_struct *p, unsigned int type, int val)
 {
-	struct vendor_task_struct *vp = get_vendor_task_struct(p);
 	struct vendor_inheritance_struct *vi = get_vendor_inheritance_struct(p);
+	bool old_adpf = get_adpf(p, true);
 
-	raw_spin_lock(&vp->lock);
+	lockdep_assert_held(&p->pi_lock);
 
-	if (task_on_rq_queued(p)) {
-		bool old_adpf = get_adpf(p, true);
+	vi_set_adpf(vi, type, val);
 
-		vi_set_adpf(vi, type, val);
-		if (!old_adpf && get_adpf(p, true))
-			inc_adpf_counter(p, task_rq(p));
-		else if (old_adpf && !get_adpf(p, true))
-			dec_adpf_counter(p, task_rq(p));
-	} else {
-		vi_set_adpf(vi, type, val);
-	}
-
-	raw_spin_unlock(&vp->lock);
+	update_adpf_counter(p, old_adpf);
 }
 
-static void set_performance_inheritance_locked(struct task_struct *p, struct task_struct *pi_task,
+static void set_performance_inheritance(struct task_struct *p, struct task_struct *pi_task,
 	unsigned int type)
 {
 	struct vendor_inheritance_struct *vi = get_vendor_inheritance_struct(p);
+	struct rq_flags rf;
+	struct rq *rq;
+
+	/* RT mutex in GKI path already held pi_lock so we only hold rq lock in vendor hook */
+	if (type == VI_RTMUTEX)
+		rq = __task_rq_lock(p, &rf);
+	else
+		rq = task_rq_lock(p, &rf);
 
 	lockdep_assert_held(&p->pi_lock);
 
@@ -368,16 +368,11 @@ static void set_performance_inheritance_locked(struct task_struct *p, struct tas
 
 		vi_set_prefer_high_cap(vi, type, 0);
 	}
-}
 
-static inline void set_performance_inheritance(struct task_struct *p, struct task_struct *pi_task,
-	unsigned int type)
-{
-	unsigned long flags;
-
-	raw_spin_lock_irqsave(&p->pi_lock, flags);
-	set_performance_inheritance_locked(p, pi_task, type);
-	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+	if (type == VI_RTMUTEX)
+		__task_rq_unlock(rq, &rf);
+	else
+		task_rq_unlock(rq, p, &rf);
 }
 
 void vh_binder_set_priority_pixel_mod(void *data, struct binder_transaction *t,
@@ -409,7 +404,7 @@ void vh_binder_proc_transaction_finish(void *data, struct binder_proc *proc,
 void rvh_rtmutex_prepare_setprio_pixel_mod(void *data, struct task_struct *p,
 	struct task_struct *pi_task)
 {
-	set_performance_inheritance_locked(p, pi_task, VI_RTMUTEX);
+	set_performance_inheritance(p, pi_task, VI_RTMUTEX);
 }
 
 void rvh_try_to_wake_up_success_pixel_mod(void *data, struct task_struct *p)

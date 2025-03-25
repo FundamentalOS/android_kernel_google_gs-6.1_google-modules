@@ -47,6 +47,15 @@ enum vendor_inheritnace_t {
 	VI_MAX,
 };
 
+enum vendor_sched_qos {
+	SCHED_QOS_NONE,
+	SCHED_QOS_POWER_EFFICIENCY,
+	SCHED_QOS_SENSITIVE_STANDARD,
+	SCHED_QOS_SENSITIVE_HIGH,
+	SCHED_QOS_SENSITIVE_EXTREME,
+	SCHED_QOS_MAX,
+};
+
 struct vendor_inheritance_struct {
 	unsigned int uclamp[VI_MAX][UCLAMP_CNT];
 	short int adpf;
@@ -81,6 +90,7 @@ struct vendor_task_struct {
 	int auto_uclamp_max_flags;	// Relative to cpu instead of absolute
 	struct uclamp_filter uclamp_filter;
 	int orig_prio;
+	int orig_policy;		/* Protected by task_rq_lock() */
 	unsigned long iowait_boost;
 	bool is_binder_task;
 
@@ -90,21 +100,18 @@ struct vendor_task_struct {
 	u64 runnable_start_ns;
 	u64 prev_sum_exec_runtime;
 	u64 delta_exec;
+	u64 last_dequeue;
 	unsigned long util_enqueued;
-	unsigned long prev_util_enqueued;
+	unsigned long util_dequeued;
+	unsigned long prev_util_dequeued;
+	unsigned long prev_util;
 	bool ignore_util_est_update;
 
 	/* sched qos attributes */
-	bool boost_prio;
-	bool prefer_fit;
-	bool prefer_idle;
-	bool adpf;
-	bool preempt_wakeup;
-	bool auto_uclamp_max;
-	bool prefer_high_cap;
 	unsigned int rampup_multiplier;
-
+	enum vendor_sched_qos sched_qos_profile;
 	unsigned long sched_qos_user_defined_flag;
+	unsigned long prev_sched_qos_user_defined_flag;
 
 	/*
 	 * A general field for time measurement in the same process context.
@@ -114,6 +121,7 @@ struct vendor_task_struct {
 	 * - get_and_reset_vendor_task_struct_private
 	 */
 	unsigned long private;
+
 	// ADPF scheduler hint value.
 	int adpf_adj;
 	// Definition of real_cap: the current cpu_cap that a task was actually running on.
