@@ -1,7 +1,7 @@
 /*
  * Packet dump helper functions
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -1026,7 +1026,22 @@ dhd_dhcp_dump(dhd_pub_t *dhdp, int ifidx, uint8 *pktdata, bool tx,
 					opstr = DHCP_OPS_STR(b->op);
 					DHD_STATLOG_DATA(dhdp, DHCP_TYPES_STAT(dhcp_type),
 						ifidx, tx, cond);
+#ifdef PCIE_FULL_DONGLE
+					if (DHD_IF_ROLE_GENERIC_STA(dhdp, ifidx)) {
+						if ((tx && (b->op == DHCP_OP_REQUEST)) ||
+							(!tx && (b->op == DHCP_OP_REPLY))) {
+							DHCP_PRINT("DHCP");
+						}
+					} else if (DHD_IF_ROLE_P2PGO(dhdp, ifidx) ||
+							DHD_IF_ROLE_AP(dhdp, ifidx)) {
+						if ((tx && (b->op == DHCP_OP_REPLY)) ||
+							(!tx && (b->op == DHCP_OP_REQUEST))) {
+							DHCP_PRINT("DHCP");
+						}
+					}
+#else
 					DHCP_PRINT("DHCP");
+#endif /* PCIE_FULL_DONGLE */
 					dhd_track_dhcp_op(dhdp, b->op, ifidx, tx);
 					break;
 				}
