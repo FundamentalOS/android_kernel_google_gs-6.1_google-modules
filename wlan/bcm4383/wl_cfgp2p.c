@@ -1,7 +1,7 @@
 /*
  * Linux cfgp2p driver
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -2981,7 +2981,9 @@ void
 wl_cfgp2p_need_wait_actfrmae(struct bcm_cfg80211 *cfg, void *frame, u32 frame_len, bool tx)
 {
 	wifi_p2p_pub_act_frame_t *pact_frm;
-	int status = 0;
+	const u8 *p2p_attr_status = NULL;
+	wifi_p2p_ie_t *p2p_ie = NULL;
+	int ie_len = 0;
 
 	if (!frame || (frame_len < (sizeof(*pact_frm) + WL_P2P_AF_STATUS_OFFSET - 1))) {
 		return;
@@ -2991,10 +2993,21 @@ wl_cfgp2p_need_wait_actfrmae(struct bcm_cfg80211 *cfg, void *frame, u32 frame_le
 		pact_frm = (wifi_p2p_pub_act_frame_t *)frame;
 		if (pact_frm->subtype == P2P_PAF_GON_RSP && tx) {
 			CFGP2P_ACTION(("Check TX P2P Group Owner Negotiation Rsp Frame status\n"));
-			status = *(pact_frm->elts + WL_P2P_AF_STATUS_OFFSET);
-			if (status) {
-				cfg->need_wait_afrx = false;
-				return;
+
+			ie_len = frame_len - OFFSETOF(wifi_p2p_pub_act_frame_t, elts);
+			p2p_ie = wl_cfgp2p_find_p2pie(&pact_frm->elts[0], ie_len);
+			if (p2p_ie) {
+				p2p_attr_status = wl_cfgp2p_retreive_p2pattrib(p2p_ie,
+					P2P_ATTR_STATUS);
+				if (p2p_attr_status && *p2p_attr_status) {
+					cfg->need_wait_afrx = false;
+					CFGP2P_ACTION(("need_wait_afrx not set\n"));
+					return;
+				} else if (p2p_attr_status) {
+					CFGP2P_ACTION(("need_wait_afrx is set\n"));
+				} else if (!p2p_attr_status) {
+					CFGP2P_ACTION(("P2P_ATTR_STATUS not found\n"));
+				}
 			}
 		}
 	}

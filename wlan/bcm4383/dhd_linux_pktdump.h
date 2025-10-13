@@ -1,7 +1,7 @@
 /*
  * Header file for the Packet dump helper functions
  *
- * Copyright (C) 2024, Broadcom.
+ * Copyright (C) 2025, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -55,6 +55,9 @@ enum pkt_type {
 	PKT_TYPE_EAP = 6,
 	PKT_TYPE_IGMP = 7
 };
+
+#define DHCP_OP_REQUEST 0x1u
+#define DHCP_OP_REPLY   0x2U
 
 #ifdef WL_CFGVENDOR_CUST_ADVLOG
 #define DHD_ADVLOG_FMT_MAX      256u
