@@ -5,6 +5,8 @@
  * Copyright (C) 2022 Google LLC
  */
 
+#include <asm/barrier.h>
+
 #include <linux/device.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -255,8 +257,15 @@ static void gcip_mailbox_handle_response(struct gcip_mailbox *mailbox, void *res
 	list_for_each_entry_safe(cur, nxt, &mailbox->wait_list, list) {
 		if (!does_response_match_waiter(mailbox, resp, cur->async_resp->resp))
 			continue;
-		cur->async_resp->status = GCIP_MAILBOX_STATUS_OK;
 		memcpy(cur->async_resp->resp, resp, mailbox->resp_elem_size);
+
+		/*
+		 * Paired with smp_rmb() in gcip_mailbox_send_cmd().  Ensure all writes to
+		 * *cur->async_resp->resp are complete before setting cur->async_resp->status,
+		 * which tells waiters the async response is complete.
+		 */
+		smp_wmb();
+		cur->async_resp->status = GCIP_MAILBOX_STATUS_OK;
 		list_del(&cur->list);
 		awaiter = cur->awaiter;
 		if (awaiter) {
@@ -637,6 +646,14 @@ int gcip_mailbox_send_cmd(struct gcip_mailbox *mailbox, void *cmd, void *resp,
 		ret = -ETIMEDOUT;
 		goto err;
 	}
+
+	/*
+	 * Paired with write barrier in gcip_mailbox_handle_response.  Access to other fields in
+	 * async_resp, plus access to *resp (by caller), must occur after observing
+	 * async_resp.status != GCIP_MAILBOX_STATUS_WAITING_RESPONSE above.
+	 */
+	smp_rmb();
+
 	if (async_resp.status != GCIP_MAILBOX_STATUS_OK) {
 		dev_err(mailbox->dev, "Mailbox cmd %u response status %u", GET_CMD_ELEM_CODE(cmd),
 			async_resp.status);
