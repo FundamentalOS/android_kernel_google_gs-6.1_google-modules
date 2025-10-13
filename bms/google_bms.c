@@ -434,7 +434,7 @@ bool gbms_aafv_offset_is_valid(const struct gbms_chg_profile *profile,
 	u32 last_fv, penultimate_fv, delta;
 
 	/* The last updated fv cannot be less than the second to last fv */
-	last_fv = profile->volt_limits[profile->volt_nb_limits - 1];
+	last_fv = profile->last_volt;
 	penultimate_fv = (profile->volt_nb_limits > 1) ?
 			profile->volt_limits[profile->volt_nb_limits - 2] : 0;
 	delta = (last_fv - penultimate_fv) / 1000;
@@ -549,6 +549,9 @@ int gbms_init_chg_profile_internal(struct gbms_chg_profile *profile,
 	for (vi = 0; vi < profile->volt_nb_limits; vi++)
 		profile->volt_limits[vi] = profile->volt_limits[vi] /
 		    profile->fv_uv_resolution * profile->fv_uv_resolution;
+
+	/* save the last vtier in last_volt */
+	profile->last_volt = profile->volt_limits[profile->volt_nb_limits - 1];
 
 	/* reset AACT */
 	profile->aact_init_profile = false;
@@ -698,6 +701,8 @@ int gbms_update_chg_profile_from_aact(struct gbms_chg_profile *profile)
 	memcpy(profile->volt_limits, profile->aact_volt_limits, volt_size);
 	profile->temp_nb_limits = profile->aact_temp_nb_limits;
 	profile->volt_nb_limits = profile->aact_volt_nb_limits;
+	/* save the last vtier in last_volt */
+	profile->last_volt = profile->volt_limits[profile->volt_nb_limits - 1];
 	profile->aact_init_profile = true;
 
 	return 0;

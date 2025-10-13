@@ -54,6 +54,7 @@ struct gbms_chg_profile {
 	u32 *cccm_limits;
 	/* used to fill table  */
 	u32 capacity_ma;
+	u32 last_volt;
 
 	/* behavior */
 	u32 fv_uv_margin_dpct;

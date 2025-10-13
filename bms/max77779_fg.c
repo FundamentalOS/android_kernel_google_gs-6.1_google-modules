@@ -3476,6 +3476,7 @@ static int max77779_fg_init_chip(struct max77779_fg_chip *chip)
 {
 	int ret;
 	u16 data = 0;
+	u16 misccfg;
 
 	if (of_property_read_bool(chip->dev->of_node, "max77779,force-hard-reset"))
 		max77779_fg_full_reset(chip);
@@ -3571,6 +3572,16 @@ static int max77779_fg_init_chip(struct max77779_fg_chip *chip)
 
 		if (chip->model_ok)
 			max77779_fg_prime_battery_qh_capacity(chip);
+	}
+
+	ret = maxfg_reg_read(&chip->regmap, MAXFG_TAG_misccfg, &misccfg);
+	if (ret < 0) {
+		dev_err(chip->dev, "Error reading misccfg reg (%d)\n", ret);
+	} else if (chip->aafv_config_limits != 0) {
+		int fus;
+
+		fus = _max77779_fg_misccfg_fus_get(misccfg);
+		chip->aafv_modified_fus = (fus == chip->aafv_cfgs[chip->aafv_cur_idx].fus);
 	}
 
 	return 0;

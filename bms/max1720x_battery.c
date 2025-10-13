@@ -5092,6 +5092,7 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 	u8 vreg, vpor;
 	u16 data = 0, tmp;
 	bool force_recall = false;
+	u16 misccfg;
 
 	if (of_property_read_bool(chip->dev->of_node, "maxim,force-hard-reset"))
 		max1720x_full_reset(chip);
@@ -5298,6 +5299,16 @@ static int max1720x_init_chip(struct max1720x_chip *chip)
 		max1720x_update_cycle_count(chip);
 
 	max1720x_restore_battery_qh_capacity(chip);
+
+	ret = maxfg_reg_read(&chip->regmap, MAXFG_TAG_misccfg, &misccfg);
+	if (ret < 0) {
+		dev_err(chip->dev, "Error reading misccfg reg (%d)\n", ret);
+	} else if (chip->aafv_config_limits != 0) {
+		int fus;
+
+		fus = misccfg >> MAX_M5_MISCCFG_OOPSFILTER_SHIFT;
+		chip->aafv_modified_fus = (fus == chip->aafv_cfgs[chip->aafv_cur_idx].fus);
+	}
 
 	return 0;
 }

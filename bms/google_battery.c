@@ -765,7 +765,6 @@ static int ssoc_get_capacity(const struct batt_ssoc_state *ssoc);
 static int batt_ttf_estimate(ktime_t *res, struct batt_drv *batt_drv);
 
 static int gbatt_restore_capacity(struct batt_drv *batt_drv);
-static bool aafv_update_float_voltage(struct batt_drv *batt_drv, int *fv_uv);
 
 static bool aafv_enabled(const int state, const int opt_out)
 {
@@ -3979,9 +3978,6 @@ done_no_op:
 
 	/* msc_logic_* will vote on cc_max and fv_uv. */
 	rest->rest_cc_max = cc_max;
-	if (fv_uv > 0)
-		aafv_update_float_voltage(batt_drv, &fv_uv);
-
 	rest->rest_fv_uv = fv_uv;
 	gbms_logbuffer_prlog(batt_drv->ttf_stats.ttf_log, LOGLEVEL_INFO, 0, LOGLEVEL_DEBUG,
 			     "MSC_HEALTH: now=%lld deadline=%lld aon_soc=%d ttf=%lld state=%d->%d fv_uv=%d, cc_max=%d safety_margin=%d active_time:%lld",
@@ -5064,11 +5060,11 @@ static int batt_init_aafv_profile(struct batt_drv *batt_drv)
 	if (ret < 0)
 		batt_drv->aafv_max_offset = AAFV_MAX_OFFSET_DEFAULT;
 
-	ret = of_property_read_u32(node, "google,aafv-cliff-cycle", &batt_drv->aafv_cliff_cycle);
+	ret = of_property_read_u32(gbms_batt_id_node(node), "google,aafv-cliff-cycle", &batt_drv->aafv_cliff_cycle);
 	if (ret < 0)
 		batt_drv->aafv_cliff_cycle = AAFV_CLIFF_CYCLE_DEFAULT;
 
-	ret = of_property_read_u32(node, "google,aafv-cliff-offset", &batt_drv->aafv_cliff_offset);
+	ret = of_property_read_u32(gbms_batt_id_node(node), "google,aafv-cliff-offset", &batt_drv->aafv_cliff_offset);
 	if (ret < 0)
 		batt_drv->aafv_cliff_offset = AAFV_CLIFF_OFFSET_DEFAULT;
 
@@ -5085,12 +5081,28 @@ static u32 aafv_get_offset_by_cycles(const struct batt_drv *batt_drv, int cycle_
 
 	if (batt_drv->aafv_apply_max)
 		aafv_offset = batt_drv->aafv_max_offset;
-	else if (batt_drv->aafv_cliff_cycle >= 0 && cycle_count >= batt_drv->aafv_cliff_cycle)
+	else if (batt_drv->aafv_cliff_offset >= 0 &&
+		batt_drv->aafv_cliff_cycle >= 0 && cycle_count >= batt_drv->aafv_cliff_cycle)
 		aafv_offset = batt_drv->aafv_cliff_offset;
 	else
 		aafv_offset = gbms_aafv_get_offset(&batt_drv->chg_profile, cycle_count);
 
 	return (u32)(aafv_offset * GBMS_AAFV_VOLTAGE_OFFSET_SCALE);
+}
+
+static void aafv_update_chg_profile(struct batt_drv *batt_drv)
+{
+	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
+	const int last_vbatt_idx = profile->volt_nb_limits - 1;
+	int idx;
+
+	profile->volt_limits[last_vbatt_idx] =
+			profile->last_volt - batt_drv->chg_profile.aafv_offset;
+
+	/* Clamp other tiers to highest tier fv_uv */
+	for (idx = 0; idx <= last_vbatt_idx; idx++)
+		if (profile->volt_limits[idx] > profile->volt_limits[last_vbatt_idx])
+			profile->volt_limits[idx] = profile->volt_limits[last_vbatt_idx];
 }
 
 /*
@@ -5119,30 +5131,8 @@ static void aafv_update_offset(struct batt_drv *batt_drv)
 	/* will try again on next connect if setting the fg failed */
 	if (fg_ret == 0)
 		batt_drv->chg_profile.aafv_offset = aafv_offset;
-}
 
-/* requires mutex_lock(&batt_drv->aacp_state_lock); */
-static bool aafv_update_float_voltage(struct batt_drv *batt_drv, int *fv_uv)
-{
-	struct gbms_chg_profile *profile = &batt_drv->chg_profile;
-	const int last_vbatt_idx = profile->volt_nb_limits - 1;
-	const u32 last_fv = profile->volt_limits[last_vbatt_idx];
-	const u32 penultimate_fv = (last_vbatt_idx >= 1) ?
-			profile->volt_limits[last_vbatt_idx - 1] : 0;
-	bool is_last = *fv_uv == last_fv;
-	u32 aafv_fv;
-
-	/*
-	 * only lower last charge tier if higher than the adjusted
-	 * NOTE: assumes that ->chg_profile.aafv_offset is correct
-	 * for the cycle count. aafv_offset is updated when the device
-	 * start charging or when server side changes the configuration
-	 */
-	aafv_fv = last_fv - batt_drv->chg_profile.aafv_offset;
-	if (aafv_fv > penultimate_fv && aafv_fv < last_fv)
-		*fv_uv = (int)aafv_fv;
-
-	return is_last;
+	aafv_update_chg_profile(batt_drv);
 }
 
 /* AACC ------------------------------------------------------------------- */
@@ -5445,12 +5435,6 @@ static int msc_logic(struct batt_drv *batt_drv)
 	} else {
 		batt_drv->cc_max = GBMS_CCCM_LIMITS(profile, temp_idx, vbatt_idx);
 		batt_drv->cc_max_pullback = 0;
-	}
-
-	/* adjust last fv_uv for AAFV */
-	if (vbatt_idx != batt_drv->vbatt_idx || temp_idx != batt_drv->temp_idx) {
-		if (vbatt_idx == profile->volt_nb_limits - 1 && batt_drv->cc_max > 0)
-			aafv_update_float_voltage(batt_drv, &fv_uv);
 	}
 
 	batt_prlog(batt_prlog_level(changed),
@@ -11939,11 +11923,6 @@ static int batt_bhi_init(struct batt_drv *batt_drv)
 	memset(bhi_data->upper_bound.limit, 0xFF, sizeof(bhi_data->upper_bound.limit));
 	memset(bhi_data->upper_bound.trigger, 0xFF, sizeof(bhi_data->upper_bound.trigger));
 
-	/* see enum bhi_algo */
-	ret = of_property_read_u32(batt_drv->device->of_node, "google,bhi-algo-ver",
-				   &health_data->bhi_algo);
-	if (ret < 0)
-		health_data->bhi_algo = BHI_ALGO_DISABLED;
 	/* default weights */
 	ret = of_property_read_u32(batt_drv->device->of_node, "google,bhi-w_ci",
 				   &health_data->bhi_w_ci);
@@ -11993,8 +11972,20 @@ static int batt_bhi_init(struct batt_drv *batt_drv)
 	/* design is the value used to build the charge table */
 	bhi_data->pack_capacity = batt_drv->battery_capacity;
 
-	/* need battery id to get right trend points */
+	/* need battery id to get right trend points and algo version */
 	batt_drv->batt_id = GPSY_GET_PROP(batt_drv->fg_psy, GBMS_PROP_BATT_ID);
+
+	/* see enum bhi_algo, depends on battery ID now */
+	ret = of_property_read_u32(gbms_batt_id_node(batt_drv->device->of_node),
+					"google,bhi-algo-ver",
+					&health_data->bhi_algo);
+	/* google,bhi-algo-ver does not exist in the child_node */
+	if (ret < 0)
+		ret = of_property_read_u32(batt_drv->device->of_node,
+					   "google,bhi-algo-ver",
+					   &health_data->bhi_algo);
+	if (ret < 0)
+		health_data->bhi_algo = BHI_ALGO_DISABLED;
 
 	ret = of_property_read_u16_array(gbms_batt_id_node(batt_drv->device->of_node),
 					 "google,bhi-l-bound", &capacity_boundary[0],
@@ -12273,6 +12264,9 @@ static void google_battery_init_work(struct work_struct *work)
 	/* cycle count is cached: read here bc SSOC, chg_profile might use it */
 	batt_update_cycle_count(batt_drv);
 
+	/* aacc: cycle count */
+	aacc_update_cycle_count(batt_drv);
+
 	ret = ssoc_init(batt_drv);
 	if (ret < 0 && batt_drv->batt_present)
 		goto retry_init_work;
@@ -12482,23 +12476,23 @@ static void google_battery_init_work(struct work_struct *work)
 		batt_drv->health_data.bhi_data.first_usage_date = -1;
 
 	/* AACP opt-out */
-	ret = of_property_read_u32(node, "google,aacp-opt-out-cut-off-cycles",
+	ret = of_property_read_u32(gbms_batt_id_node(node), "google,aacp-opt-out-cut-off-cycles",
 				   &batt_drv->aacp_opt_out_cut_off_cycles);
 	if (ret < 0)
 		batt_drv->aacp_opt_out_cut_off_cycles = AACP_OPT_OUT_CUT_OFF_CYCLES_DEFAULT;
 
 	/* AACP health status */
-	ret = of_property_read_u32(node, "google,aacp-health-over-cliff",
+	ret = of_property_read_u32(gbms_batt_id_node(node), "google,aacp-health-over-cliff",
 				   &batt_drv->aacp_health_over_cliff);
 	if (ret < 0)
 		batt_drv->aacp_health_over_cliff = BH_NEEDS_REPLACEMENT;
 
-	ret = of_property_read_u32(node, "google,aacp-health-over-cutoff",
+	ret = of_property_read_u32(gbms_batt_id_node(node), "google,aacp-health-over-cutoff",
 				   &batt_drv->aacp_health_over_cutoff);
 	if (ret < 0)
 		batt_drv->aacp_health_over_cutoff = BH_MARGINAL;
 
-	ret = of_property_read_u32(node, "google,aacp-health-last-entry",
+	ret = of_property_read_u32(gbms_batt_id_node(node), "google,aacp-health-last-entry",
 				   &batt_drv->aacp_health_last_entry);
 	if (ret < 0)
 		batt_drv->aacp_health_last_entry = BH_MARGINAL;
