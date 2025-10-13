@@ -1322,7 +1322,7 @@ static int dwc3_exynos_probe(struct platform_device *pdev)
 	}
 
 	/* disconnect gadget in probe */
-	usb_udc_vbus_handler(exynos->dwc->gadget, false);
+	dwc3_otg_gadget_handler(exynos->dwc->gadget, false);
 
 	if (of_property_read_bool(dev->of_node, "extcon")) {
 		/*

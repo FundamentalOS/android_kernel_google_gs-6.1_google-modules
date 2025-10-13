@@ -244,6 +244,32 @@ void dwc3_otg_phy_tune(struct dwc3 *dwc, bool is_host)
 #endif
 }
 
+/**
+ * dwc3_otg_gadget_handler - updates the udc core vbus status, and connects or
+ * disconnects gadget synchronously
+ * @gadget: The gadget experiencing the vubs change
+ * @status: The vbus status
+ *
+ * The standard usb_udc_vbus_handler() connects or disconnects the gadget
+ * asynchronously based on vbus status. This can create a short window where the
+ * power domain is entirely powered off, but a subsequent attempt to disconnect
+ * the gadget (which tries to disable an endpoint) still occurs, causing a fatal
+ * error.
+ *
+ * This handler calls usb_udc_vbus_handler(), which updates vbus status and
+ * queues async work, and then immediately connects or disconnects gadget. The
+ * resulting double invocation of gadget connection or disconnection is fine due
+ * to internal locking, and the second call simply becomes a no-op.
+ */
+void dwc3_otg_gadget_handler(struct usb_gadget *gadget, bool status)
+{
+	usb_udc_vbus_handler(gadget, status);
+	if (status)
+		usb_gadget_connect(gadget);
+	else
+		usb_gadget_disconnect(gadget);
+}
+
 int dwc3_otg_start_host(struct dwc3_otg *dotg, int on)
 {
 	struct dwc3	*dwc = dotg->dwc;
@@ -442,7 +468,7 @@ int dwc3_otg_start_gadget(struct dwc3_otg *dotg, int on)
 		dwc3_exynos_core_init(dwc, exynos);
 
 		/* connect gadget */
-		usb_udc_vbus_handler(dwc->gadget, true);
+		dwc3_otg_gadget_handler(dwc->gadget, true);
 
 		exynos->gadget_state = true;
 		dwc3_otg_set_peripheral_mode(dotg);
@@ -451,7 +477,7 @@ int dwc3_otg_start_gadget(struct dwc3_otg *dotg, int on)
 		device_lock(&dwc->gadget->dev);
 
 		/* disconnect gadget */
-		usb_udc_vbus_handler(dwc->gadget, false);
+		dwc3_otg_gadget_handler(dwc->gadget, false);
 
 		if (exynos->config.is_not_vbus_pad && exynos_pd_hsi0_get_ldo_status() &&
 				!dotg->in_shutdown)
