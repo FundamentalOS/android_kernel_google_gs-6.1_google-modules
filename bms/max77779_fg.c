@@ -1317,7 +1317,7 @@ static int max77779_fg_monitor_log_learning(struct max77779_fg_chip *chip, enum 
 
 static int max77779_fg_monitor_log_data(struct max77779_fg_chip *chip, bool force_log)
 {
-	int ret, charge_counter = -1;
+	int ret, charge_counter __maybe_unused = -1;
 	u16 repsoc, data;
 
 	ret = REGMAP_READ(&chip->regmap, MAX77779_FG_RepSOC, &data);
