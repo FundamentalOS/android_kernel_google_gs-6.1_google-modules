@@ -245,7 +245,7 @@ static void acpm_debug_tmu_rd_tmp_random(struct work_struct *work)
 	tzid = get_random_for_type(TERMAL_ZONE_ID);
 
 	acpm_tmu_set_read_temp(tzid, &temp, &stat);
-	dev_info(mbox->device, "%s: thermal zone %d temp %d stat %d\n",
+	dev_dbg(mbox->device, "%s: thermal zone %d temp %d stat %d\n",
 		 __func__, tzid, temp, stat);
 }
 
@@ -257,7 +257,7 @@ static void acpm_debug_tmu_rd_tmp_concur(struct work_struct *work)
 	tzid = get_random_for_type(TERMAL_ZONE_ID);
 
 	acpm_tmu_set_read_temp(tzid, &temp, &stat);
-	dev_info(mbox->device, "%s: thermal zone %d temp %d stat %d\n",
+	dev_dbg(mbox->device, "%s: thermal zone %d temp %d stat %d\n",
 		 __func__, tzid, temp, stat);
 }
 
@@ -770,7 +770,7 @@ static void acpm_debug_tmu_resume(struct work_struct *work)
 
 	for (tzid = 0; tzid < TZ_END; tzid++) {
 		acpm_tmu_set_read_temp(tzid, &temp, &stat);
-		dev_info(mbox->device, "%s: thermal zone %d temp %d stat %d\n",
+		dev_dbg(mbox->device, "%s: thermal zone %d temp %d stat %d\n",
 			 __func__, tzid, temp, stat);
 	}
 	dev_info(mbox->device, "%s\n", __func__);
