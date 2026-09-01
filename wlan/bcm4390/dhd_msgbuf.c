@@ -7977,7 +7977,7 @@ dhd_prot_process_msgbuf_edl(dhd_pub_t *dhd, uint32 *evtlog_items)
 	}
 
 	if (items > D2HRING_EDL_WATERMARK) {
-		DHD_ERROR_RLMT(("%s: WARNING! EDL watermark hit, num items=%u;"
+		DHD_INFO(("%s: WARNING! EDL watermark hit, num items=%u;"
 			" rd=%u; wr=%u; depth=%u;\n", __FUNCTION__, items,
 			ring->rd, ring->wr, depth));
 	}
