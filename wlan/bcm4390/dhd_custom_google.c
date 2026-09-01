@@ -1544,7 +1544,7 @@ dhd_wlan_deinit(void)
 void dhd_plat_l1ss_ctrl(bool ctrl)
 {
 #if defined(CONFIG_SOC_GOOGLE)
-	DHD_CONS_ONLY(("%s: Control L1ss RC side %d \n", __FUNCTION__, ctrl));
+	DHD_TRACE(("%s: Control L1ss RC side %d \n", __FUNCTION__, ctrl));
 	_pcie_rc_l1ss_ctrl(ctrl, PCIE_L1SS_CTRL_WIFI, pcie_ch_num);
 #endif /* CONFIG_SOC_GOOGLE */
 	return;
