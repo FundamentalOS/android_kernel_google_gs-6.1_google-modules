@@ -1290,9 +1290,9 @@ static int dhdpcie_suspend_dev(struct pci_dev *dev)
 #if defined(CUSTOMER_HW4_DEBUG)
 	clear_debug_dump_time(dhd_suspend_resume_time_str);
 	get_debug_dump_time(dhd_suspend_resume_time_str);
-	DHD_PRINT(("%s: Enter: TS(%s)\n", __FUNCTION__, dhd_suspend_resume_time_str));
+	DHD_RPM(("%s: Enter: TS(%s)\n", __FUNCTION__, dhd_suspend_resume_time_str));
 #else
-	DHD_PRINT(("%s: Enter\n", __FUNCTION__));
+	DHD_RPM(("%s: Enter\n", __FUNCTION__));
 #endif /* CUSTOMER_HW4_DEBUG */
 
 	/*
@@ -1397,9 +1397,9 @@ static int dhdpcie_resume_dev(struct pci_dev *dev)
 #if defined(CUSTOMER_HW4_DEBUG)
 	clear_debug_dump_time(dhd_suspend_resume_time_str);
 	get_debug_dump_time(dhd_suspend_resume_time_str);
-	DHD_PRINT(("%s: Enter: TS(%s)\n", __FUNCTION__, dhd_suspend_resume_time_str));
+	DHD_RPM(("%s: Enter: TS(%s)\n", __FUNCTION__, dhd_suspend_resume_time_str));
 #else
-	DHD_PRINT(("%s: Enter\n", __FUNCTION__));
+	DHD_RPM(("%s: Enter\n", __FUNCTION__));
 #endif /* CUSTOMER_HW4_DEBUG */
 
 	/* Resture back current bar1 window */

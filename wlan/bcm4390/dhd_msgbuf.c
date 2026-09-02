@@ -8430,7 +8430,7 @@ BCMFASTPATH(dhd_prot_process_msgbuf_rxcpl)(dhd_pub_t *dhd, int ringtype, uint32 
 				pktid = ltoh32(msg->cmn_hdr.request_id);
 				if (msg->cmn_hdr.flags &
 					BCMPCIE_CMNHDR_FLAGS_WAKE_PACKET) {
-					DHD_ERROR(("%s:Rx: Wakeup Packet received\n",
+					DHD_RPM(("%s:Rx: Wakeup Packet received\n",
 						__FUNCTION__));
 					prot->rx_wakeup_pkt++;
 				}

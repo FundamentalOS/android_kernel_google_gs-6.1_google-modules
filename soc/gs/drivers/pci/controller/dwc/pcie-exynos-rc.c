@@ -3717,7 +3717,7 @@ retry:
 	} else {
 		val = exynos_elbi_read(exynos_pcie, PCIE_ELBI_RDLH_LINKUP)
 		      & PCIE_ELBI_LTSSM_STATE_MASK;
-		logbuffer_logk(exynos_pcie->log, LOGLEVEL_INFO, "%s(0x%x)", LINK_STATE_DISP(val),
+		logbuffer_log(exynos_pcie->log, "%s(0x%x)", LINK_STATE_DISP(val),
 			       val);
 		link_stats_log_link_up(exynos_pcie, count);
 
@@ -5447,7 +5447,7 @@ int exynos_pcie_set_msi_ctrl_addr(int ch_num, u64 msi_ctrl_addr) {
 	struct exynos_pcie *exynos_pcie = &g_pcie_rc[ch_num];
 
         exynos_pcie->pci->pp.msi_data = msi_ctrl_addr;
-        dev_info(exynos_pcie->pci->dev, "Updated MSI Control Addr: %pad\n",
+        dev_dbg(exynos_pcie->pci->dev, "Updated MSI Control Addr: %pad\n",
                 &exynos_pcie->pci->pp.msi_data);
 
         return 0;
